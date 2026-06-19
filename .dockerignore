@@ -3,6 +3,5 @@ node_modules
 dist
 dist_test
 build-error.log
-backend
 .git
 *.log
