@@ -8,4 +8,5 @@ COPY package*.json ./
 RUN npm install --production=false
 COPY . .
 RUN npx prisma generate
-CMD ["npm", "run", "start"]
+# Apply migrations, then start the long-running API server.
+CMD ["sh", "-c", "npx prisma migrate deploy && npm run start"]
