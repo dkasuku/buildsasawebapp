@@ -1,0 +1,186 @@
+/* Light mode overrides — toggled by .theme-light on the root wrapper.
+   The app uses hardcoded hex bg/border/text classes; we re-skin them here. */
+
+.theme-light {
+  color-scheme: light;
+}
+
+/* ───── Drawing markup ink: always white in BOTH themes ─────
+   Markups/comments sit on dark translucent chips on the drawing canvas, so
+   their text must stay white even in light mode (where .text-white is darkened).
+   Use class "dwg-ink" instead of "text-white" on canvas annotation text. */
+.dwg-ink,
+.theme-light .dwg-ink { color: #ffffff !important; }
+.dwg-ink::placeholder,
+.theme-light .dwg-ink::placeholder { color: rgba(255, 255, 255, 0.55) !important; }
+
+html:has(.theme-light),
+body:has(.theme-light) {
+  background-color: #F4F6FA;
+}
+
+/* ───── Theme switching: keep body in sync with theme (default body var is white,
+   which caused a white flash during theme toggles) ───── */
+body { background-color: #0A0E14 !important; }
+html.theme-light body,
+body:has(.theme-light) { background-color: #F4F6FA !important; }
+
+/* ───── Theme switch: recolor elements INSTANTLY (no per-element cross-fade).
+   The previous `* { transition }` faded every element over 0.25s, which showed a
+   ghost of the old theme and read as a flicker. We now only ease the page
+   background, so the switch is crisp with no lingering previous-theme frame. ───── */
+/* Theme switch crossfade via the View Transitions API — the whole page is
+   snapshotted and faded as one composited layer, so there's no per-element
+   repaint flicker. (Falls back to an instant switch where unsupported.) */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.28s;
+  animation-timing-function: ease;
+}
+
+html.theme-anim,
+html.theme-anim body {
+  transition: background-color 0.25s ease !important;
+}
+
+/* While toggling theme, crossfade colors across the whole UI. Scoped to the
+   brief .theme-anim window (added on toggle, removed ~400ms later) so it never
+   affects normal interactions. Limited to color properties only, so transform/
+   opacity animations (spinners, sliding drawers, the AI panel) are untouched. */
+html.theme-anim *,
+html.theme-anim *::before,
+html.theme-anim *::after {
+  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease, fill 0.25s ease, stroke 0.25s ease, box-shadow 0.25s ease !important;
+}
+
+/* ───── Surfaces / backgrounds ───── */
+.theme-light .bg-\[\#0A0E14\] { background-color: #F4F6FA !important; }
+.theme-light .bg-\[\#0A0E14\]\/40 { background-color: rgba(244, 246, 250, 0.55) !important; }
+.theme-light .bg-\[\#0A0E14\]\/60 { background-color: rgba(244, 246, 250, 0.75) !important; }
+.theme-light .bg-\[\#0A0E14\]\/80,
+.theme-light .bg-\[\#0A0E14\]\/85 { background-color: rgba(244, 246, 250, 0.9) !important; }
+.theme-light .bg-\[\#050709\] { background-color: #E7EBF0 !important; }
+.theme-light .bg-\[\#11161D\] { background-color: #FFFFFF !important; }
+.theme-light .bg-\[\#11161D\]\/50 { background-color: rgba(255, 255, 255, 0.6) !important; }
+.theme-light .bg-\[\#161C24\] { background-color: #EEF1F6 !important; }
+.theme-light .bg-\[\#222A35\] { background-color: #DDE2EA !important; }
+
+/* Accent tints — keep brand colors but lighten background tints slightly */
+.theme-light .bg-\[\#FF6B1A\]\/5 { background-color: rgba(255, 107, 26, 0.08) !important; }
+.theme-light .bg-\[\#FF6B1A\]\/8 { background-color: rgba(255, 107, 26, 0.10) !important; }
+.theme-light .bg-\[\#FF6B1A\]\/10 { background-color: rgba(255, 107, 26, 0.12) !important; }
+.theme-light .bg-\[\#FF6B1A\]\/15 { background-color: rgba(255, 107, 26, 0.16) !important; }
+.theme-light .bg-\[\#FF6B1A\]\/20 { background-color: rgba(255, 107, 26, 0.20) !important; }
+.theme-light .bg-\[\#F5A623\]\/8 { background-color: rgba(245, 166, 35, 0.12) !important; }
+.theme-light .bg-\[\#F5A623\]\/15 { background-color: rgba(245, 166, 35, 0.18) !important; }
+.theme-light .bg-\[\#22C55E\]\/10 { background-color: rgba(34, 197, 94, 0.12) !important; }
+.theme-light .bg-\[\#22C55E\]\/15 { background-color: rgba(34, 197, 94, 0.18) !important; }
+.theme-light .bg-\[\#3B82F6\]\/15 { background-color: rgba(59, 130, 246, 0.16) !important; }
+.theme-light .bg-\[\#EF4444\]\/15 { background-color: rgba(239, 68, 68, 0.16) !important; }
+.theme-light .bg-\[\#5B6675\]\/15 { background-color: rgba(100, 116, 139, 0.16) !important; }
+
+/* ───── Borders ───── */
+.theme-light .border-\[\#222A35\] { border-color: #D9DEE5 !important; }
+.theme-light .border-\[\#222A35\]\/40 { border-color: rgba(217, 222, 229, 0.5) !important; }
+.theme-light .border-\[\#222A35\]\/60 { border-color: rgba(217, 222, 229, 0.75) !important; }
+.theme-light .border-\[\#2C3744\] { border-color: #C2C9D2 !important; }
+.theme-light .border-\[\#11161D\] { border-color: #FFFFFF !important; }
+.theme-light .border-\[\#0A0E14\] { border-color: #F4F6FA !important; }
+.theme-light .hover\:border-\[\#2C3744\]:hover { border-color: #B0B8C2 !important; }
+.theme-light .border-\[\#22C55E\]\/30,
+.theme-light .border-\[\#3B82F6\]\/30,
+.theme-light .border-\[\#EF4444\]\/30,
+.theme-light .border-\[\#F5A623\]\/30,
+.theme-light .border-\[\#5B6675\]\/30 { border-opacity: 0.45 !important; }
+
+/* ───── Text ───── */
+.theme-light .text-white { color: #0F172A !important; }
+.theme-light .text-\[\#E6EAF0\] { color: #0F172A !important; }
+.theme-light .text-\[\#8A95A5\] { color: #475569 !important; }
+.theme-light .text-\[\#5B6675\] { color: #64748B !important; }
+.theme-light .text-\[\#C2CAD6\] { color: #334155 !important; }
+.theme-light .text-\[\#3A4350\] { color: #94A3B8 !important; }
+.theme-light .placeholder\:text-\[\#5B6675\]::placeholder { color: #94A3B8 !important; }
+
+/* ───── Hover surfaces ───── */
+.theme-light .hover\:bg-\[\#0A0E14\]:hover { background-color: #EEF1F6 !important; }
+.theme-light .hover\:bg-\[\#11161D\]:hover { background-color: #F7F9FC !important; }
+.theme-light .hover\:bg-\[\#161C24\]:hover { background-color: #E7EBF0 !important; }
+.theme-light .hover\:bg-\[\#161D27\]:hover { background-color: #E7EBF0 !important; }
+.theme-light .bg-\[\#161D27\] { background-color: #EEF1F6 !important; }
+.theme-light .bg-\[\#0F141B\] { background-color: #EEF1F6 !important; }
+.theme-light .hover\:bg-\[\#0F141B\]:hover { background-color: #E7EBF0 !important; }
+.theme-light .hover\:bg-\[\#1A222C\]:hover,
+.theme-light .hover\:bg-\[\#1C2530\]:hover { background-color: #E7EBF0 !important; }
+/* Row hover used in pick-lists (e.g. Assign Checklist members). Without this the
+   raw #222A35 dark hover stayed dark while text darkened — invisible in light mode. */
+.theme-light .hover\:bg-\[\#222A35\]:hover { background-color: #DDE2EA !important; }
+.theme-light .hover\:bg-\[\#2C3744\]:hover { background-color: #D2D8E0 !important; }
+
+/* ───── Gradients ───── */
+.theme-light .from-\[\#161C24\] { --tw-gradient-from: #EEF1F6 var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(238, 241, 246, 0) var(--tw-gradient-to-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.theme-light .from-\[\#0A0E14\] { --tw-gradient-from: #F4F6FA var(--tw-gradient-from-position) !important; --tw-gradient-to: rgba(244, 246, 250, 0) var(--tw-gradient-to-position) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.theme-light .to-\[\#11161D\] { --tw-gradient-to: #FFFFFF var(--tw-gradient-to-position) !important; }
+.theme-light .via-\[\#0A0E14\]\/40 { --tw-gradient-via: rgba(244, 246, 250, 0.5) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-via), var(--tw-gradient-to) !important; }
+
+/* White opacity backgrounds (used for hover states) */
+.theme-light .bg-white\/5 { background-color: rgba(15, 23, 42, 0.03) !important; }
+.theme-light .bg-white\/10 { background-color: rgba(15, 23, 42, 0.06) !important; }
+.theme-light .hover\:bg-white\/5:hover { background-color: rgba(15, 23, 42, 0.04) !important; }
+.theme-light .hover\:bg-white\/10:hover { background-color: rgba(15, 23, 42, 0.08) !important; }
+
+/* Focus states */
+.theme-light .focus\:border-\[\#FF6B1A\]:focus { border-color: #FF6B1A !important; }
+
+/* Shadow adjustments for light mode */
+.theme-light .shadow-\[0_8px_24px_rgba\(255,107,26,0\.35\)\] {
+  box-shadow: 0 8px 24px rgba(255, 107, 26, 0.25) !important;
+}
+.theme-light .shadow-\[0_4px_14px_rgba\(255,107,26,0\.35\)\] {
+  box-shadow: 0 4px 14px rgba(255, 107, 26, 0.25) !important;
+}
+
+/* Subtle shadow so white cards lift off the light background */
+.theme-light .bg-\[\#11161D\],
+.theme-light .bg-\[\#161C24\] {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.03);
+}
+
+/* Main container text color override */
+.theme-light .text-\[\#E6EAF0\] { color: #0F172A !important; }
+
+/* Ensure login page background */
+.theme-light .h-screen.bg-\[\#0A0E14\] {
+  background-color: #F4F6FA !important;
+}
+
+/* Overlay backdrop */
+.theme-light .bg-black\/60 {
+  background-color: rgba(15, 23, 42, 0.4) !important;
+}
+
+/* Body fallback */
+html.theme-light,
+.theme-light body {
+  background-color: #F4F6FA;
+  color: #0F172A;
+}
+
+/* Keep image card text white in both modes for visibility on photos */
+.theme-light .absolute.bottom-0 .text-white,
+.theme-light .absolute.bottom-3 .text-white {
+  color: #ffffff !important;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.9) !important;
+}
+
+/* Keep CTA button ICONS white on image cards.
+   NOTE: scoped to svg only. A previous `.absolute button .text-white` selector
+   was too broad — it also caught custom dropdown panels (which are .absolute and
+   whose rows are <button>s with white-text labels), forcing their text white and
+   invisible in light mode. Icons are <svg>, so the svg rule alone is sufficient. */
+.theme-light .absolute.bottom-0 button svg,
+.theme-light .absolute.bottom-3 button svg,
+.theme-light .absolute.inset-0 button svg,
+.theme-light .absolute.top-3 button svg {
+  color: #ffffff !important;
+}

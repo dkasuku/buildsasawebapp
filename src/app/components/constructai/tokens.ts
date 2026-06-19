@@ -1,0 +1,18 @@
+export const tokens = {
+  bg: "#0A0E14",
+  surface: "#11161D",
+  surfaceAlt: "#161C24",
+  border: "#222A35",
+  borderStrong: "#2C3744",
+  text: "#E6EAF0",
+  textMuted: "#8A95A5",
+  textDim: "#5B6675",
+  orange: "#FF6B1A",
+  orangeHover: "#FF7E33",
+  orangeSoft: "rgba(255, 107, 26, 0.12)",
+  amber: "#F5A623",
+  green: "#22C55E",
+  red: "#EF4444",
+  blue: "#3B82F6",
+  purple: "#8B5CF6",
+};

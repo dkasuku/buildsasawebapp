@@ -1,0 +1,733 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  role      String
+  passwordHash String?
+  phone     String?
+  age       Int?
+  gender    String?  // male | female | other | prefer-not-to-say
+  qualifications String? // comma-separated or JSON
+  emergencyContact String?
+  emergencyPhone   String?
+  trade     String?  // for Worker / Trade Lead
+  avatar    String?  // profile photo (data URL or hosted URL)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments Assignment[]
+  messages    Message[]
+  attendance  Attendance[]
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  city      String
+  lat       Float?
+  lng       Float?
+  value     String
+  status    String
+  progress  Int
+  exposure  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments     Assignment[]
+  messages        Message[]
+  ledger          LedgerEntry[]
+  expenses        ExpenseCategory[]
+  dailyLogs       DailyLog[]
+  punchItems      PunchItem[]
+  commitments     Commitment[]
+  documents       Document[]
+  bids            Bid[]
+  invoices        Invoice[]
+  inspections     Inspection[]
+  safetyIncidents SafetyIncident[]
+  equipment       Equipment[]
+  drawingVersions DrawingVersion[]
+  planMarkups     PlanMarkup[]
+  changeOrders    ChangeOrder[]
+}
+
+model Assignment {
+  id        String   @id @default(cuid())
+  role      String   // PM, Architect, QS
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  text      String
+  attachment String? // URL
+  taskType  String? // punch | inspection | task | checklist | form | drawing
+  taskId    String? // linked task/punch/inspection/form ID
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+}
+
+model LedgerEntry {
+  id        String   @id @default(cuid())
+  date      DateTime
+  desc      String
+  type      String   // in | out
+  category  String
+  amountUSD Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+}
+
+model ExpenseCategory {
+  id         String   @id @default(cuid())
+  name       String
+  budgetUSD  Int
+  actualUSD  Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  project    Project  @relation(fields: [projectId], references: [id])
+  projectId  String
+}
+
+model DailyLog {
+  id        String   @id @default(cuid())
+  date      DateTime
+  crew      String
+  headcount Int
+  location  String
+  notes     String
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PunchItem {
+  id          String   @id @default(cuid())
+  code        String
+  area        String
+  desc        String
+  status      String   // open | in_progress | ready_for_review | resolved | closed | rejected
+  photos      String?  // JSON array of URLs
+  videos      String?  // JSON array of URLs
+  assignedTo  String?  // legacy single/comma-separated (kept for back-compat)
+  location    String?  // lat,lng or area name
+  drawingRef  String?  // JSON {drawingId, x, y, note}
+  linkedTaskId String?
+  // ---- Rich punch-list fields (Procore-inspired, original) ----
+  title          String?
+  category       String?  // architectural | mep | finishes | structural | civil | other
+  trade          String?
+  priority       String?  @default("medium") // low | medium | high
+  assignees      String?  // JSON array of userIds (MULTI-ASSIGNEE)
+  punchManagerId String?
+  finalApproverId String?
+  dueDate        String?
+  createdById    String?
+  costImpact     String?  @default("tbd")  // yes | yes_unknown | no | tbd | na
+  scheduleImpact String?  @default("tbd")  // yes | yes_unknown | no | tbd | na
+  costCode       String?
+  reference      String?
+  isPrivate      Boolean  @default(false)
+  distribution   String?  // JSON array of userIds to notify
+  linkedDrawingId String?
+  drawingCoordinates String? // JSON {x, y, zoom}
+  comments       PunchItemComment[]
+  attachments    PunchItemAttachment[]
+  activity       PunchItemActivity[]
+  project     Project  @relation(fields: [projectId], references: [id])
+  projectId   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model PunchItemComment {
+  id          String    @id @default(cuid())
+  text        String
+  authorId    String
+  punchItem   PunchItem @relation(fields: [punchItemId], references: [id], onDelete: Cascade)
+  punchItemId String
+  createdAt   DateTime  @default(now())
+}
+
+model PunchItemAttachment {
+  id          String    @id @default(cuid())
+  fileUrl     String
+  type        String?   // image | document | video
+  createdById String?
+  punchItem   PunchItem @relation(fields: [punchItemId], references: [id], onDelete: Cascade)
+  punchItemId String
+  createdAt   DateTime  @default(now())
+}
+
+model PunchItemActivity {
+  id          String    @id @default(cuid())
+  actorId     String?
+  actionType  String    // created | status_change | field_edit | comment | attachment | assign
+  field       String?
+  before      String?
+  after       String?
+  punchItem   PunchItem @relation(fields: [punchItemId], references: [id], onDelete: Cascade)
+  punchItemId String
+  createdAt   DateTime  @default(now())
+}
+
+model AccessLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  name      String?
+  role      String?
+  ip        String?
+  userAgent String?
+  city      String?
+  country   String?
+  createdAt DateTime @default(now())
+}
+
+model Subscription {
+  id               String    @id @default(cuid())
+  userId           String    // who owns the subscription (workspace owner)
+  email            String?
+  plan             String    // monthly | yearly
+  status           String    @default("inactive") // inactive | active | past_due | cancelled
+  amountUSD        Int       @default(0)
+  currency         String    @default("KES") // KES | USD
+  paystackRef      String?   // transaction reference
+  paystackCustomer String?   // Paystack customer code
+  currentPeriodEnd DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+// A service/subscription invoice the workspace is billed. Auto-issued from the
+// plan; paid via Paystack (or marked paid manually as a fallback).
+model BillingInvoice {
+  id          String    @id @default(cuid())
+  userId      String    // workspace owner being billed
+  number      String    // human-friendly invoice number
+  plan        String?   // monthly | yearly | null for one-off
+  description String?
+  amountUSD   Int       @default(0)
+  amountKES   Int       @default(0)
+  currency    String    @default("KES") // KES | USD
+  status      String    @default("unpaid") // unpaid | paid | void
+  issuedAt    DateTime  @default(now())
+  dueDate     DateTime
+  paidAt      DateTime?
+  paystackRef String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+model ChangeOrder {
+  id                 String   @id @default(cuid())
+  number             String   // e.g. CO-1258
+  title              String
+  area               String?
+  description        String?
+  status             String   @default("drafted") // drafted | pm_review | owner_approval | approved | rejected | void
+  trigger            String?  // design clarification | owner request | unforeseen condition | code compliance | weather
+  rfi                String?
+  costUSD            Int      @default(0)  // can be negative (credit)
+  scheduleImpactDays Int      @default(0)
+  assignees          String?  // JSON array of userIds (multi-assignee)
+  requestedBy        String?
+  submittedDate      String?
+  project            Project  @relation(fields: [projectId], references: [id])
+  projectId          String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+// Audit/activity log for a change order — who did what, when.
+model ChangeOrderActivity {
+  id            String   @id @default(cuid())
+  changeOrderId String
+  userId        String?
+  userName      String?
+  userRole      String?
+  type          String   // created | status | edited | comment
+  fromStatus    String?
+  toStatus      String?
+  message       String?
+  createdAt     DateTime @default(now())
+
+  @@index([changeOrderId])
+}
+
+model Commitment {
+  id        String   @id @default(cuid())
+  vendor    String
+  scope     String
+  amount    String
+  due       String
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Document {
+  id        String   @id @default(cuid())
+  name      String
+  url       String
+  size      String
+  updated   String
+  project   Project? @relation(fields: [projectId], references: [id])
+  projectId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Bid {
+  id            String   @id @default(cuid())
+  subcontractor String
+  trade         String
+  amount        Int
+  status        String   // submitted | under-review | awarded | rejected
+  notes         String?
+  fileUrl       String?
+  submittedAt   String
+  project       Project  @relation(fields: [projectId], references: [id])
+  projectId     String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Invoice {
+  id            String   @id @default(cuid())
+  invoiceNumber String   @unique
+  clientName    String
+  amount        Int
+  status        String   // draft | sent | paid | overdue
+  issueDate     String
+  dueDate       String
+  items         String?  // JSON
+  notes         String?
+  paidDate      String?  // when payment was received
+  paidAmount    Int?     // how much has been received (supports partial)
+  project       Project  @relation(fields: [projectId], references: [id])
+  projectId     String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Inspection {
+  id          String   @id @default(cuid())
+  type        String
+  inspector   String
+  date        String
+  status      String   // draft | pending_consultant | in_review | approved | rejected | rework_required | closed
+  notes       String?
+  checklist   String?  // JSON array
+  photos      String?  // JSON array of URLs
+  videos      String?  // JSON array of URLs
+  readinessPhotos String? // JSON array of URLs (photos uploaded by site team before inspection)
+  assignedTo  String?  // comma-separated user IDs (consultants)
+  createdBy   String?  // userId of site team member who created the request
+  checklistId String?
+  templateId  String?  // linked ChecklistTemplate id
+  drawingRef  String?  // JSON {drawingId, x, y, note}
+  project     Project  @relation(fields: [projectId], references: [id])
+  projectId   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  approvals   InspectionApproval[]
+}
+
+model InspectionApproval {
+  id          String   @id @default(cuid())
+  status      String   // approved | rejected | rework_required
+  comments    String?
+  approvedBy  String   // consultant userId
+  inspection  Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  inspectionId String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SafetyIncident {
+  id               String   @id @default(cuid())
+  date             String
+  incidentType     String   // injury | near-miss | environmental | property | struck-by-equipment | rollover | cave-in | traffic-incident | asphalt-burn
+  severity         String   // minor | moderate | major | fatality
+  description      String
+  reporter         String
+  witnesses        String?
+  correctiveAction String?
+  status           String   // open | investigating | closed
+  project          Project  @relation(fields: [projectId], references: [id])
+  projectId        String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model Equipment {
+  id            String   @id @default(cuid())
+  name          String
+  category      String   // excavator | crane | truck | mixer | compactor | generator | scaffolding | tool | tractor | grader | paver | roller | drainage-machine | trencher | dump-truck
+  serialNumber  String?
+  manufacturer  String?
+  purchaseDate  String?
+  status        String   // available | rented | maintenance | out-of-service
+  lastService   String?
+  nextService   String?
+  location      String?
+  notes         String?
+  project       Project? @relation(fields: [projectId], references: [id])
+  projectId     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model ChecklistTemplate {
+  id        String   @id @default(cuid())
+  title     String
+  trade     String   // General | Electrical | Plumbing | HVAC | Carpentry | Painting | Masonry | Roofing | Drywall | Concrete | Landscaping
+  category  String?  // e.g. safety, quality, pre-handover, custom
+  items     String   // JSON array of checklist items
+  version   Int      @default(1)
+  isGlobal  Boolean  @default(false) // admin/owner templates visible to all
+  status    String   @default("active") // active | archived
+  createdBy String?  // userId
+  // Shareable link: a token + whether the link is public (fillable without auth).
+  shareToken  String?  @unique
+  sharePublic Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  submissions FormSubmission[]
+}
+
+// A response submitted through a public share link (no auth required).
+model FormSubmission {
+  id            String   @id @default(cuid())
+  template      ChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  templateId    String
+  respondentName  String?
+  respondentEmail String?
+  data          String   // JSON: { [questionRef]: answer }
+  source        String   @default("public_link")
+  createdAt     DateTime @default(now())
+}
+
+model Checklist {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  category    String?  // trade or custom category
+  trade       String?  // copied from the source template (General, Electrical, Plumbing, ...)
+  reportedProgress Int? // contractor self-reported field % (0-100); separate from QA completion (answered/total)
+  source      String   // ai | manual | upload | template
+  status      String   @default("draft") // draft | assigned | in_progress | submitted | approved | rejected
+  assigned    Boolean  @default(false)
+  assignee    String?  // userId or name of assigned person (legacy single assignee)
+  assignedTo  String?  // JSON array of userIds
+  createdBy   String?  // userId who created the checklist
+  submittedAt DateTime?
+  submittedBy String?  // userId who submitted
+  templateId  String?  // linked ChecklistTemplate id
+  dueDate     DateTime?
+  projectId   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  questions   ChecklistQuestion[]
+  responses   ChecklistResponse[]
+}
+
+model ChecklistQuestion {
+  id            String      @id @default(cuid())
+  question      String
+  questionType  String      // text | number | date | yes_no | pass_fail | dropdown | checkbox | photo | signature
+  required      Boolean     @default(false)
+  position      Int         @default(0)
+  options       String?     // JSON array for dropdown/checkbox options
+  parentId      String?     // for sub-questions attached to a main question
+  // Extra fields from the upload template (kept per-question for integrity).
+  questionGroup     String?  // section/group heading the item belongs to
+  defaultAnswer     String?  // optional pre-filled answer
+  photoAvailable    String?  @default("No") // 'Yes' | 'No'
+  correctiveOption  String?  // option value that triggers a corrective action
+  correctiveActions String?  // JSON array of corrective actions
+  policy            String?  // governing spec / standard / drawing reference
+  checklist     Checklist   @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  checklistId   String
+  responses     ChecklistResponse[]
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+model ChecklistResponse {
+  id          String            @id @default(cuid())
+  value       String            // the answer value
+  status      String            @default("submitted") // submitted | needs_correction | corrected | approved
+  reviewNote  String?           // note from reviewer on what needs fixing
+  reviewerId  String?           // who flagged it
+  checklist   Checklist         @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  checklistId String
+  question    ChecklistQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  questionId  String
+  userId      String            // contractor who submitted
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+model DrawingVersion {
+  id        String   @id @default(cuid())
+  drawingId String   // external drawing identifier
+  rev       Int
+  url       String
+  uploadedBy String?
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+  createdAt DateTime @default(now())
+}
+
+model PlanMarkup {
+  id        String   @id @default(cuid())
+  drawingId String
+  type      String   // note | measurement | issue | as-built | verification
+  x         Float
+  y         Float
+  text      String?
+  color     String   @default("#FF6B1A")
+  createdBy String
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+  createdAt DateTime @default(now())
+}
+
+model ScheduledReport {
+  id          String   @id @default(cuid())
+  name        String
+  reportType  String   // financial | operational | project | custom
+  frequency   String   // daily | weekly | monthly
+  recipients  String   // comma-separated emails
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+  active      Boolean  @default(true)
+  projectId   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model FormTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  category    String   // daily-report | timesheet | inspection-request | rfi | safety | custom
+  source      String   // ai | upload | manual
+  fields      String   // JSON array of field definitions
+  projectId   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Attendance {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  date      String   // YYYY-MM-DD
+  checkIn   String?  // HH:mm
+  checkOut  String?  // HH:mm
+  location  String?  // GPS or site name
+  breakStart String? // HH:mm
+  breakEnd  String?  // HH:mm
+  breakDuration Int? // minutes
+  status    String   // present | late | absent | leave | off-day
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Conversation {
+  id         String   @id @default(cuid())
+  name       String?
+  type       String   // direct | group
+  profilePic String?
+  creatorId  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  members    ConversationMember[]
+  messages   ChatMessage[]
+}
+
+model ConversationMember {
+  id             String       @id @default(cuid())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversationId String
+  userId         String
+  role           String       // member | admin
+  joinedAt       DateTime     @default(now())
+}
+
+model ChatMessage {
+  id             String       @id @default(cuid())
+  text           String
+  attachment     String?
+  replyToId      String?
+  read           Boolean      @default(false)
+  userId         String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversationId String
+  taskId         String?
+  taskTitle      String?
+  createdAt      DateTime     @default(now())
+}
+
+model Observation {
+  id          String   @id @default(cuid())
+  title       String
+  type        String   // Quality | Safety | Environmental | Commissioning
+  status      String   @default("open") // open | in_review | closed
+  priority    String   @default("medium") // low | medium | high
+  location    String?
+  project     String?
+  assignee    String?
+  date        String?
+  description String?
+  photos      Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CoordinationIssue {
+  id          String   @id @default(cuid())
+  title       String
+  type        String   // RFI | Clash | Design Question
+  status      String   @default("open") // open | answered | closed
+  priority    String   @default("medium")
+  raisedBy    String?
+  assignedTo  String?
+  project     String?
+  date        String?
+  description String?
+  comments    String   @default("[]") // JSON array of { author, text, date }
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ActionPlan {
+  id        String   @id @default(cuid())
+  title     String
+  source    String?
+  owner     String?
+  due       String?
+  status    String   @default("active") // active | completed | overdue
+  project   String?
+  items     String   @default("[]") // JSON array of { id, text, done }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Correspondence {
+  id          String   @id @default(cuid())
+  subject     String
+  type        String   // Letter | Submittal | Transmittal | Notice
+  direction   String   @default("outgoing") // outgoing | incoming
+  status      String   @default("draft") // draft | sent | received | responded
+  fromParty   String?
+  toParty     String?
+  project     String?
+  date        String?
+  body        String?
+  attachments String   @default("[]") // JSON array of strings
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model WorkTask {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  trade       String?  @default("General")
+  assignees   String?  // JSON array of userIds
+  priority    String?  @default("medium") // low | medium | high
+  status      String   @default("open")   // open | in_progress | blocked | done
+  dueDate     String?
+  projectId   String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Crew {
+  id        String   @id @default(cuid())
+  name      String
+  trade     String?
+  foreman   String?
+  project   String?
+  location  String?
+  shift     String   @default("Day") // Day | Night
+  status    String   @default("on_site") // on_site | off_site | on_leave
+  members   String   @default("[]") // JSON array of { id, name, trade }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model DirectoryContact {
+  id        String   @id @default(cuid())
+  name      String
+  company   String?
+  role      String?
+  category  String   @default("Subcontractor") // Client | Consultant | Subcontractor | Supplier | Authority
+  phone     String?
+  email     String?
+  projects  String   @default("[]") // JSON array of project names
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CompanyDoc {
+  id         String   @id @default(cuid())
+  name       String
+  category   String   @default("Policies") // Policies | Templates | Certifications | Insurance | HR | Legal
+  type       String?
+  size       String?
+  uploadedBy String?
+  date       String?
+  url        String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Announcement {
+  id              String   @id @default(cuid())
+  title           String
+  body            String?
+  author          String?
+  authorRole      String?
+  date            String?
+  pinned          Boolean  @default(false)
+  priority        String   @default("normal") // low | normal | high | urgent
+  audience        String   @default("company") // company | project | role | people
+  project         String?
+  roles           String?  // JSON array of role names
+  recipients      String?  // JSON array of user ids/names
+  attachments     String?  // JSON array of { name, size }
+  requireAck      Boolean  @default(false)
+  ackCount        Int      @default(0)
+  readBy          Int      @default(0)
+  totalRecipients Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}

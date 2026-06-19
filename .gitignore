@@ -1,0 +1,37 @@
+# ===== Dependencies =====
+node_modules/
+**/node_modules/
+
+# ===== Build output =====
+dist/
+build/
+*.tsbuildinfo
+
+# ===== Environment / secrets — NEVER commit these =====
+**/.env
+**/.env.*
+!**/.env.example
+
+# ===== Prisma generated client =====
+**/.prisma/
+
+# ===== Local file uploads (served from disk in dev) =====
+backend/uploads/
+
+# ===== Database dumps =====
+*.dump
+*.backup
+
+# ===== Logs =====
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+
+# ===== OS / editor cruft =====
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.cache/
+coverage/
