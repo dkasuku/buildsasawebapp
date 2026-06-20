@@ -33,4 +33,12 @@ export default defineConfig({
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
+
+  // `vite preview` (used to serve the production build on Railway) blocks hosts
+  // it doesn't recognise. Allow any host so the Railway domain — and any custom
+  // domain you add later — can load the app.
+  preview: {
+    host: true,
+    allowedHosts: true,
+  },
 })
