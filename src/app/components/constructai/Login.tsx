@@ -150,14 +150,19 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
                     <span className="text-[10px] text-[#5B6675] uppercase tracking-wider">or continue with</span>
                     <div className="flex-1 h-px bg-[#222A35]" />
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button className="h-10 rounded-md bg-[#11161D] border border-[#222A35] text-[12px] text-white flex items-center justify-center gap-2 hover:border-[#2C3744]">
-                      <Github className="w-4 h-4" /> GitHub SSO
-                    </button>
-                    <button className="h-10 rounded-md bg-[#11161D] border border-[#222A35] text-[12px] text-white flex items-center justify-center gap-2 hover:border-[#2C3744]">
-                      <ShieldCheck className="w-4 h-4 text-[#22C55E]" /> SAML SSO
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setError("Google sign-in is coming soon — please use your email & password for now.")}
+                    className="w-full h-10 rounded-md bg-[#11161D] border border-[#222A35] text-[12px] text-white flex items-center justify-center gap-2 hover:border-[#2C3744]"
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" aria-hidden="true">
+                      <path fill="#FFC107" d="M21.35 11.1H12v2.96h5.35c-.23 1.46-1.6 4.28-5.35 4.28a5.96 5.96 0 0 1 0-11.92c1.7 0 2.84.72 3.5 1.34l2.38-2.3A9.32 9.32 0 0 0 12 2.46a9.54 9.54 0 1 0 0 19.08c5.5 0 9.14-3.87 9.14-9.32 0-.63-.07-1.1-.16-1.58z"/>
+                      <path fill="#FF3D00" d="m3.15 7.34 2.43 1.78A5.96 5.96 0 0 1 12 5.42c1.7 0 2.84.72 3.5 1.34l2.38-2.3A9.32 9.32 0 0 0 12 2.46a9.52 9.52 0 0 0-8.85 4.88z"/>
+                      <path fill="#4CAF50" d="M12 21.54c2.54 0 4.85-.97 6.5-2.62l-2.3-1.95c-.86.6-2.02 1.02-3.55 1.02-3.74 0-5.11-2.82-5.34-4.28l-2.4 1.85A9.52 9.52 0 0 0 12 21.54z"/>
+                      <path fill="#1976D2" d="M21.35 11.1H12v2.96h5.35a4.6 4.6 0 0 1-1.15 2.91l2.3 1.95c.74-.7 2.64-2.71 2.64-6.24 0-.63-.07-1.1-.16-1.58z"/>
+                    </svg>
+                    Continue with Google
+                  </button>
                 </>
               )}
             </div>
