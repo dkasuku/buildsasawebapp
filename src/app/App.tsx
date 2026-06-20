@@ -95,8 +95,21 @@ const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }
 
 export default function App() {
   const [view, setView] = useState<View>(() => {
-    // Login is required: start on the login screen unless a session token exists.
-    try { return localStorage.getItem("constructai-token") ? "dashboard" : "login"; } catch { return "login"; }
+    try {
+      // Google OAuth redirect: /?token=…&user=… — persist the session, clean the
+      // URL, and land on the dashboard (role is read from the stored user below).
+      const params = new URLSearchParams(window.location.search);
+      const gToken = params.get("token");
+      if (gToken) {
+        localStorage.setItem("constructai-token", gToken);
+        const gUser = params.get("user");
+        if (gUser) localStorage.setItem("constructai-user", gUser);
+        window.history.replaceState({}, "", window.location.pathname);
+        return "dashboard";
+      }
+      // Login is required: start on the login screen unless a session token exists.
+      return localStorage.getItem("constructai-token") ? "dashboard" : "login";
+    } catch { return "login"; }
   });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [role, setRole] = useState<Role>(() => {

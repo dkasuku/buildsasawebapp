@@ -99,6 +99,60 @@ function auth(req, res, next) {
 const issueToken = (u) => jwt.sign({ sub: u.id, role: u.role, name: u.name, email: u.email }, JWT_SECRET, { expiresIn: '7d' });
 const publicUser = (u) => ({ id: u.id, name: u.name, role: u.role, email: u.email });
 
+// ===== GOOGLE OAUTH (Sign in with Google) =====
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL || '';
+const FRONTEND_URL = process.env.APP_URL || 'http://localhost:5173';
+
+// Step 1 — send the user to Google's consent screen.
+app.get('/api/auth/google', (req, res) => {
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CALLBACK_URL) return res.redirect(`${FRONTEND_URL}/?auth_error=google_not_configured`);
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: GOOGLE_CALLBACK_URL,
+    response_type: 'code',
+    scope: 'openid email profile',
+    access_type: 'online',
+    prompt: 'select_account',
+  });
+  res.redirect('https://accounts.google.com/o/oauth2/v2/auth?' + params.toString());
+});
+
+// Step 2 — Google redirects back here with a code; exchange it, find/create the
+// user (linked by email), issue our own session token, and bounce to the frontend.
+app.get('/api/auth/google/callback', async (req, res) => {
+  try {
+    const code = req.query.code;
+    if (!code) return res.redirect(`${FRONTEND_URL}/?auth_error=google`);
+    const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ code, client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET, redirect_uri: GOOGLE_CALLBACK_URL, grant_type: 'authorization_code' }),
+    });
+    const tokenJson = await tokenResp.json();
+    if (!tokenJson.access_token) throw new Error(tokenJson.error_description || 'Token exchange failed');
+    const profResp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: `Bearer ${tokenJson.access_token}` } });
+    const profile = await profResp.json();
+    const email = String(profile.email || '').toLowerCase();
+    if (!email) throw new Error('No email returned from Google');
+    // Link by email: existing account logs in; new one is created with a default role.
+    let user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      user = await prisma.user.create({ data: { email, name: profile.name || email.split('@')[0], role: 'Contractor', avatar: profile.picture || null } });
+    } else if (!user.avatar && profile.picture) {
+      try { user = await prisma.user.update({ where: { id: user.id }, data: { avatar: profile.picture } }); } catch { /* ignore */ }
+    }
+    recordAccess(req, user);
+    const token = issueToken(user);
+    const userParam = encodeURIComponent(JSON.stringify(publicUser(user)));
+    res.redirect(`${FRONTEND_URL}/?token=${encodeURIComponent(token)}&user=${userParam}`);
+  } catch (e) {
+    console.error('[google oauth] failed:', e.message);
+    res.redirect(`${FRONTEND_URL}/?auth_error=google`);
+  }
+});
+
 // Send transactional email via Resend. Falls back to console logging (and
 // returns sent:false) when no API key is configured, so dev never blocks.
 async function sendEmail({ to, subject, html }) {

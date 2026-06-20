@@ -152,7 +152,7 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
                   </div>
                   <button
                     type="button"
-                    onClick={() => setError("Google sign-in is coming soon — please use your email & password for now.")}
+                    onClick={() => { window.location.href = `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/auth/google`; }}
                     className="w-full h-10 rounded-md bg-[#11161D] border border-[#222A35] text-[12px] text-white flex items-center justify-center gap-2 hover:border-[#2C3744]"
                   >
                     <svg className="w-4 h-4" viewBox="0 0 24 24" aria-hidden="true">
