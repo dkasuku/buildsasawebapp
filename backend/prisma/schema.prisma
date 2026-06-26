@@ -21,12 +21,22 @@ model User {
   emergencyPhone   String?
   trade     String?  // for Worker / Trade Lead
   avatar    String?  // profile photo (data URL or hosted URL)
+  workspaceId String? // the company/workspace this user belongs to (multi-tenant)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   assignments Assignment[]
   messages    Message[]
   attendance  Attendance[]
+}
+
+// A company / tenant. Owns all of its projects, checklists, change orders, etc.
+// Every tenant-scoped record carries a workspaceId so companies are isolated.
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Project {

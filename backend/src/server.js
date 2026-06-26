@@ -96,7 +96,7 @@ function auth(req, res, next) {
 }
 
 // Login stub
-const issueToken = (u) => jwt.sign({ sub: u.id, role: u.role, name: u.name, email: u.email }, JWT_SECRET, { expiresIn: '7d' });
+const issueToken = (u) => jwt.sign({ sub: u.id, role: u.role, name: u.name, email: u.email, ws: u.workspaceId || null }, JWT_SECRET, { expiresIn: '7d' });
 const publicUser = (u) => ({ id: u.id, name: u.name, role: u.role, email: u.email });
 
 // ===== GOOGLE OAUTH (Sign in with Google) =====
@@ -139,7 +139,8 @@ app.get('/api/auth/google/callback', async (req, res) => {
     // Link by email: existing account logs in; new one is created with a default role.
     let user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      user = await prisma.user.create({ data: { email, name: profile.name || email.split('@')[0], role: 'Contractor', avatar: profile.picture || null } });
+      const gws = await prisma.workspace.create({ data: { name: `${profile.name || email.split('@')[0]}'s workspace` } });
+      user = await prisma.user.create({ data: { email, name: profile.name || email.split('@')[0], role: 'Contractor', avatar: profile.picture || null, workspaceId: gws.id } });
     } else if (!user.avatar && profile.picture) {
       try { user = await prisma.user.update({ where: { id: user.id }, data: { avatar: profile.picture } }); } catch { /* ignore */ }
     }
@@ -232,7 +233,9 @@ app.post('/api/signup', async (req, res) => {
     if (String(password).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
     const existing = await prisma.user.findUnique({ where: { email: String(email).toLowerCase() } });
     if (existing) return res.status(409).json({ error: 'An account with this email already exists' });
-    const user = await prisma.user.create({ data: { name, email: String(email).toLowerCase(), passwordHash: bcrypt.hashSync(password, 10), role: role || 'Contractor' } });
+    // A brand-new signup starts its own company (workspace) and owns it.
+    const ws = await prisma.workspace.create({ data: { name: `${name}'s workspace` } });
+    const user = await prisma.user.create({ data: { name, email: String(email).toLowerCase(), passwordHash: bcrypt.hashSync(password, 10), role: role || 'Contractor', workspaceId: ws.id } });
     recordAccess(req, user); res.json({ token: issueToken(user), user: publicUser(user) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -343,7 +346,8 @@ app.post('/api/users/invite', auth, async (req, res) => {
     if (await prisma.user.findUnique({ where: { email: em } })) return res.status(409).json({ error: 'A user with this email already exists' });
     // Owner sets a password or we generate a temporary one.
     const tempPassword = password && String(password).length >= 6 ? password : Math.random().toString(36).slice(2, 10);
-    const user = await prisma.user.create({ data: { name, email: em, role, trade: trade || null, passwordHash: bcrypt.hashSync(tempPassword, 10) } });
+    // Invited users JOIN the inviter's workspace (they don't start a new one).
+    const user = await prisma.user.create({ data: { name, email: em, role, trade: trade || null, passwordHash: bcrypt.hashSync(tempPassword, 10), workspaceId: req.user?.ws || null } });
     const inviter = req.user?.name || 'Your team';
     const html = emailShell('You\'ve been invited to Buildflex',
       `<p style="font-size:14px;color:#11161D">Hi ${name}, ${inviter} added you to their Buildflex workspace as <b>${role}</b>.</p>
@@ -1104,7 +1108,7 @@ async function resolveAttendanceUser(req) {
   if (u.email) { const byEmail = await prisma.user.findUnique({ where: { email: String(u.email).toLowerCase() } }); if (byEmail) return byEmail.id; }
   let email = (u.email && String(u.email).toLowerCase()) || `${u.sub || 'user'}@local.buildflex`;
   if (await prisma.user.findUnique({ where: { email } })) email = `${u.sub || 'user'}-${Date.now()}@local.buildflex`;
-  const created = await prisma.user.create({ data: { ...(u.sub ? { id: u.sub } : {}), email, name: u.name || 'User', role: u.role || 'Worker' } });
+  const created = await prisma.user.create({ data: { ...(u.sub ? { id: u.sub } : {}), email, name: u.name || 'User', role: u.role || 'Worker', workspaceId: u.ws || null } });
   return created.id;
 }
 app.post('/api/attendance', auth, async (req, res) => {
