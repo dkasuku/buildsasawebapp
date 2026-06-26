@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API_URL = import.meta.env.VITE_API_URL || ":/http/localhost:5000";
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const token = localStorage.getItem("constructai-token");
@@ -31,6 +31,24 @@ export type ProjectDto = {
   exposure: string;
   assignments?: { role: string; userId: string }[];
   changeOrderCount?: number;
+};
+
+export type ScheduleItemDto = {
+  id: string;
+  projectId: string;
+  name: string;
+  type: string; // task | milestone | phase
+  startDate: string;
+  endDate: string;
+  percent: number;
+  status: string; // not_started | in_progress | done | blocked
+  assignees?: string | null;
+  trade?: string | null;
+  color?: string | null;
+  notes?: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type ChangeOrderActivityDto = {
@@ -475,6 +493,12 @@ export const api = {
   deleteChangeOrder: (id: string) => http(`/api/change-orders/${id}`, { method: "DELETE" }),
   getChangeOrderActivity: (id: string) => http<ChangeOrderActivityDto[]>(`/api/change-orders/${id}/activity`),
   addChangeOrderComment: (id: string, message: string) => http<{ ok: boolean }>(`/api/change-orders/${id}/activity`, { method: "POST", body: JSON.stringify({ message }) }),
+  // Schedule (Gantt)
+  getSchedule: (projectId: string) => http<ScheduleItemDto[]>(`/api/projects/${projectId}/schedule`),
+  createScheduleItem: (projectId: string, payload: Partial<Omit<ScheduleItemDto, "assignees">> & { assignees?: string[] | string }) => http<ScheduleItemDto>(`/api/projects/${projectId}/schedule`, { method: "POST", body: JSON.stringify(payload) }),
+  updateScheduleItem: (id: string, payload: Partial<Omit<ScheduleItemDto, "assignees">> & { assignees?: string[] | string }) => http<ScheduleItemDto>(`/api/schedule/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteScheduleItem: (id: string) => http(`/api/schedule/${id}`, { method: "DELETE" }),
+  generateSchedule: (projectId: string, payload: { prompt?: string; startDate?: string; durationWeeks?: number }, signal?: AbortSignal) => http<{ items: ScheduleItemDto[]; count: number }>(`/api/projects/${projectId}/schedule/generate`, { method: "POST", body: JSON.stringify(payload), signal }),
   // Billing / subscriptions (Paystack)
   getBillingPlans: () => http<{ plans: any[]; usdToKes: number; configured: boolean }>("/api/billing/plans"),
   getSubscription: () => http<any>("/api/billing/subscription"),

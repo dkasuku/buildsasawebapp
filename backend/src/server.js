@@ -755,6 +755,81 @@ app.delete('/api/change-orders/:id', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ===== SCHEDULE (Gantt timeline) =====
+const SCHED_FIELDS = ['name', 'type', 'status', 'trade', 'color', 'notes', 'sortOrder'];
+const pickSched = (b) => {
+  const d = {};
+  for (const f of SCHED_FIELDS) if (b[f] !== undefined) d[f] = b[f];
+  if (b.startDate !== undefined) d.startDate = new Date(b.startDate);
+  if (b.endDate !== undefined) d.endDate = new Date(b.endDate);
+  if (b.percent !== undefined) d.percent = Math.max(0, Math.min(100, Math.round(Number(b.percent)) || 0));
+  if (b.assignees !== undefined) d.assignees = b.assignees == null ? null : (typeof b.assignees === 'string' ? b.assignees : JSON.stringify(b.assignees));
+  return d;
+};
+app.get('/api/projects/:projectId/schedule', auth, async (req, res) => {
+  try { res.json(await prisma.scheduleItem.findMany({ where: { projectId: req.params.projectId }, orderBy: [{ startDate: 'asc' }, { sortOrder: 'asc' }] })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/projects/:projectId/schedule', auth, async (req, res) => {
+  try {
+    const d = pickSched(req.body);
+    if (!d.name) return res.status(400).json({ error: 'name required' });
+    if (!d.startDate) d.startDate = new Date();
+    if (!d.endDate) d.endDate = d.startDate;
+    d.projectId = req.params.projectId;
+    d.createdBy = req.user.sub;
+    res.json(await prisma.scheduleItem.create({ data: d }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put('/api/schedule/:id', auth, async (req, res) => {
+  try { res.json(await prisma.scheduleItem.update({ where: { id: req.params.id }, data: pickSched(req.body) })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/schedule/:id', auth, async (req, res) => {
+  try { await prisma.scheduleItem.delete({ where: { id: req.params.id } }); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// AI-draft a whole schedule for a project. Returns offsets which we turn into
+// real dates from the given start, then bulk-create the items.
+app.post('/api/projects/:projectId/schedule/generate', auth, async (req, res) => {
+  try {
+    const { prompt, startDate, durationWeeks } = req.body || {};
+    const start = startDate ? new Date(startDate) : new Date();
+    if (isNaN(+start)) return res.status(400).json({ error: 'Invalid start date' });
+    const weeks = Math.max(1, Math.min(260, Number(durationWeeks) || 16));
+    const sys = 'You are a senior construction planner. You produce realistic project schedules as ONLY valid JSON — no markdown, no commentary.';
+    const user = `Create a construction project schedule.
+Project: "${String(prompt || 'general construction project').trim()}".
+Total duration: about ${weeks} weeks.
+Return ONLY a JSON object: { "items": Item[] }.
+Each Item has EXACTLY: { "name": string, "type": "phase"|"task"|"milestone", "trade": string, "startOffsetDays": number (whole days from project start, >= 0), "durationDays": number (0 for milestones) }.
+Rules: 12-24 items in a logical construction sequence (mobilization, substructure, superstructure, MEP first/second fix, finishes, external works, handover); include 3-6 milestones at key gates (e.g. "Foundation complete", "Roof watertight", "Practical completion"); use real trades (General, Concrete, Electrical, Plumbing, HVAC, Roofing, Masonry, Carpentry, Painting, Drywall, Landscaping); keep everything within the total duration. Return ONLY the JSON object.`;
+    const raw = await callAiDeepSeekFirst([{ role: 'system', content: sys }, { role: 'user', content: user }], { temperature: 0.4, max_tokens: 3000 });
+    let data = {};
+    try { data = JSON.parse(String(raw).replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim()); } catch { data = {}; }
+    const arr = Array.isArray(data.items) ? data.items : [];
+    if (!arr.length) return res.status(422).json({ error: 'The AI did not return a schedule — try a more specific description.' });
+    const created = [];
+    let i = 0;
+    for (const it of arr.slice(0, 40)) {
+      const off = Math.max(0, Math.round(Number(it.startOffsetDays) || 0));
+      const dur = it.type === 'milestone' ? 0 : Math.max(1, Math.round(Number(it.durationDays) || 1));
+      const s = new Date(+start + off * 86400000);
+      const e = new Date(+s + dur * 86400000);
+      const row = await prisma.scheduleItem.create({ data: {
+        projectId: req.params.projectId,
+        name: String(it.name || 'Activity').slice(0, 200),
+        type: ['phase', 'task', 'milestone'].includes(it.type) ? it.type : 'task',
+        startDate: s, endDate: e, percent: 0, status: 'not_started',
+        trade: it.trade ? String(it.trade).slice(0, 40) : null,
+        sortOrder: i++, createdBy: req.user.sub,
+      } });
+      created.push(row);
+    }
+    res.json({ items: created, count: created.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Commitments
 app.get('/api/projects/:projectId/commitments', async (req, res) => {
   const rows = await prisma.commitment.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });

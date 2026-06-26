@@ -16,6 +16,7 @@ import { Reports } from "./components/constructai/Reports";
 import { Team } from "./components/constructai/Team.tsx";
 import { Plans } from "./components/constructai/Plans";
 import { Tasks } from "./components/constructai/Tasks";
+import { Schedule } from "./components/constructai/Schedule";
 import Financials from "./components/constructai/Financials";
 import { Documents } from "./components/constructai/Documents";
 import { DailyLog } from "./components/constructai/DailyLog";
@@ -63,6 +64,7 @@ const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }
   billing: { title: "Billing & Plan", subtitle: "Subscription & payments" },
   plans: { title: "Plans & Drawings", subtitle: "Architectural sheets & sharing" },
   tasks: { title: "Tasks & Trades", subtitle: "Assign forms & checklists to trades and track their progress" },
+  schedule: { title: "Schedule", subtitle: "Project timeline — Gantt, dates & milestones" },
   documents: { title: "Project Documents", subtitle: "Per-project docs and shared files" },
   "daily-log": { title: "Daily Log", subtitle: "Crew headcount, locations, notes" },
   "punch-list": { title: "Punch List", subtitle: "Deficiencies and closeouts" },
@@ -378,6 +380,7 @@ export default function App() {
             {effectiveView === "billing" && <Billing role={role} />}
             {effectiveView === "plans" && <Plans role={role} />}
             {effectiveView === "tasks" && <Tasks role={role} />}
+            {effectiveView === "schedule" && <Schedule role={role} />}
             {effectiveView === "documents" && <Documents />}
             {effectiveView === "daily-log" && <DailyLog />}
             {effectiveView === "punch-list" && <PunchListPro role={role} />}

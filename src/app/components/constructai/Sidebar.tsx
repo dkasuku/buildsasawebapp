@@ -1,4 +1,4 @@
-import { LayoutDashboard, FolderKanban, FileText, BarChart3, Users, HardHat, Settings, LifeBuoy, Smartphone, X, FileStack, ListChecks, ClipboardList, CheckCircle, Handshake, Mail, Bell, Eye, ClipboardCheck, MessageSquare, Briefcase, UsersRound, FolderOpen, Megaphone, Shield, ChevronDown, ChevronRight, Gavel, Receipt, ShieldAlert, Truck, Sparkles, Clock, FileDigit, CreditCard, LogOut } from "lucide-react";
+import { LayoutDashboard, CalendarDays, FolderKanban, FileText, BarChart3, Users, HardHat, Settings, LifeBuoy, Smartphone, X, FileStack, ListChecks, ClipboardList, CheckCircle, Handshake, Mail, Bell, Eye, ClipboardCheck, MessageSquare, Briefcase, UsersRound, FolderOpen, Megaphone, Shield, ChevronDown, ChevronRight, Gavel, Receipt, ShieldAlert, Truck, Sparkles, Clock, FileDigit, CreditCard, LogOut } from "lucide-react";
 import { useState, useEffect } from "react";
 import type { Role } from "./roles";
 import { ROLES, ROLE_COLORS } from "./roles";
@@ -13,6 +13,7 @@ export type View =
   | "change-orders"
   | "plans"
   | "tasks"
+  | "schedule"
   | "documents"
   | "daily-log"
   | "punch-list"
@@ -62,6 +63,7 @@ const NAV_GROUPS: NavGroup[] = [
       { key: "projects", label: "Projects", icon: FolderKanban },
       { key: "checklists", label: "Checklists", icon: ClipboardList },
       { key: "tasks", label: "Tasks & Trades", icon: ListChecks },
+      { key: "schedule", label: "Schedule", icon: CalendarDays },
       { key: "daily-log", label: "Daily Log", icon: ClipboardList },
       { key: "change-orders", label: "Change Orders", icon: FileText },
       { key: "plans", label: "Plans & Drawings", icon: FileStack },

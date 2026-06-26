@@ -670,6 +670,28 @@ model WorkTask {
   updatedAt   DateTime @updatedAt
 }
 
+// A project schedule activity / milestone shown on the Gantt timeline.
+model ScheduleItem {
+  id        String   @id @default(cuid())
+  projectId String
+  name      String
+  type      String   @default("task")        // task | milestone | phase
+  startDate DateTime
+  endDate   DateTime
+  percent   Int      @default(0)             // 0-100 progress
+  status    String   @default("not_started") // not_started | in_progress | done | blocked
+  assignees String?  // JSON array of userIds
+  trade     String?
+  color     String?
+  notes     String?
+  sortOrder Int      @default(0)
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+}
+
 model Crew {
   id        String   @id @default(cuid())
   name      String
