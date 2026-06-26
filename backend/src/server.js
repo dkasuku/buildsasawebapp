@@ -12,7 +12,53 @@ const xlsx = require('xlsx');
 const { parse: csvParse } = require('csv-parse/sync');
 
 const app = express();
-const prisma = new PrismaClient();
+
+// ===== MULTI-TENANCY: per-request company (workspace) scoping engine =====
+// Every request runs inside an AsyncLocalStorage carrying the logged-in user's
+// workspace. A Prisma client extension then auto-filters reads and stamps writes
+// for tenant models, so company data can never cross between workspaces — even
+// if an endpoint forgets to scope manually. Children (questions, comments, etc.)
+// are reached only via their scoped parents and guarded at those endpoints.
+const { AsyncLocalStorage } = require('async_hooks');
+const wsStore = new AsyncLocalStorage();
+const currentWs = () => { const s = wsStore.getStore(); return s && s.ws ? s.ws : null; };
+const TENANT_MODELS = new Set([
+  'User', 'Project', 'LedgerEntry', 'ExpenseCategory', 'DailyLog', 'PunchItem', 'Subscription', 'BillingInvoice',
+  'ChangeOrder', 'ChangeOrderActivity', 'Commitment', 'Document', 'Bid', 'Invoice', 'Inspection', 'SafetyIncident',
+  'Equipment', 'ChecklistTemplate', 'Checklist', 'DrawingVersion', 'PlanMarkup', 'ScheduledReport', 'Attendance',
+  'Observation', 'CoordinationIssue', 'ActionPlan', 'Correspondence', 'WorkTask', 'ScheduleItem', 'Crew',
+  'DirectoryContact', 'CompanyDoc', 'Announcement', 'FormTemplate', 'Conversation',
+]);
+const prismaBase = new PrismaClient();
+const delegateOf = (m) => prismaBase[m.charAt(0).toLowerCase() + m.slice(1)];
+const prisma = prismaBase.$extends({
+  query: {
+    $allModels: {
+      async $allOperations({ model, operation, args, query }) {
+        const ws = currentWs();
+        if (!ws || !TENANT_MODELS.has(model)) return query(args);
+        if (['findMany', 'findFirst', 'findFirstOrThrow', 'count', 'aggregate', 'groupBy', 'updateMany', 'deleteMany'].includes(operation)) {
+          args.where = { ...(args.where || {}), workspaceId: ws };
+          return query(args);
+        }
+        if (operation === 'findUnique' || operation === 'findUniqueOrThrow') {
+          const r = await query(args);
+          if (r && r.workspaceId && r.workspaceId !== ws) { if (operation === 'findUniqueOrThrow') throw new Error('Not found'); return null; }
+          return r;
+        }
+        if (operation === 'create') { args.data = { ...args.data, workspaceId: ws }; return query(args); }
+        if (operation === 'createMany') { if (Array.isArray(args.data)) args.data = args.data.map((d) => ({ ...d, workspaceId: ws })); return query(args); }
+        if (operation === 'update' || operation === 'delete') {
+          const owned = await delegateOf(model).findFirst({ where: { ...(args.where || {}), workspaceId: ws }, select: { id: true } });
+          if (!owned) throw new Error('Record not found in this workspace');
+          return query(args);
+        }
+        if (operation === 'upsert') { args.create = { ...args.create, workspaceId: ws }; return query(args); }
+        return query(args);
+      },
+    },
+  },
+});
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
 const path = require('path');
@@ -78,19 +124,22 @@ function requireRole(allowedRoles) {
 
 // Auth middleware. If AUTH_REQUIRED is false, defaults to demo user when no/invalid token.
 function auth(req, res, next) {
+  // Run the rest of the request inside the workspace context so the Prisma
+  // engine scopes every query to this user's company.
+  const run = () => wsStore.run({ ws: (req.user && req.user.ws) || null }, next);
   const header = req.headers.authorization;
   if (header) {
     const token = header.replace('Bearer ', '');
     try {
       req.user = jwt.verify(token, JWT_SECRET);
-      return next();
+      return run();
     } catch (e) {
       if (AUTH_REQUIRED) return res.status(401).json({ error: 'Invalid token' });
     }
   }
   if (!AUTH_REQUIRED) {
     req.user = { id: demoUser.id, sub: demoUser.id, role: demoUser.role, name: demoUser.name };
-    return next();
+    return run();
   }
   return res.status(401).json({ error: 'Missing auth token' });
 }
@@ -139,6 +188,10 @@ app.get('/api/auth/google/callback', async (req, res) => {
     // Link by email: existing account logs in; new one is created with a default role.
     let user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
+      // Invite-only: a Google account that isn't already a user can't self-register.
+      if (process.env.ALLOW_SIGNUP !== 'true' && (await prisma.user.count()) > 0) {
+        return res.redirect(`${FRONTEND_URL}/?auth_error=invite_only`);
+      }
       const gws = await prisma.workspace.create({ data: { name: `${profile.name || email.split('@')[0]}'s workspace` } });
       user = await prisma.user.create({ data: { email, name: profile.name || email.split('@')[0], role: 'Contractor', avatar: profile.picture || null, workspaceId: gws.id } });
     } else if (!user.avatar && profile.picture) {
@@ -231,6 +284,12 @@ app.post('/api/signup', async (req, res) => {
     const { name, email, password, role } = req.body || {};
     if (!name || !email || !password) return res.status(400).json({ error: 'Name, email and password are required' });
     if (String(password).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    // Invite-only: self-signup is allowed only to bootstrap the very first account
+    // (or when ALLOW_SIGNUP=true). After that, new people must be invited.
+    if (process.env.ALLOW_SIGNUP !== 'true') {
+      const userCount = await prisma.user.count();
+      if (userCount > 0) return res.status(403).json({ error: 'Sign-ups are invite-only — ask your workspace admin to invite you.' });
+    }
     const existing = await prisma.user.findUnique({ where: { email: String(email).toLowerCase() } });
     if (existing) return res.status(409).json({ error: 'An account with this email already exists' });
     // A brand-new signup starts its own company (workspace) and owns it.
@@ -377,7 +436,7 @@ app.delete('/api/users/:id', auth, async (req, res) => {
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
 // Projects
-app.get('/api/projects', async (_req, res) => {
+app.get('/api/projects', auth, async (_req, res) => {
   const projects = await prisma.project.findMany({ include: { assignments: true, _count: { select: { changeOrders: true } } } });
   res.json(projects.map((p) => ({ ...p, changeOrderCount: p._count?.changeOrders ?? 0 })));
 });
@@ -427,7 +486,7 @@ app.delete('/api/projects/:projectId/assignments/:assignmentId', auth, async (re
 });
 
 // Messages per project
-app.get('/api/projects/:projectId/messages', async (req, res) => {
+app.get('/api/projects/:projectId/messages', auth, async (req, res) => {
   const messages = await prisma.message.findMany({
     where: { projectId: req.params.projectId },
     orderBy: { createdAt: 'asc' },
@@ -450,7 +509,7 @@ app.post('/api/projects/:projectId/messages', auth, async (req, res) => {
 });
 
 // Ledger per project
-app.get('/api/projects/:projectId/ledger', async (req, res) => {
+app.get('/api/projects/:projectId/ledger', auth, async (req, res) => {
   const entries = await prisma.ledgerEntry.findMany({
     where: { projectId: req.params.projectId },
     orderBy: { date: 'asc' },
@@ -481,7 +540,7 @@ app.delete('/api/projects/:projectId/ledger/:entryId', auth, async (req, res) =>
 });
 
 // Expenses per project
-app.get('/api/projects/:projectId/expenses', async (req, res) => {
+app.get('/api/projects/:projectId/expenses', auth, async (req, res) => {
   const rows = await prisma.expenseCategory.findMany({ where: { projectId: req.params.projectId } });
   res.json(rows);
 });
@@ -509,7 +568,7 @@ app.delete('/api/projects/:projectId/expenses/:expenseId', auth, async (req, res
 });
 
 // Daily Log
-app.get('/api/projects/:projectId/daily-log', async (req, res) => {
+app.get('/api/projects/:projectId/daily-log', auth, async (req, res) => {
   const rows = await prisma.dailyLog.findMany({ where: { projectId: req.params.projectId }, orderBy: { date: 'desc' } });
   res.json(rows);
 });
@@ -529,7 +588,7 @@ app.delete('/api/projects/:projectId/daily-log/:id', auth, async (req, res) => {
 });
 
 // Punch List
-app.get('/api/projects/:projectId/punch', async (req, res) => {
+app.get('/api/projects/:projectId/punch', auth, async (req, res) => {
   const rows = await prisma.punchItem.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
   res.json(rows);
 });
@@ -564,7 +623,7 @@ const pickPunch = (body) => {
 };
 
 // List + filter — query: projectId, status, trade, priority, assignee, q
-app.get('/api/punch', async (req, res) => {
+app.get('/api/punch', auth, async (req, res) => {
   try {
     const { projectId, status, trade, priority, assignee, q } = req.query;
     const where = {};
@@ -580,7 +639,7 @@ app.get('/api/punch', async (req, res) => {
 });
 
 // Single item with comments / attachments / activity
-app.get('/api/punch/:id', async (req, res) => {
+app.get('/api/punch/:id', auth, async (req, res) => {
   try {
     const row = await prisma.punchItem.findUnique({ where: { id: req.params.id }, include: { comments: { orderBy: { createdAt: 'asc' } }, attachments: true, activity: { orderBy: { createdAt: 'desc' } } } });
     if (!row) return res.status(404).json({ error: 'Not found' });
@@ -589,7 +648,7 @@ app.get('/api/punch/:id', async (req, res) => {
 });
 
 // Punch items linked to a drawing (drives the viewer pin layer)
-app.get('/api/drawings/:drawingId/punch', async (req, res) => {
+app.get('/api/drawings/:drawingId/punch', auth, async (req, res) => {
   try { res.json(await prisma.punchItem.findMany({ where: { linkedDrawingId: req.params.drawingId }, orderBy: { createdAt: 'desc' } })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -692,15 +751,15 @@ async function logCO(req, changeOrderId, data) {
   } catch (e) { console.error('[CO activity] failed:', e.message); }
 }
 
-app.get('/api/change-orders', async (req, res) => {
+app.get('/api/change-orders', auth, async (req, res) => {
   try { const { projectId, status } = req.query; const where = {}; if (projectId) where.projectId = projectId; if (status) where.status = status; res.json(await prisma.changeOrder.findMany({ where, orderBy: { createdAt: 'desc' } })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.get('/api/projects/:projectId/change-orders', async (req, res) => {
+app.get('/api/projects/:projectId/change-orders', auth, async (req, res) => {
   try { res.json(await prisma.changeOrder.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.get('/api/change-orders/:id', async (req, res) => {
+app.get('/api/change-orders/:id', auth, async (req, res) => {
   try { const row = await prisma.changeOrder.findUnique({ where: { id: req.params.id } }); if (!row) return res.status(404).json({ error: 'Not found' }); res.json(row); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -835,7 +894,7 @@ Rules: 12-24 items in a logical construction sequence (mobilization, substructur
 });
 
 // Commitments
-app.get('/api/projects/:projectId/commitments', async (req, res) => {
+app.get('/api/projects/:projectId/commitments', auth, async (req, res) => {
   const rows = await prisma.commitment.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
   res.json(rows);
 });
@@ -855,7 +914,7 @@ app.delete('/api/projects/:projectId/commitments/:id', auth, async (req, res) =>
 });
 
 // Documents (global or per-project)
-app.get('/api/documents', async (_req, res) => {
+app.get('/api/documents', auth, async (_req, res) => {
   const rows = await prisma.document.findMany({ orderBy: { updatedAt: 'desc' } });
   res.json(rows);
 });
@@ -901,7 +960,7 @@ app.post('/api/upload/presign', auth, async (req, res) => {
 });
 
 // ===== BIDS =====
-app.get('/api/projects/:projectId/bids', async (req, res) => {
+app.get('/api/projects/:projectId/bids', auth, async (req, res) => {
   const rows = await prisma.bid.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
   res.json(rows);
 });
@@ -921,7 +980,7 @@ app.delete('/api/projects/:projectId/bids/:id', auth, async (req, res) => {
 });
 
 // ===== INVOICES =====
-app.get('/api/projects/:projectId/invoices', async (req, res) => {
+app.get('/api/projects/:projectId/invoices', auth, async (req, res) => {
   const rows = await prisma.invoice.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
   res.json(rows);
 });
@@ -962,7 +1021,7 @@ function canTransition(from, to) {
   return VALID_TRANSITIONS[from]?.includes(to);
 }
 
-app.get('/api/projects/:projectId/inspections', async (req, res) => {
+app.get('/api/projects/:projectId/inspections', auth, async (req, res) => {
   const rows = await prisma.inspection.findMany({
     where: { projectId: req.params.projectId },
     orderBy: { createdAt: 'desc' },
@@ -971,7 +1030,7 @@ app.get('/api/projects/:projectId/inspections', async (req, res) => {
   res.json(rows);
 });
 
-app.get('/api/inspections/:id', async (req, res) => {
+app.get('/api/inspections/:id', auth, async (req, res) => {
   const row = await prisma.inspection.findUnique({
     where: { id: req.params.id },
     include: { approvals: { orderBy: { createdAt: 'desc' } } },
@@ -1043,13 +1102,13 @@ app.post('/api/inspections/:id/approvals', auth, async (req, res) => {
   res.json({ approval, inspectionStatus: newStatus });
 });
 
-app.get('/api/inspections/:id/approvals', async (req, res) => {
+app.get('/api/inspections/:id/approvals', auth, async (req, res) => {
   const rows = await prisma.inspectionApproval.findMany({ where: { inspectionId: req.params.id }, orderBy: { createdAt: 'desc' } });
   res.json(rows);
 });
 
 // ===== SAFETY INCIDENTS =====
-app.get('/api/projects/:projectId/safety-incidents', async (req, res) => {
+app.get('/api/projects/:projectId/safety-incidents', auth, async (req, res) => {
   const rows = await prisma.safetyIncident.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
   res.json(rows);
 });
@@ -1069,7 +1128,7 @@ app.delete('/api/projects/:projectId/safety-incidents/:id', auth, async (req, re
 });
 
 // ===== EQUIPMENT =====
-app.get('/api/equipment', async (_req, res) => {
+app.get('/api/equipment', auth, async (_req, res) => {
   const rows = await prisma.equipment.findMany({ orderBy: { createdAt: 'desc' } });
   res.json(rows);
 });
@@ -1140,7 +1199,7 @@ app.delete('/api/attendance/:id', auth, async (req, res) => {
 });
 
 // ===== CHECKLIST TEMPLATES =====
-app.get('/api/checklist-templates', async (req, res) => {
+app.get('/api/checklist-templates', auth, async (req, res) => {
   const where = {};
   if (req.query.isGlobal === 'true') where.isGlobal = true;
   if (req.query.status) where.status = req.query.status;
@@ -1473,7 +1532,7 @@ app.post('/api/checklists/from-template/:templateId', auth, async (req, res) => 
 });
 
 // ===== CHECKLISTS =====
-app.get('/api/checklists', async (req, res) => {
+app.get('/api/checklists', auth, async (req, res) => {
   const where = {};
   if (req.query.projectId) where.projectId = req.query.projectId;
   if (req.query.status) where.status = req.query.status;
@@ -1502,7 +1561,7 @@ app.post('/api/checklists', auth, requireRole(CAN_GENERATE_CHECKLISTS), async (r
   });
   res.json(checklist);
 });
-app.get('/api/checklists/:id', async (req, res) => {
+app.get('/api/checklists/:id', auth, async (req, res) => {
   const row = await prisma.checklist.findUnique({ where: { id: req.params.id }, include: { questions: { orderBy: { position: 'asc' } }, responses: true } });
   if (!row) return res.status(404).json({ error: 'Not found' });
   res.json(row);
@@ -1791,7 +1850,7 @@ wss.on('connection', (ws, req) => {
 });
 
 // ===== PLAN MARKUPS =====
-app.get('/api/projects/:projectId/markups', async (req, res) => {
+app.get('/api/projects/:projectId/markups', auth, async (req, res) => {
   const rows = await prisma.planMarkup.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
   res.json(rows);
 });
@@ -1819,7 +1878,7 @@ app.delete('/api/projects/:projectId/markups/:id', auth, async (req, res) => {
 });
 
 // ===== DRAWING VERSIONS =====
-app.get('/api/projects/:projectId/drawing-versions', async (req, res) => {
+app.get('/api/projects/:projectId/drawing-versions', auth, async (req, res) => {
   const rows = await prisma.drawingVersion.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
   res.json(rows);
 });
@@ -1830,7 +1889,7 @@ app.post('/api/projects/:projectId/drawing-versions', auth, async (req, res) => 
 });
 
 // ===== SCHEDULED REPORTS =====
-app.get('/api/scheduled-reports', async (_req, res) => {
+app.get('/api/scheduled-reports', auth, async (_req, res) => {
   const rows = await prisma.scheduledReport.findMany({ orderBy: { createdAt: 'desc' } });
   res.json(rows);
 });
@@ -1855,7 +1914,7 @@ app.delete('/api/scheduled-reports/:id', auth, async (req, res) => {
 });
 
 // ===== FORM TEMPLATES =====
-app.get('/api/form-templates', async (_req, res) => {
+app.get('/api/form-templates', auth, async (_req, res) => {
   const rows = await prisma.formTemplate.findMany({ orderBy: { createdAt: 'desc' } });
   res.json(rows);
 });
@@ -1875,7 +1934,7 @@ app.delete('/api/form-templates/:id', auth, async (req, res) => {
 });
 
 // ===== TASK-LINKED MESSAGES =====
-app.get('/api/projects/:projectId/messages', async (req, res) => {
+app.get('/api/projects/:projectId/messages', auth, async (req, res) => {
   const rows = await prisma.message.findMany({ where: { projectId: req.params.projectId }, include: { user: { select: { name: true, role: true } } }, orderBy: { createdAt: 'desc' }, take: 200 });
   res.json(rows);
 });

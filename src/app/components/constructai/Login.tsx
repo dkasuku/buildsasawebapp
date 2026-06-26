@@ -1,5 +1,5 @@
 import { HardHat, ArrowRight, Github, ShieldCheck, Zap, Mic, Sun, Moon } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import api from "../../services/api";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
 
@@ -15,6 +15,19 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [devLink, setDevLink] = useState("");
+  // Show a message when the backend bounced us back (e.g. Google sign-in blocked
+  // because access is invite-only).
+  useEffect(() => {
+    try {
+      const err = new URLSearchParams(window.location.search).get("auth_error");
+      if (err) {
+        setError(err === "invite_only"
+          ? "That Google account isn't invited yet — access is invite-only. Ask your workspace admin to add you."
+          : "Sign-in failed. Please try again.");
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    } catch { /* noop */ }
+  }, []);
   const sendReset = async () => {
     if (!email.trim()) return setError("Enter your email first");
     setLoading(true); setError(""); setInfo(""); setDevLink("");
@@ -167,11 +180,11 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
               )}
             </div>
 
-            {mode !== "forgot" && (
-              <p className="mt-6 text-[11px] text-[#5B6675]">
-                {mode === "signup" ? "Already have an account? " : "New to ConstructAI? "}
-                <span onClick={() => { setMode(mode === "signup" ? "login" : "signup"); setError(""); }} className="text-[#FF6B1A] cursor-pointer hover:underline">{mode === "signup" ? "Sign in" : "Create an account"}</span>
-              </p>
+            {mode === "login" && (
+              <p className="mt-6 text-[11px] text-[#5B6675]">Access is invite‑only — ask your workspace admin to invite you.</p>
+            )}
+            {mode === "signup" && (
+              <p className="mt-6 text-[11px] text-[#5B6675]">Already have an account? <span onClick={() => { setMode("login"); setError(""); }} className="text-[#FF6B1A] cursor-pointer hover:underline">Sign in</span></p>
             )}
             {ALLOW_DEMO && <p className="text-[11px] text-[#8A95A5] mt-2">Demo: manager@example.com / password</p>}
           </div>

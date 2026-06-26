@@ -41,6 +41,7 @@ model Workspace {
 
 model Project {
   id        String   @id @default(cuid())
+  workspaceId String?
   code      String   @unique
   name      String
   city      String
@@ -95,6 +96,7 @@ model Message {
 
 model LedgerEntry {
   id        String   @id @default(cuid())
+  workspaceId String?
   date      DateTime
   desc      String
   type      String   // in | out
@@ -108,6 +110,7 @@ model LedgerEntry {
 
 model ExpenseCategory {
   id         String   @id @default(cuid())
+  workspaceId String?
   name       String
   budgetUSD  Int
   actualUSD  Int
@@ -119,6 +122,7 @@ model ExpenseCategory {
 
 model DailyLog {
   id        String   @id @default(cuid())
+  workspaceId String?
   date      DateTime
   crew      String
   headcount Int
@@ -132,6 +136,7 @@ model DailyLog {
 
 model PunchItem {
   id          String   @id @default(cuid())
+  workspaceId String?
   code        String
   area        String
   desc        String
@@ -214,6 +219,7 @@ model AccessLog {
 
 model Subscription {
   id               String    @id @default(cuid())
+  workspaceId String?
   userId           String    // who owns the subscription (workspace owner)
   email            String?
   plan             String    // monthly | yearly
@@ -231,6 +237,7 @@ model Subscription {
 // plan; paid via Paystack (or marked paid manually as a fallback).
 model BillingInvoice {
   id          String    @id @default(cuid())
+  workspaceId String?
   userId      String    // workspace owner being billed
   number      String    // human-friendly invoice number
   plan        String?   // monthly | yearly | null for one-off
@@ -251,6 +258,7 @@ model BillingInvoice {
 
 model ChangeOrder {
   id                 String   @id @default(cuid())
+  workspaceId String?
   number             String   // e.g. CO-1258
   title              String
   area               String?
@@ -272,6 +280,7 @@ model ChangeOrder {
 // Audit/activity log for a change order — who did what, when.
 model ChangeOrderActivity {
   id            String   @id @default(cuid())
+  workspaceId String?
   changeOrderId String
   userId        String?
   userName      String?
@@ -287,6 +296,7 @@ model ChangeOrderActivity {
 
 model Commitment {
   id        String   @id @default(cuid())
+  workspaceId String?
   vendor    String
   scope     String
   amount    String
@@ -299,6 +309,7 @@ model Commitment {
 
 model Document {
   id        String   @id @default(cuid())
+  workspaceId String?
   name      String
   url       String
   size      String
@@ -311,6 +322,7 @@ model Document {
 
 model Bid {
   id            String   @id @default(cuid())
+  workspaceId String?
   subcontractor String
   trade         String
   amount        Int
@@ -326,6 +338,7 @@ model Bid {
 
 model Invoice {
   id            String   @id @default(cuid())
+  workspaceId String?
   invoiceNumber String   @unique
   clientName    String
   amount        Int
@@ -344,6 +357,7 @@ model Invoice {
 
 model Inspection {
   id          String   @id @default(cuid())
+  workspaceId String?
   type        String
   inspector   String
   date        String
@@ -378,6 +392,7 @@ model InspectionApproval {
 
 model SafetyIncident {
   id               String   @id @default(cuid())
+  workspaceId String?
   date             String
   incidentType     String   // injury | near-miss | environmental | property | struck-by-equipment | rollover | cave-in | traffic-incident | asphalt-burn
   severity         String   // minor | moderate | major | fatality
@@ -394,6 +409,7 @@ model SafetyIncident {
 
 model Equipment {
   id            String   @id @default(cuid())
+  workspaceId String?
   name          String
   category      String   // excavator | crane | truck | mixer | compactor | generator | scaffolding | tool | tractor | grader | paver | roller | drainage-machine | trencher | dump-truck
   serialNumber  String?
@@ -412,6 +428,7 @@ model Equipment {
 
 model ChecklistTemplate {
   id        String   @id @default(cuid())
+  workspaceId String?
   title     String
   trade     String   // General | Electrical | Plumbing | HVAC | Carpentry | Painting | Masonry | Roofing | Drywall | Concrete | Landscaping
   category  String?  // e.g. safety, quality, pre-handover, custom
@@ -442,6 +459,7 @@ model FormSubmission {
 
 model Checklist {
   id          String   @id @default(cuid())
+  workspaceId String?
   title       String
   description String?
   category    String?  // trade or custom category
@@ -503,6 +521,7 @@ model ChecklistResponse {
 
 model DrawingVersion {
   id        String   @id @default(cuid())
+  workspaceId String?
   drawingId String   // external drawing identifier
   rev       Int
   url       String
@@ -514,6 +533,7 @@ model DrawingVersion {
 
 model PlanMarkup {
   id        String   @id @default(cuid())
+  workspaceId String?
   drawingId String
   type      String   // note | measurement | issue | as-built | verification
   x         Float
@@ -528,6 +548,7 @@ model PlanMarkup {
 
 model ScheduledReport {
   id          String   @id @default(cuid())
+  workspaceId String?
   name        String
   reportType  String   // financial | operational | project | custom
   frequency   String   // daily | weekly | monthly
@@ -542,6 +563,7 @@ model ScheduledReport {
 
 model FormTemplate {
   id          String   @id @default(cuid())
+  workspaceId String?
   name        String
   description String?
   category    String   // daily-report | timesheet | inspection-request | rfi | safety | custom
@@ -554,6 +576,7 @@ model FormTemplate {
 
 model Attendance {
   id        String   @id @default(cuid())
+  workspaceId String?
   userId    String
   user      User     @relation(fields: [userId], references: [id])
   date      String   // YYYY-MM-DD
@@ -571,6 +594,7 @@ model Attendance {
 
 model Conversation {
   id         String   @id @default(cuid())
+  workspaceId String?
   name       String?
   type       String   // direct | group
   profilePic String?
@@ -606,6 +630,7 @@ model ChatMessage {
 
 model Observation {
   id          String   @id @default(cuid())
+  workspaceId String?
   title       String
   type        String   // Quality | Safety | Environmental | Commissioning
   status      String   @default("open") // open | in_review | closed
@@ -622,6 +647,7 @@ model Observation {
 
 model CoordinationIssue {
   id          String   @id @default(cuid())
+  workspaceId String?
   title       String
   type        String   // RFI | Clash | Design Question
   status      String   @default("open") // open | answered | closed
@@ -638,6 +664,7 @@ model CoordinationIssue {
 
 model ActionPlan {
   id        String   @id @default(cuid())
+  workspaceId String?
   title     String
   source    String?
   owner     String?
@@ -651,6 +678,7 @@ model ActionPlan {
 
 model Correspondence {
   id          String   @id @default(cuid())
+  workspaceId String?
   subject     String
   type        String   // Letter | Submittal | Transmittal | Notice
   direction   String   @default("outgoing") // outgoing | incoming
@@ -667,6 +695,7 @@ model Correspondence {
 
 model WorkTask {
   id          String   @id @default(cuid())
+  workspaceId String?
   title       String
   description String?
   trade       String?  @default("General")
@@ -683,6 +712,7 @@ model WorkTask {
 // A project schedule activity / milestone shown on the Gantt timeline.
 model ScheduleItem {
   id        String   @id @default(cuid())
+  workspaceId String?
   projectId String
   name      String
   type      String   @default("task")        // task | milestone | phase
@@ -704,6 +734,7 @@ model ScheduleItem {
 
 model Crew {
   id        String   @id @default(cuid())
+  workspaceId String?
   name      String
   trade     String?
   foreman   String?
@@ -718,6 +749,7 @@ model Crew {
 
 model DirectoryContact {
   id        String   @id @default(cuid())
+  workspaceId String?
   name      String
   company   String?
   role      String?
@@ -731,6 +763,7 @@ model DirectoryContact {
 
 model CompanyDoc {
   id         String   @id @default(cuid())
+  workspaceId String?
   name       String
   category   String   @default("Policies") // Policies | Templates | Certifications | Insurance | HR | Legal
   type       String?
@@ -744,6 +777,7 @@ model CompanyDoc {
 
 model Announcement {
   id              String   @id @default(cuid())
+  workspaceId String?
   title           String
   body            String?
   author          String?
