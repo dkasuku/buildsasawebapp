@@ -266,6 +266,18 @@ async function notifyAssignment(userIds, { subject, intro, link }) {
   } catch (e) { console.error('[NOTIFY] failed:', e && e.message); }
 }
 
+// Send an email-verification link to a user. Fire-and-forget; catches its own
+// errors so it never blocks the request that triggered it.
+async function sendVerifyEmail(user) {
+  try {
+    if (!user || !user.email) return;
+    const token = jwt.sign({ sub: user.id, purpose: 'verify' }, JWT_SECRET, { expiresIn: '2d' });
+    const link = `${FRONTEND_URL}/?verify=${encodeURIComponent(token)}`;
+    const html = emailShell('Verify your email', `<p style="font-size:14px;color:#11161D">Hi ${user.name || ''}, welcome to Buildsasa. Please confirm your email address to secure your account.</p>${button(link, 'Verify email')}<p style="font-size:12px;color:#8A95A5">This link expires in 2 days.</p>`);
+    sendEmail({ to: user.email, subject: 'Verify your Buildsasa email', html }).catch(() => {});
+  } catch (e) { console.error('[VERIFY] failed:', e && e.message); }
+}
+
 // Record who signed in, when, from which IP — with best-effort geo lookup.
 // Never blocks auth: failures are swallowed and geo runs in the background.
 async function recordAccess(req, u) {
@@ -295,6 +307,7 @@ app.post('/api/signup', async (req, res) => {
     // Multi-tenant: each new signup creates its own isolated company (workspace) and owns it.
     const ws = await prisma.workspace.create({ data: { name: (company && String(company).trim()) || `${name}'s company` } });
     const user = await prisma.user.create({ data: { name, email: String(email).toLowerCase(), passwordHash: bcrypt.hashSync(password, 10), role: role || 'Contractor', workspaceId: ws.id } });
+    sendVerifyEmail(user);
     recordAccess(req, user); res.json({ ...authTokens(user), user: publicUser(user) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -313,14 +326,34 @@ app.post('/api/auth/refresh', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Confirm an email address from the link in the verification email (public — no auth).
+app.post('/api/auth/verify-email', async (req, res) => {
+  try {
+    const { token } = req.body || {};
+    if (!token) return res.status(400).json({ error: 'Missing token' });
+    let payload;
+    try { payload = jwt.verify(token, JWT_SECRET); } catch { return res.status(400).json({ error: 'This verification link is invalid or has expired' }); }
+    if (payload.purpose !== 'verify' || !payload.sub) return res.status(400).json({ error: 'Invalid verification link' });
+    await prismaBase.user.update({ where: { id: payload.sub }, data: { emailVerified: true } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Resend the verification email to the currently logged-in user.
+app.post('/api/auth/resend-verification', auth, async (req, res) => {
+  try {
+    const user = await prismaBase.user.findUnique({ where: { id: req.user.sub } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.emailVerified) return res.json({ ok: true, alreadyVerified: true });
+    sendVerifyEmail(user);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body || {};
     const em = String(email || '').toLowerCase();
-    // Demo account still works for local testing.
-    if (em === demoUser.email && bcrypt.compareSync(password || '', demoUser.passwordHash)) {
-      recordAccess(req, demoUser); return res.json({ ...authTokens(demoUser), user: publicUser(demoUser) });
-    }
     const user = await prisma.user.findUnique({ where: { email: em } });
     if (!user || !user.passwordHash || !bcrypt.compareSync(password || '', user.passwordHash)) {
       return res.status(401).json({ error: 'Invalid email or password' });

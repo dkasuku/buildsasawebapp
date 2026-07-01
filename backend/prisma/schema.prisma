@@ -13,6 +13,7 @@ model User {
   name      String
   role      String
   passwordHash String?
+  emailVerified Boolean @default(false)
   phone     String?
   age       Int?
   gender    String?  // male | female | other | prefer-not-to-say

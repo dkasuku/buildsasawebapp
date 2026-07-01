@@ -1,4 +1,4 @@
-import { ArrowRight, ShieldCheck, Zap, Mic, Sun, Moon } from "lucide-react";
+import { ArrowRight, ShieldCheck, Zap, Wallet, Sun, Moon } from "lucide-react";
 import { useState, useEffect } from "react";
 import api from "../../services/api";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
@@ -7,8 +7,9 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
   const [mode, setMode] = useState<"login" | "signup" | "forgot">("login");
   const [name, setName] = useState("");
   const [company, setCompany] = useState("");
-  const [email, setEmail] = useState("manager@example.com");
-  const [password, setPassword] = useState("password");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
@@ -38,6 +39,13 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
     } finally { setLoading(false); }
   };
   const submit = async () => {
+    if (mode === "signup") {
+      if (!company.trim() || !name.trim() || !email.trim()) return setError("Please fill in your company, name and email.");
+      if (password.length < 6) return setError("Password must be at least 6 characters.");
+      if (password !== confirmPassword) return setError("Passwords do not match.");
+    } else {
+      if (!email.trim() || !password) return setError("Enter your email and password.");
+    }
     setLoading(true); setError("");
     try {
       const res = mode === "signup"
@@ -79,15 +87,15 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
         <div className="flex-1 flex items-center">
           <div className="w-full max-w-[400px]">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-[#222A35] bg-[#11161D] text-[10px] text-[#8A95A5] uppercase tracking-wider mb-5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]" /> All systems operational
+              <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]" /> For contractors &amp; site teams
             </div>
             <h1 className="text-[32px] text-white tracking-tight leading-[1.1]" style={{ fontWeight: 500 }}>
-              {mode === "signup" ? <>Create your<br /> construction OS.</> : mode === "forgot" ? <>Reset your<br /> password.</> : <>Sign in to your<br /> construction OS.</>}
+              {mode === "signup" ? <>Create your<br /> company account.</> : mode === "forgot" ? <>Reset your<br /> password.</> : <>Sign in to<br /> Buildsasa.</>}
             </h1>
             <p className="text-[13px] text-[#8A95A5] mt-3">
               {mode === "forgot"
                 ? "Enter your work email and we'll send you a link to set a new password."
-                : "Manage change orders, field reports, and approvals across every jobsite — from foundation to ribbon-cutting."}
+                : "Projects, checklists, financials, tenders and your team — one place to run construction, from groundbreaking to handover."}
             </p>
 
             <div className="mt-7 space-y-3">
@@ -118,6 +126,7 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
                 <input
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@company.com"
                   className="mt-1.5 w-full h-11 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]"
                 />
               </div>
@@ -131,6 +140,19 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="mt-1.5 w-full h-11 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]"
+                  />
+                </div>
+              )}
+              {mode === "signup" && (
+                <div>
+                  <label className="text-[11px] text-[#8A95A5] uppercase tracking-wider">Confirm Password</label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Re-enter your password"
                     className="mt-1.5 w-full h-11 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]"
                   />
                 </div>
@@ -201,7 +223,7 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,107,26,0.18),_transparent_50%)]" />
 
         <div className="absolute top-10 right-10 px-3 py-1.5 rounded-full bg-[#0A0E14]/80 backdrop-blur border border-[#222A35] text-[11px] text-white flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#FF6B1A] animate-pulse" /> Live: 1,284 active jobsites
+          <span className="w-1.5 h-1.5 rounded-full bg-[#FF6B1A] animate-pulse" /> Built for East African contractors
         </div>
 
         <div className="absolute bottom-10 left-10 right-10 space-y-3">
@@ -209,23 +231,23 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
             Built for the field.<br /> Trusted in the boardroom.
           </div>
           <p className="text-[13px] text-[#8A95A5] max-w-[420px]">
-            From a supervisor's pocket to the CFO's quarterly review — every change order, photo, and signature in one source of truth.
+            From the site supervisor's phone to the boardroom review — every project, cost and approval in one source of truth.
           </p>
           <div className="flex gap-2 pt-3">
             <div className="flex-1 p-3 rounded-lg bg-[#0A0E14]/80 backdrop-blur border border-[#222A35]">
               <Zap className="w-4 h-4 text-[#FF6B1A]" />
-              <div className="text-[11px] text-white mt-2">AI Drafts</div>
-              <div className="text-[10px] text-[#5B6675]">In under 45s</div>
+              <div className="text-[11px] text-white mt-2">AI checklists</div>
+              <div className="text-[10px] text-[#5B6675]">From any paper form</div>
             </div>
             <div className="flex-1 p-3 rounded-lg bg-[#0A0E14]/80 backdrop-blur border border-[#222A35]">
-              <Mic className="w-4 h-4 text-[#FF6B1A]" />
-              <div className="text-[11px] text-white mt-2">Voice Capture</div>
-              <div className="text-[10px] text-[#5B6675]">Hands-free</div>
+              <Wallet className="w-4 h-4 text-[#FF6B1A]" />
+              <div className="text-[11px] text-white mt-2">Financials built in</div>
+              <div className="text-[10px] text-[#5B6675]">Budgets, bids, invoices</div>
             </div>
             <div className="flex-1 p-3 rounded-lg bg-[#0A0E14]/80 backdrop-blur border border-[#222A35]">
               <ShieldCheck className="w-4 h-4 text-[#FF6B1A]" />
-              <div className="text-[11px] text-white mt-2">Audit Ready</div>
-              <div className="text-[10px] text-[#5B6675]">Full trail</div>
+              <div className="text-[11px] text-white mt-2">Audit-ready</div>
+              <div className="text-[10px] text-[#5B6675]">Every approval logged</div>
             </div>
           </div>
         </div>

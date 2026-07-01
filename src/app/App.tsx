@@ -242,6 +242,19 @@ export default function App() {
     return () => window.removeEventListener("buildsasa:billing-updated", bump);
   }, []);
 
+  // Email-verification deep link: /?verify=TOKEN — confirm and clean the URL.
+  useEffect(() => {
+    try {
+      const vt = new URLSearchParams(window.location.search).get("verify");
+      if (vt) {
+        api.verifyEmail(vt)
+          .then(() => toast.success("Email verified 🎉"))
+          .catch(() => toast.error("That verification link is invalid or has expired."))
+          .finally(() => window.history.replaceState({}, "", window.location.pathname));
+      }
+    } catch { /* noop */ }
+  }, []);
+
   const openChangeOrder = (id: string, status?: string) => {
     setActiveChangeOrderId(id);
     setActiveChangeOrderStatus(status ?? null);
