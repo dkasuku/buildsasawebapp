@@ -10,6 +10,7 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [agreedTerms, setAgreedTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
@@ -43,6 +44,7 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
       if (!company.trim() || !name.trim() || !email.trim()) return setError("Please fill in your company, name and email.");
       if (password.length < 6) return setError("Password must be at least 6 characters.");
       if (password !== confirmPassword) return setError("Passwords do not match.");
+      if (!agreedTerms) return setError("Please accept the Terms & Conditions and Privacy Policy to continue.");
     } else {
       if (!email.trim() || !password) return setError("Enter your email and password.");
     }
@@ -156,6 +158,22 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
                     className="mt-1.5 w-full h-11 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]"
                   />
                 </div>
+              )}
+              {mode === "signup" && (
+                <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={agreedTerms}
+                    onChange={(e) => setAgreedTerms(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-[#FF6B1A] cursor-pointer"
+                  />
+                  <span className="text-[11.5px] text-[#8A95A5] leading-relaxed">
+                    I agree to the{" "}
+                    <a href="https://buildsasa.com/terms" target="_blank" rel="noopener noreferrer" className="text-[#FF6B1A] hover:underline">Terms &amp; Conditions</a>
+                    {" "}and{" "}
+                    <a href="https://buildsasa.com/privacy" target="_blank" rel="noopener noreferrer" className="text-[#FF6B1A] hover:underline">Privacy Policy</a>.
+                  </span>
+                </label>
               )}
               {error && <div className="text-[12px] text-[#EF4444] bg-[#EF4444]/10 border border-[#EF4444]/30 rounded-md px-3 py-2">{error}</div>}
               {info && <div className="text-[12px] text-[#22C55E] bg-[#22C55E]/10 border border-[#22C55E]/30 rounded-md px-3 py-2">{info}</div>}
