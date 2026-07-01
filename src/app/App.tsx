@@ -212,7 +212,11 @@ export default function App() {
 
   // Subscription gate — stays dormant until Paystack is configured, so local
   // testing is never blocked. Once a key is set, non-subscribers see a paywall.
-  const [gate, setGate] = useState<{ configured: boolean; active: boolean; overdue: boolean; unpaidDue: string | null }>({ configured: false, active: true, overdue: false, unpaidDue: null });
+  // Start locked (active:false) so we NEVER flash the dashboard before the
+  // subscription status is known. `gateLoaded` stays false until the first
+  // check resolves; until then we hold on a neutral loading screen.
+  const [gate, setGate] = useState<{ configured: boolean; active: boolean; overdue: boolean; unpaidDue: string | null }>({ configured: false, active: false, overdue: false, unpaidDue: null });
+  const [gateLoaded, setGateLoaded] = useState(false);
   const [gateNonce, setGateNonce] = useState(0);
   useEffect(() => {
     if (view === "login") return;
@@ -230,6 +234,7 @@ export default function App() {
         const soonest = open.map((i: any) => i.dueDate).sort()[0] || null;
         if (alive) setGate({ configured: !!(plans as any).configured, active: (sub as any)?.status === "active", overdue, unpaidDue: soonest });
       } catch { /* ignore */ }
+      finally { if (alive) setGateLoaded(true); }
     })();
     return () => { alive = false; };
   }, [view, gateNonce]);
@@ -302,6 +307,20 @@ export default function App() {
     return (
       <div className={`h-screen w-full ${theme === "light" ? "theme-light" : ""}`}>
         <Login onContinue={(user) => { if (user && user.role && ROLES[user.role as Role]) setRole(user.role as Role); setView("dashboard"); }} theme={theme} setTheme={setTheme} />
+        <Toaster theme={theme} position="top-right" />
+      </div>
+    );
+  }
+
+  // Authed, but the subscription status isn't known yet. Hold on a neutral
+  // loading screen so we never flash the dashboard before the paywall decision.
+  if (!gateLoaded) {
+    return (
+      <div className={`h-screen w-full flex items-center justify-center ${theme === "light" ? "theme-light bg-[#F4F6FA]" : "bg-[#0A0E14]"}`}>
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 rounded-full border-2 border-[#222A35] border-t-[#FF6B1A] animate-spin" />
+          <div className="text-[12.5px] text-[#8A95A5]">Loading your workspace…</div>
+        </div>
         <Toaster theme={theme} position="top-right" />
       </div>
     );
