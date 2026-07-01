@@ -44,6 +44,7 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
         ? await api.signup(name.trim(), email.trim(), password, company.trim())
         : await api.login(email.trim(), password);
       localStorage.setItem("constructai-token", res.token);
+      if (res.refreshToken) localStorage.setItem("constructai-refresh", res.refreshToken);
       try { localStorage.setItem("constructai-user", JSON.stringify(res.user)); } catch { /* noop */ }
       onContinue(res.user);
     } catch (e: any) {

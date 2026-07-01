@@ -156,7 +156,7 @@ export function Sidebar({
     return () => window.removeEventListener("buildflex:profile-updated", load);
   }, []);
   const signOut = () => {
-    try { localStorage.removeItem("constructai-token"); localStorage.removeItem("constructai-user"); } catch { /* noop */ }
+    try { localStorage.removeItem("constructai-token"); localStorage.removeItem("constructai-user"); localStorage.removeItem("constructai-refresh"); } catch { /* noop */ }
     go("login");
   };
   const displayName = me?.name || "Your profile";

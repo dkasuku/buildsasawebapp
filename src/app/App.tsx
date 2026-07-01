@@ -106,6 +106,8 @@ export default function App() {
       const gToken = params.get("token");
       if (gToken) {
         localStorage.setItem("constructai-token", gToken);
+        const gRefresh = params.get("refresh");
+        if (gRefresh) localStorage.setItem("constructai-refresh", gRefresh);
         const gUser = params.get("user");
         if (gUser) localStorage.setItem("constructai-user", gUser);
         window.history.replaceState({}, "", window.location.pathname);
@@ -355,7 +357,7 @@ export default function App() {
                   <p className="text-[12.5px] text-[#8A95A5] mt-2 leading-relaxed">{gate.overdue ? "You have an overdue invoice. Pay it to continue using your workspace." : "Choose a plan to unlock Buildsasa for your company. You can manage or cancel anytime from Billing."}</p>
                   <div className="flex gap-2 justify-center mt-5">
                     <button onClick={() => setView("billing")} className="h-10 px-5 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[12.5px]">{gate.overdue ? "Pay invoice" : "Choose a plan"}</button>
-                    <button onClick={() => { try { localStorage.removeItem("constructai-token"); localStorage.removeItem("constructai-user"); } catch { /* noop */ } setView("login"); }} className="h-10 px-4 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white text-[12.5px]">Sign out</button>
+                    <button onClick={() => { try { localStorage.removeItem("constructai-token"); localStorage.removeItem("constructai-user"); localStorage.removeItem("constructai-refresh"); } catch { /* noop */ } setView("login"); }} className="h-10 px-4 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white text-[12.5px]">Sign out</button>
                   </div>
                 </div>
               </div>

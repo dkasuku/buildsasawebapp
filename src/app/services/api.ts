@@ -1,7 +1,50 @@
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = localStorage.getItem("constructai-token");
+const TOKEN_KEY = "constructai-token";
+const REFRESH_KEY = "constructai-refresh";
+
+let refreshInFlight: Promise<boolean> | null = null;
+
+// Exchange the stored refresh token for a fresh access token. Deduped so
+// concurrent 401s only trigger one refresh call.
+async function tryRefresh(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight;
+  const rt = localStorage.getItem(REFRESH_KEY);
+  if (!rt) return false;
+  refreshInFlight = (async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken: rt }),
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (data?.token) localStorage.setItem(TOKEN_KEY, data.token);
+      if (data?.refreshToken) localStorage.setItem(REFRESH_KEY, data.refreshToken);
+      if (data?.user) localStorage.setItem("constructai-user", JSON.stringify(data.user));
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  const ok = await refreshInFlight;
+  refreshInFlight = null;
+  return ok;
+}
+
+// Clear the session and send the user back to the login screen.
+function forceLogout() {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(REFRESH_KEY);
+    localStorage.removeItem("constructai-user");
+  } catch { /* ignore */ }
+  if (typeof window !== "undefined") window.location.assign("/");
+}
+
+async function http<T>(path: string, init?: RequestInit, _retried = false): Promise<T> {
+  const token = localStorage.getItem(TOKEN_KEY);
   const isFormData = init?.body instanceof FormData;
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
@@ -11,6 +54,14 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers || {}),
     },
   });
+  // An expired/invalid access token on an authenticated request: refresh once
+  // and retry. If that fails, clear the session and bounce to login.
+  if (res.status === 401 && token && !_retried && !path.startsWith("/api/auth/")) {
+    const ok = await tryRefresh();
+    if (ok) return http<T>(path, init, true);
+    forceLogout();
+    throw new Error("Your session has expired. Please sign in again.");
+  }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || res.statusText);
@@ -584,8 +635,8 @@ export type BillingInvoiceDto = {
 };
 
 export const api = {
-  login: (email: string, password: string) => http<{ token: string; user: any }>("/api/login", { method: "POST", body: JSON.stringify({ email, password }) }),
-  signup: (name: string, email: string, password: string, company?: string, role?: string) => http<{ token: string; user: any }>("/api/signup", { method: "POST", body: JSON.stringify({ name, email, password, company, role }) }),
+  login: (email: string, password: string) => http<{ token: string; refreshToken?: string; user: any }>("/api/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  signup: (name: string, email: string, password: string, company?: string, role?: string) => http<{ token: string; refreshToken?: string; user: any }>("/api/signup", { method: "POST", body: JSON.stringify({ name, email, password, company, role }) }),
   me: () => http<UserProfile>("/api/me"),
   updateMe: (payload: Partial<Omit<UserProfile, "id" | "role" | "email">>) => http<UserProfile>("/api/me", { method: "PUT", body: JSON.stringify(payload) }),
   changePassword: (currentPassword: string, newPassword: string) => http<{ ok: boolean }>("/api/me/password", { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) }),

@@ -147,7 +147,11 @@ function auth(req, res, next) {
 }
 
 // Login stub
-const issueToken = (u) => jwt.sign({ sub: u.id, role: u.role, name: u.name, email: u.email, ws: u.workspaceId || null }, JWT_SECRET, { expiresIn: '7d' });
+const ACCESS_TTL = process.env.ACCESS_TTL || '2h';
+const REFRESH_TTL = process.env.REFRESH_TTL || '30d';
+const issueToken = (u) => jwt.sign({ sub: u.id, role: u.role, name: u.name, email: u.email, ws: u.workspaceId || null }, JWT_SECRET, { expiresIn: ACCESS_TTL });
+const issueRefreshToken = (u) => jwt.sign({ sub: u.id, type: 'refresh' }, JWT_SECRET, { expiresIn: REFRESH_TTL });
+const authTokens = (u) => ({ token: issueToken(u), refreshToken: issueRefreshToken(u) });
 const publicUser = (u) => ({ id: u.id, name: u.name, role: u.role, email: u.email });
 
 // ===== GOOGLE OAUTH (Sign in with Google) =====
@@ -198,8 +202,9 @@ app.get('/api/auth/google/callback', async (req, res) => {
     }
     recordAccess(req, user);
     const token = issueToken(user);
+    const refreshToken = issueRefreshToken(user);
     const userParam = encodeURIComponent(JSON.stringify(publicUser(user)));
-    res.redirect(`${FRONTEND_URL}/?token=${encodeURIComponent(token)}&user=${userParam}`);
+    res.redirect(`${FRONTEND_URL}/?token=${encodeURIComponent(token)}&refresh=${encodeURIComponent(refreshToken)}&user=${userParam}`);
   } catch (e) {
     console.error('[google oauth] failed:', e.message);
     res.redirect(`${FRONTEND_URL}/?auth_error=google`);
@@ -290,7 +295,21 @@ app.post('/api/signup', async (req, res) => {
     // Multi-tenant: each new signup creates its own isolated company (workspace) and owns it.
     const ws = await prisma.workspace.create({ data: { name: (company && String(company).trim()) || `${name}'s company` } });
     const user = await prisma.user.create({ data: { name, email: String(email).toLowerCase(), passwordHash: bcrypt.hashSync(password, 10), role: role || 'Contractor', workspaceId: ws.id } });
-    recordAccess(req, user); res.json({ token: issueToken(user), user: publicUser(user) });
+    recordAccess(req, user); res.json({ ...authTokens(user), user: publicUser(user) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Exchange a valid refresh token for a fresh access token (public — no auth).
+app.post('/api/auth/refresh', async (req, res) => {
+  try {
+    const { refreshToken } = req.body || {};
+    if (!refreshToken) return res.status(401).json({ error: 'Missing refresh token' });
+    let payload;
+    try { payload = jwt.verify(refreshToken, JWT_SECRET); } catch { return res.status(401).json({ error: 'Session expired' }); }
+    if (payload.type !== 'refresh' || !payload.sub) return res.status(401).json({ error: 'Invalid refresh token' });
+    const user = await prismaBase.user.findUnique({ where: { id: payload.sub } });
+    if (!user) return res.status(401).json({ error: 'User not found' });
+    res.json({ ...authTokens(user), user: publicUser(user) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -300,13 +319,13 @@ app.post('/api/login', async (req, res) => {
     const em = String(email || '').toLowerCase();
     // Demo account still works for local testing.
     if (em === demoUser.email && bcrypt.compareSync(password || '', demoUser.passwordHash)) {
-      recordAccess(req, demoUser); return res.json({ token: issueToken(demoUser), user: publicUser(demoUser) });
+      recordAccess(req, demoUser); return res.json({ ...authTokens(demoUser), user: publicUser(demoUser) });
     }
     const user = await prisma.user.findUnique({ where: { email: em } });
     if (!user || !user.passwordHash || !bcrypt.compareSync(password || '', user.passwordHash)) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
-    recordAccess(req, user); res.json({ token: issueToken(user), user: publicUser(user) });
+    recordAccess(req, user); res.json({ ...authTokens(user), user: publicUser(user) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3016,7 +3035,7 @@ app.post('/api/support/chat', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/ai/generate-checklist', async (req, res) => {
+app.post('/api/ai/generate-checklist', auth, async (req, res) => {
   try {
     const { trade, projectType, scope } = req.body;
     const prompt = `Generate a comprehensive construction QA/QC checklist for ${trade} work on a ${projectType}${scope ? ` — ${scope}` : ''}. Return ONLY a JSON array of objects with fields: id (string), title (string), description (string), answerType (one of: text, number, percentage, photo, yes_no, checkbox), required (boolean), unit (string or null), options (string array or null for checkbox), and an optional subItems array.
@@ -3057,7 +3076,7 @@ Return ONLY valid JSON. No markdown, no explanations.`;
 
 // Generate checklist items in the Form Builder's exact model from a free-text
 // chat request. Returns { title, items } where each item matches the builder.
-app.post('/api/ai/build-checklist', async (req, res) => {
+app.post('/api/ai/build-checklist', auth, async (req, res) => {
   try {
     const { prompt, trade, category, current, history } = req.body || {};
     if (!prompt || !String(prompt).trim()) return res.status(400).json({ error: 'prompt required' });
