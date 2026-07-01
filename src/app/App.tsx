@@ -203,6 +203,7 @@ export default function App() {
 
   // Reset to first allowed+visible view when role changes
   useEffect(() => {
+    if (view === "login") return;
     const allowed = visibleViewsFor(ROLES[role].views);
     if (!allowed.includes(view)) {
       setView((allowed[0] ?? "dashboard") as View);
@@ -283,7 +284,8 @@ export default function App() {
     );
   }
 
-  if (view === "login") {
+  const authed = (() => { try { return !!localStorage.getItem("constructai-token"); } catch { return false; } })();
+  if (view === "login" || !authed) {
     return (
       <div className={`h-screen w-full ${theme === "light" ? "theme-light" : ""}`}>
         <Login onContinue={(user) => { if (user && user.role && ROLES[user.role as Role]) setRole(user.role as Role); setView("dashboard"); }} theme={theme} setTheme={setTheme} />
