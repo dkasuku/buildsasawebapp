@@ -62,7 +62,7 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
             </div>
             <div>
               <div className="text-[14px] text-white tracking-tight">Buildsasa</div>
-              <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Change Order OS</div>
+              <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">AI-powered construction, simplified</div>
             </div>
           </div>
           {setTheme && (

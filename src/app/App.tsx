@@ -287,7 +287,6 @@ export default function App() {
     return (
       <div className={`h-screen w-full ${theme === "light" ? "theme-light" : ""}`}>
         <Login onContinue={(user) => { if (user && user.role && ROLES[user.role as Role]) setRole(user.role as Role); setView("dashboard"); }} theme={theme} setTheme={setTheme} />
-        <ShemmySupport />
         <Toaster theme={theme} position="top-right" />
       </div>
     );
@@ -435,7 +434,7 @@ export default function App() {
         )}
         {settingsOpen && <ProfileSettings onClose={() => setSettingsOpen(false)} />}
         <AiAssistantPanel open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} onExpand={() => { setAiPanelOpen(false); setView("buildflex-ai"); }} messages={aiMessages} setMessages={setAiMessages} onOpenForm={openAiForm} />
-        <ShemmySupport />
+        {!paywalled && <ShemmySupport />}
       </div>
     </CurrencyProvider>
   );
