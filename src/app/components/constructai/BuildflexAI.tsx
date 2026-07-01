@@ -17,7 +17,7 @@ function aiReply(q: string): string {
   if (l.includes("inspection") || l.includes("quality")) return "Use three-tier QA: (1) crew self-check, (2) trade lead sign-off, (3) independent QC with photos. Log non-conformances with photos and deadlines.";
   if (l.includes("subcontractor")) return "Verify insurance/bonding before site access. Hold pre-start meetings. Require daily photo reports. Process payments only after signed completion certs.";
   if (l.includes("change order") || l.includes("variation")) return "Document in writing immediately. Assess cost/schedule impact within 48h. Obtain written client approval before proceeding. Update BOQ and schedule.";
-  return "I'm Buildflex AI, your construction assistant. I can help with safety, QA checklists, cost control, scheduling, and subcontractor management. What would you like to explore?";
+  return "I'm Buildsasa AI, your construction assistant. I can help with safety, QA checklists, cost control, scheduling, and subcontractor management. What would you like to explore?";
 }
 
 function genFinancial(project: string, type: string) {
@@ -102,7 +102,7 @@ export default function BuildflexAI({ role, messages, setMessages, onOpenForm }:
 
   return (
     <div className="px-4 sm:px-7 py-6 space-y-6">
-      <div><div className="flex items-center gap-2 text-[14px] text-white font-display"><Sparkles className="w-5 h-5 text-[#FF6B1A]" /> Buildflex AI</div><div className="text-[11px] text-[#8A95A5] mt-0.5">AI assistant for financial reports and building expertise</div></div>
+      <div><div className="flex items-center gap-2 text-[14px] text-white font-display"><Sparkles className="w-5 h-5 text-[#FF6B1A]" /> Buildsasa AI</div><div className="text-[11px] text-[#8A95A5] mt-0.5">AI assistant for financial reports and building expertise</div></div>
       <div className="flex border border-[#222A35] rounded-md overflow-hidden w-fit">
         <button onClick={()=>setTab("ask")} className={BTN("ask")}><MessageSquare className="w-3 h-3" /> Ask AI</button>
         {perms.financials && <button onClick={()=>setTab("financials")} className={BTN("financials")}><TrendingUp className="w-3 h-3" /> Financial Reports</button>}

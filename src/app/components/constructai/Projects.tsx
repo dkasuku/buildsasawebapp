@@ -89,6 +89,17 @@ const statusColor = (s: string) =>
   : s === "Archived" ? "bg-[#5B6675]/15 text-[#8A95A5] border-[#222A35]"
   : "bg-[#F5A623]/15 text-[#F5A623] border-[#F5A623]/30";
 
+// Maps a change-order status to a human label + accent color for the
+// Recent Activity panel.
+const CO_STATUS_DISPLAY: Record<string, { label: string; color: string }> = {
+  drafted: { label: "Drafted", color: "#5B6675" },
+  pm_review: { label: "PM Review", color: "#3B82F6" },
+  owner_approval: { label: "Owner Approval", color: "#FF6B1A" },
+  approved: { label: "Approved", color: "#22C55E" },
+  rejected: { label: "Rejected", color: "#EF4444" },
+  void: { label: "Void", color: "#5B6675" },
+};
+
 const parseCompactValue = (value: string) => {
   const cleaned = value.replace(/[+$]/g, "").trim();
   const match = cleaned.match(/([\d.]+)\s*([mk])?/i);
@@ -181,6 +192,20 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
     }).catch(() => {
       // Keep seed data
     });
+  }, []);
+  // Recent change orders for the "Recent Activity" panel (real data; empty for a
+  // fresh workspace). Loaded once on mount.
+  const [recentCOs, setRecentCOs] = useState<any[] | null>(null);
+  const [projectNameById, setProjectNameById] = useState<Record<string, string>>({});
+  useEffect(() => {
+    api.getProjects().then((ps) => {
+      const map: Record<string, string> = {};
+      (ps ?? []).forEach((p) => { map[p.id] = p.name; });
+      setProjectNameById(map);
+    }).catch(() => {});
+    api.listChangeOrders().then((cos) => {
+      setRecentCOs(Array.isArray(cos) ? cos : []);
+    }).catch(() => setRecentCOs([]));
   }, []);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
@@ -340,6 +365,16 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
   const minProgressValue = minProgress === "" ? null : Number(minProgress);
   const maxProgressValue = maxProgress === "" ? null : Number(maxProgress);
 
+  // KPI header values derived from the actually-loaded projects (zero/empty for
+  // a fresh workspace — no hardcoded demo counts).
+  const activeProjectsCount = projects.filter((p) => ["On Track", "At Risk", "Planning"].includes(p.status)).length;
+  const combinedValueKES = projects.reduce((sum, p) => sum + (p.valueKES ?? 0), 0);
+  const combinedValueLabel = combinedValueKES > 0 ? formatCompactCurrency(combinedValueKES, currency) : "—";
+  const coExposureKES = projects.reduce((sum, p) => sum + (p.exposureKES ?? 0), 0);
+  const coExposureLabel = coExposureKES > 0 ? formatCompactCurrency(coExposureKES, currency) : "—";
+  const healthy = projects.filter((p) => ["On Track", "Closing"].includes(p.status)).length;
+  const projectHealthLabel = projects.length > 0 ? `${Math.round((healthy / projects.length) * 100)}%` : "—";
+
   const filtered = projects.filter((p) => {
     const matchesTab = tab === "All"
       || (tab === "Active" && ["On Track", "At Risk", "Planning"].includes(p.status))
@@ -367,10 +402,10 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
     >
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {[
-          { l: "Active Projects", v: "12", s: "across 4 regions" },
-          { l: "Combined Value", v: "$562M", s: "in active contracts" },
-          { l: "CO Exposure", v: "+$6.4M", s: "pending approval", c: "text-[#FF6B1A]" },
-          { l: "Project Health", v: "92%", s: "on or ahead of schedule", c: "text-[#22C55E]" },
+          { l: "Active Projects", v: String(activeProjectsCount), s: "sites & jobs in progress" },
+          { l: "Combined Value", v: combinedValueLabel, s: "in active contracts" },
+          { l: "CO Exposure", v: coExposureLabel, s: "across your projects", c: "text-[#FF6B1A]" },
+          { l: "Project Health", v: projectHealthLabel, s: "on or ahead of schedule", c: "text-[#22C55E]" },
         ].map((s) => (
           <div key={s.l} className="rounded-xl border border-[#222A35] bg-[#11161D] p-4">
             <div className="text-[11px] text-[#8A95A5]">{s.l}</div>
@@ -695,35 +730,43 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
           </div>
           <button onClick={() => setView("change-order")} className="text-[11px] text-[#FF6B1A] hover:underline">View all</button>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[700px]">
-            <thead>
-              <tr className="text-[10px] text-[#5B6675] uppercase tracking-wider">
-                <th className="text-left px-5 py-2.5">Project</th>
-                <th className="text-left px-3 py-2.5">CO #</th>
-                <th className="text-left px-3 py-2.5">Description</th>
-                <th className="text-left px-3 py-2.5">Status</th>
-                <th className="text-right px-5 py-2.5">Amount</th>
-              </tr>
-            </thead>
-            <tbody className="text-[12px]">
-              {[
-                { p: "Harborfront Tower", co: "CO-1284", d: "Curtain wall reinforcement", s: "PM Review", c: "#3B82F6", aUSD: 24500 },
-                { p: "Midtown Medical", co: "CO-1281", d: "Medical gas outlets ICU floor 4", s: "Owner Approval", c: "#FF6B1A", aUSD: 284000 },
-                { p: "Riverside Plaza", co: "CO-1278", d: "Concrete spec upgrade to 6000 PSI", s: "Approved", c: "#22C55E", aUSD: 62300 },
-                { p: "Sunset Logistics", co: "CO-1276", d: "Loading dock leveler — 4 bays", s: "Drafted", c: "#5B6675", aUSD: 42000 },
-              ].map((r) => (
-                <tr key={r.co} onClick={() => setView("change-order")} className="border-t border-[#222A35] hover:bg-[#161C24] cursor-pointer">
-                  <td className="px-5 py-3 text-white">{r.p}</td>
-                  <td className="px-3 py-3 text-[#8A95A5] font-mono text-[11px]">{r.co}</td>
-                  <td className="px-3 py-3 text-[#8A95A5]">{r.d}</td>
-                  <td className="px-3 py-3"><span className="px-2 py-0.5 rounded-full text-[10px]" style={{ background: `${r.c}20`, color: r.c }}>{r.s}</span></td>
-                  <td className="px-5 py-3 text-right text-[#FF6B1A]">{formatCurrency($toKES(r.aUSD), currency)}</td>
+        {recentCOs && recentCOs.length === 0 ? (
+          <div className="px-5 py-10 text-center">
+            <div className="text-[13px] text-white font-display">No recent activity yet</div>
+            <div className="text-[11px] text-[#8A95A5] mt-1">Change orders you create will show up here.</div>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[700px]">
+              <thead>
+                <tr className="text-[10px] text-[#5B6675] uppercase tracking-wider">
+                  <th className="text-left px-5 py-2.5">Project</th>
+                  <th className="text-left px-3 py-2.5">CO #</th>
+                  <th className="text-left px-3 py-2.5">Description</th>
+                  <th className="text-left px-3 py-2.5">Status</th>
+                  <th className="text-right px-5 py-2.5">Amount</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="text-[12px]">
+                {[...(recentCOs ?? [])]
+                  .sort((a, b) => +new Date(b.submittedDate ?? 0) - +new Date(a.submittedDate ?? 0))
+                  .slice(0, 5)
+                  .map((co) => {
+                    const display = CO_STATUS_DISPLAY[co.status] ?? { label: co.status ?? "—", color: "#5B6675" };
+                    return (
+                      <tr key={co.id ?? co.number} onClick={() => setView("change-order")} className="border-t border-[#222A35] hover:bg-[#161C24] cursor-pointer">
+                        <td className="px-5 py-3 text-white">{projectNameById[co.projectId] ?? "—"}</td>
+                        <td className="px-3 py-3 text-[#8A95A5] font-mono text-[11px]">{co.number ?? "—"}</td>
+                        <td className="px-3 py-3 text-[#8A95A5]">{co.title ?? "—"}</td>
+                        <td className="px-3 py-3"><span className="px-2 py-0.5 rounded-full text-[10px]" style={{ background: `${display.color}20`, color: display.color }}>{display.label}</span></td>
+                        <td className="px-5 py-3 text-right text-[#FF6B1A]">{formatCurrency($toKES(Number(co.costUSD) || 0), currency)}</td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {showNew && (

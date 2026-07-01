@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { useEffect, useState } from "react";
-import { HardHat, Check, Loader2, AlertTriangle, Send } from "lucide-react";
+import { Check, Loader2, AlertTriangle, Send } from "lucide-react";
 import api from "../../services/api";
 
 const asArr = (v: any): string[] => {
@@ -61,8 +61,8 @@ export function PublicFormFill({ token, theme }: { token: string; theme?: "dark"
     <div className={`min-h-screen w-full ${theme === "light" ? "theme-light bg-[#F4F6FA]" : "bg-[#0A0E14]"}`} style={theme === "light" ? { backgroundColor: "#F4F6FA" } : undefined}>
       <div className="border-b border-[#222A35] bg-[#11161D]">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#FF6B1A] to-[#FF8A4A] flex items-center justify-center"><HardHat className="w-[18px] h-[18px] text-white" strokeWidth={2.4} /></div>
-          <div className="text-[14px] text-white tracking-tight font-display">Buildflex</div>
+          <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center"><img src="/Buildsasa.png" alt="Buildsasa" className="w-full h-full object-cover" /></div>
+          <div className="text-[14px] text-white tracking-tight font-display">Buildsasa</div>
         </div>
       </div>
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8">{children}</div>
@@ -130,7 +130,7 @@ export function PublicFormFill({ token, theme }: { token: string; theme?: "dark"
       </div>
 
       <button onClick={submit} disabled={busy} className="w-full h-11 mt-5 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[13px] font-medium flex items-center justify-center gap-2 disabled:opacity-60">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Submit response</button>
-      <div className="text-[10px] text-[#5B6675] text-center mt-3">Powered by Buildflex · your response is sent to the form owner</div>
+      <div className="text-[10px] text-[#5B6675] text-center mt-3">Powered by Buildsasa · your response is sent to the form owner</div>
     </>
   );
 }

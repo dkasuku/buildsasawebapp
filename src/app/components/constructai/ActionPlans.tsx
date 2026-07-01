@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Plus, Search, X, ClipboardCheck, CheckCircle2, Circle, Trash2, CalendarDays, User } from "lucide-react";
 import type { Role } from "./roles";
 import api from "../../services/api";
+import { EmptyState } from "./EmptyState";
 
 const mapPlan = (r: any): ActionPlan => ({
   id: r.id, title: r.title, source: r.source || "", owner: r.owner || "", due: r.due || "",
@@ -22,34 +23,6 @@ type ActionPlan = {
   items: PlanItem[];
 };
 
-const SEED: ActionPlan[] = [
-  {
-    id: "AP-201", title: "Rectify honeycombing — Level 1 slab", source: "OBS-102", owner: "Grace Njeri", due: "2026-06-18", status: "active", project: "Westside Tower",
-    items: [
-      { id: "i1", text: "Submit repair method statement to Engineer", done: true },
-      { id: "i2", text: "Chip out loose concrete & clean surface", done: true },
-      { id: "i3", text: "Apply approved repair mortar", done: false },
-      { id: "i4", text: "Engineer inspection & sign-off", done: false },
-    ],
-  },
-  {
-    id: "AP-202", title: "Restore silt fencing — East perimeter", source: "OBS-103", owner: "Peter Otieno", due: "2026-06-12", status: "overdue", project: "Riverside Mall",
-    items: [
-      { id: "i1", text: "Procure replacement silt fence rolls", done: true },
-      { id: "i2", text: "Install fence along damaged section", done: false },
-      { id: "i3", text: "Clear sediment from storm drain inlet", done: false },
-    ],
-  },
-  {
-    id: "AP-203", title: "Scaffold safety compliance sweep", source: "Safety audit W23", owner: "James Mwangi", due: "2026-06-08", status: "completed", project: "Westside Tower",
-    items: [
-      { id: "i1", text: "Inspect all scaffold platforms for toe boards", done: true },
-      { id: "i2", text: "Replace missing guardrails", done: true },
-      { id: "i3", text: "Tag all compliant scaffolds", done: true },
-    ],
-  },
-];
-
 const STATUS_META: Record<ActionPlan["status"], { label: string; cls: string }> = {
   active: { label: "Active", cls: "bg-[#3B82F6]/15 text-[#3B82F6] border-[#3B82F6]/30" },
   completed: { label: "Completed", cls: "bg-[#22C55E]/15 text-[#22C55E] border-[#22C55E]/30" },
@@ -57,17 +30,17 @@ const STATUS_META: Record<ActionPlan["status"], { label: string; cls: string }> 
 };
 
 export default function ActionPlans({ role }: { role: Role }) {
-  const [plans, setPlans] = useState<ActionPlan[]>(SEED);
+  const [plans, setPlans] = useState<ActionPlan[]>([]);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<string>("all");
   const [showNew, setShowNew] = useState(false);
-  const [expanded, setExpanded] = useState<string | null>(SEED[0]?.id ?? null);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
-  // Load persisted plans; keep SEED only if the backend is unreachable
+  // Load persisted plans; the API response is authoritative (including empty)
   useEffect(() => {
     (async () => {
-      try { setPlans((await api.getActionPlans()).map(mapPlan)); }
-      catch { /* offline — keep SEED */ }
+      try { setPlans(((await api.getActionPlans()) ?? []).map(mapPlan)); }
+      catch { /* offline — leave list empty */ }
     })();
   }, []);
 
@@ -113,7 +86,15 @@ export default function ActionPlans({ role }: { role: Role }) {
       </div>
 
       <div className="space-y-3">
-        {filtered.length === 0 && <div className="text-center text-[13px] text-[#5B6675] py-10">No action plans match your filters.</div>}
+        {filtered.length === 0 && (
+          <EmptyState
+            icon={ClipboardCheck}
+            title="No action plans yet"
+            description="Create your first action plan to turn observations and issues into trackable steps."
+            actionLabel="New Plan"
+            onAction={() => setShowNew(true)}
+          />
+        )}
         {filtered.map((p) => {
           const doneCount = p.items.filter((i) => i.done).length;
           const pct = p.items.length ? Math.round((doneCount / p.items.length) * 100) : 0;

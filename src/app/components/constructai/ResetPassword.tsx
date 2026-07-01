@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { useState } from "react";
-import { HardHat, ArrowRight, Sun, Moon, Check, ShieldCheck } from "lucide-react";
+import { ArrowRight, Sun, Moon, Check, ShieldCheck } from "lucide-react";
 import api from "../../services/api";
 
 export function ResetPassword({ token, theme, setTheme }: { token: string; theme?: "dark" | "light"; setTheme?: (t: "dark" | "light") => void }) {
@@ -39,11 +39,11 @@ export function ResetPassword({ token, theme, setTheme }: { token: string; theme
     <div className="h-screen w-full bg-[#0A0E14] flex flex-col px-6 lg:px-16 py-10">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#FF6B1A] to-[#FF8A4A] flex items-center justify-center">
-            <HardHat className="w-5 h-5 text-white" strokeWidth={2.4} />
+          <div className="w-9 h-9 rounded-lg overflow-hidden flex items-center justify-center">
+            <img src="/Buildsasa.png" alt="Buildsasa" className="w-full h-full object-cover" />
           </div>
           <div>
-            <div className="text-[14px] text-white tracking-tight">Buildflex</div>
+            <div className="text-[14px] text-white tracking-tight">Buildsasa</div>
             <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Account recovery</div>
           </div>
         </div>
@@ -94,7 +94,7 @@ export function ResetPassword({ token, theme, setTheme }: { token: string; theme
           )}
         </div>
       </div>
-      <div className="text-[10px] text-[#5B6675]">© 2026 Buildflex</div>
+      <div className="text-[10px] text-[#5B6675]">© 2026 Buildsasa</div>
     </div>
   );
 }

@@ -14,17 +14,6 @@ type Doc = {
   date: string;
 };
 
-const SEED: Doc[] = [
-  { id: "d1", name: "Health & Safety Policy 2026.pdf", category: "Policies", type: "pdf", size: "1.2 MB", uploadedBy: "Marcus Rivera", date: "2026-01-15" },
-  { id: "d2", name: "Quality Management Manual.pdf", category: "Policies", type: "pdf", size: "3.4 MB", uploadedBy: "Marcus Rivera", date: "2026-01-15" },
-  { id: "d3", name: "Daily Site Report Template.xlsx", category: "Templates", type: "xlsx", size: "84 KB", uploadedBy: "Grace Njeri", date: "2026-02-20" },
-  { id: "d4", name: "Subcontract Agreement Template.docx", category: "Templates", type: "docx", size: "156 KB", uploadedBy: "Legal Team", date: "2026-03-01" },
-  { id: "d5", name: "ISO 9001:2015 Certificate.pdf", category: "Certifications", type: "pdf", size: "890 KB", uploadedBy: "Marcus Rivera", date: "2026-01-10" },
-  { id: "d6", name: "NCA Contractor License 2026.pdf", category: "Certifications", type: "pdf", size: "640 KB", uploadedBy: "Marcus Rivera", date: "2026-01-05" },
-  { id: "d7", name: "Contractors All-Risk Policy.pdf", category: "Insurance", type: "pdf", size: "2.1 MB", uploadedBy: "Finance Team", date: "2026-01-20" },
-  { id: "d8", name: "Employee Handbook 2026.pdf", category: "HR", type: "pdf", size: "4.8 MB", uploadedBy: "HR Team", date: "2026-02-01" },
-];
-
 const CATEGORIES: { key: Doc["category"]; icon: any }[] = [
   { key: "Policies", icon: Shield },
   { key: "Templates", icon: FileText },
@@ -41,20 +30,20 @@ const fileIcon = (type: string) => {
 };
 
 export default function CompanyDocs({ role }: { role: Role }) {
-  const [docs, setDocs] = useState<Doc[]>(SEED);
+  const [docs, setDocs] = useState<Doc[]>([]);
   const [q, setQ] = useState("");
   const [catFilter, setCatFilter] = useState<string>("all");
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [uploadCategory, setUploadCategory] = useState<Doc["category"]>("Policies");
   const [showUpload, setShowUpload] = useState(false);
 
-  // Load persisted documents; keep SEED only if the backend is unreachable
+  // Load persisted documents; the API response is authoritative (including empty)
   useEffect(() => {
     (async () => {
       try {
         const rows = await api.getCompanyDocs();
-        setDocs(rows.map((r: any) => ({ id: r.id, name: r.name, category: r.category, type: r.type || "file", size: r.size || "", uploadedBy: r.uploadedBy || "", date: r.date || "" })));
-      } catch { /* offline — keep SEED */ }
+        setDocs((rows ?? []).map((r: any) => ({ id: r.id, name: r.name, category: r.category, type: r.type || "file", size: r.size || "", uploadedBy: r.uploadedBy || "", date: r.date || "" })));
+      } catch { /* offline — leave list empty */ }
     })();
   }, []);
 

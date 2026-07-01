@@ -223,7 +223,7 @@ export function Topbar({
         {onOpenAi && ROLES[role].useAI && (
           <button
             onClick={onOpenAi}
-            title="Ask Buildflex AI"
+            title="Ask Buildsasa AI"
             className={`h-9 w-9 rounded-md border flex items-center justify-center transition-colors ${theme === "light" ? "bg-white border-[#E2E8F0] text-[#FF6B1A] hover:border-[#FF6B1A]/60" : "bg-[#11161D] border-[#222A35] text-[#FF6B1A] hover:border-[#FF6B1A]/60"}`}
           >
             <Sparkles className="w-4 h-4" />

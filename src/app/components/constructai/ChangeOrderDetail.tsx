@@ -12,7 +12,7 @@ const timeline = [
   { who: "Sarah Patel", role: "Field Supervisor", action: "Created from voice memo", time: "2d ago", c: "#FF6B1A", icon: Mic },
   { who: "Tomás Nguyen", role: "Project Manager", action: "Updated scope and cost", time: "1d ago", c: "#3B82F6", icon: FileCheck2 },
   { who: "Jane Cho", role: "Project Executive", action: "Approved internally", time: "16h ago", c: "#22C55E", icon: CheckCircle2 },
-  { who: "ConstructAI", role: "System", action: "Detected schedule impact", time: "12h ago", c: "#F5A623", icon: AlertTriangle },
+  { who: "Buildsasa", role: "System", action: "Detected schedule impact", time: "12h ago", c: "#F5A623", icon: AlertTriangle },
   { who: "Marcus Rivera", role: "VP Operations", action: "Commented on variance", time: "2h ago", c: "#8B5CF6", icon: MessageSquare },
 ];
 

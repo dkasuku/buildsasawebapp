@@ -5,6 +5,7 @@ import type { Role } from "./roles";
 import { TEAM_MEMBERS } from "./team-data";
 import { useTeam } from "./useTeam";
 import api from "../../services/api";
+import { EmptyState } from "./EmptyState";
 
 // Reusable multi-assignee dropdown (light/dark safe). Stores selected member names.
 function AssigneeSelect({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
@@ -55,14 +56,6 @@ type Observation = {
   photos: number;
 };
 
-const SEED: Observation[] = [
-  { id: "OBS-101", title: "Exposed rebar at column C4 not covered", type: "Safety", status: "open", priority: "high", location: "Level 2 — Grid C4", project: "Westside Tower", assignee: "James Mwangi", date: "2026-06-10", description: "Rebar protruding from column formwork without protective caps. Risk of impalement injury.", photos: 2 },
-  { id: "OBS-102", title: "Honeycombing on slab soffit", type: "Quality", status: "in_review", priority: "medium", location: "Level 1 — Zone B", project: "Westside Tower", assignee: "Grace Njeri", date: "2026-06-09", description: "Visible honeycombing on slab soffit after formwork removal. Needs repair method statement.", photos: 3 },
-  { id: "OBS-103", title: "Silt runoff into storm drain", type: "Environmental", status: "open", priority: "medium", location: "Site perimeter — East", project: "Riverside Mall", assignee: "Peter Otieno", date: "2026-06-08", description: "Silt fence damaged, sediment entering municipal storm drain after rains.", photos: 1 },
-  { id: "OBS-104", title: "AHU vibration isolators missing", type: "Commissioning", status: "closed", priority: "low", location: "Roof plant room", project: "Riverside Mall", assignee: "Mary Wanjiku", date: "2026-06-05", description: "AHU-02 installed without spring isolators per spec section 23 05 48. Now corrected.", photos: 2 },
-  { id: "OBS-105", title: "Scaffold missing toe boards", type: "Safety", status: "closed", priority: "high", location: "North elevation", project: "Westside Tower", assignee: "James Mwangi", date: "2026-06-03", description: "Toe boards absent on working platform level 3. Corrected same day.", photos: 1 },
-];
-
 const STATUS_META: Record<Observation["status"], { label: string; cls: string; icon: any }> = {
   open: { label: "Open", cls: "bg-[#EF4444]/15 text-[#EF4444] border-[#EF4444]/30", icon: AlertTriangle },
   in_review: { label: "In Review", cls: "bg-[#F5A623]/15 text-[#F5A623] border-[#F5A623]/30", icon: Clock },
@@ -78,18 +71,18 @@ const PRIORITY_CLS: Record<Observation["priority"], string> = {
 };
 
 export default function Observations({ role }: { role: Role }) {
-  const [items, setItems] = useState<Observation[]>(SEED);
+  const [items, setItems] = useState<Observation[]>([]);
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [showNew, setShowNew] = useState(false);
   const [detail, setDetail] = useState<Observation | null>(null);
 
-  // Load persisted observations; keep SEED only if the backend is unreachable
+  // Load persisted observations; the API response is authoritative (including empty)
   useEffect(() => {
     (async () => {
-      try { setItems((await api.getObservations()).map(mapObs)); }
-      catch { /* offline — keep SEED */ }
+      try { setItems(((await api.getObservations()) ?? []).map(mapObs)); }
+      catch { /* offline — leave list empty */ }
     })();
   }, []);
 
@@ -150,7 +143,15 @@ export default function Observations({ role }: { role: Role }) {
       </div>
 
       <div className="space-y-2">
-        {filtered.length === 0 && <div className="text-center text-[13px] text-[#5B6675] py-10">No observations match your filters.</div>}
+        {filtered.length === 0 && (
+          <EmptyState
+            icon={Eye}
+            title="No observations yet"
+            description="Log your first quality, safety or environmental observation to start tracking site issues."
+            actionLabel="New Observation"
+            onAction={() => setShowNew(true)}
+          />
+        )}
         {filtered.map((o) => {
           const M = STATUS_META[o.status];
           return (

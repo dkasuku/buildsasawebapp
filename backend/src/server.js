@@ -24,10 +24,12 @@ const wsStore = new AsyncLocalStorage();
 const currentWs = () => { const s = wsStore.getStore(); return s && s.ws ? s.ws : null; };
 const TENANT_MODELS = new Set([
   'User', 'Project', 'LedgerEntry', 'ExpenseCategory', 'DailyLog', 'PunchItem', 'Subscription', 'BillingInvoice',
-  'ChangeOrder', 'ChangeOrderActivity', 'Commitment', 'Document', 'Bid', 'Invoice', 'Inspection', 'SafetyIncident',
+  'ChangeOrder', 'ChangeOrderActivity', 'Commitment', 'Document', 'Bid', 'BidPackage', 'Invoice', 'Inspection', 'SafetyIncident',
   'Equipment', 'ChecklistTemplate', 'Checklist', 'DrawingVersion', 'PlanMarkup', 'ScheduledReport', 'Attendance',
   'Observation', 'CoordinationIssue', 'ActionPlan', 'Correspondence', 'WorkTask', 'ScheduleItem', 'Crew',
   'DirectoryContact', 'CompanyDoc', 'Announcement', 'FormTemplate', 'Conversation',
+  'PaymentApplication', 'RetentionRecord', 'CostCode', 'Approval',
+  'InventoryItem', 'InventoryMovement',
 ]);
 const prismaBase = new PrismaClient();
 const delegateOf = (m) => prismaBase[m.charAt(0).toLowerCase() + m.slice(1)];
@@ -75,7 +77,7 @@ const AUTH_REQUIRED = process.env.AUTH_REQUIRED === 'true';
 // console so local development works without sending real mail. 🔌 Add the key
 // in production to actually deliver invite & password-reset emails.
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
-const EMAIL_FROM = process.env.EMAIL_FROM || 'Buildflex <onboarding@resend.dev>';
+const EMAIL_FROM = process.env.EMAIL_FROM || 'Buildsasa <onboarding@resend.dev>';
 const APP_URL = (process.env.APP_URL || 'http://localhost:5173').replace(/\/$/, '');
 
 const s3 = process.env.S3_BUCKET
@@ -188,11 +190,8 @@ app.get('/api/auth/google/callback', async (req, res) => {
     // Link by email: existing account logs in; new one is created with a default role.
     let user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      // Invite-only: a Google account that isn't already a user can't self-register.
-      if (process.env.ALLOW_SIGNUP !== 'true' && (await prisma.user.count()) > 0) {
-        return res.redirect(`${FRONTEND_URL}/?auth_error=invite_only`);
-      }
-      const gws = await prisma.workspace.create({ data: { name: `${profile.name || email.split('@')[0]}'s workspace` } });
+      // Multi-tenant: a new Google account creates its own isolated company.
+      const gws = await prisma.workspace.create({ data: { name: `${profile.name || email.split('@')[0]}'s company` } });
       user = await prisma.user.create({ data: { email, name: profile.name || email.split('@')[0], role: 'Contractor', avatar: profile.picture || null, workspaceId: gws.id } });
     } else if (!user.avatar && profile.picture) {
       try { user = await prisma.user.update({ where: { id: user.id }, data: { avatar: profile.picture } }); } catch { /* ignore */ }
@@ -209,17 +208,19 @@ app.get('/api/auth/google/callback', async (req, res) => {
 
 // Send transactional email via Resend. Falls back to console logging (and
 // returns sent:false) when no API key is configured, so dev never blocks.
-async function sendEmail({ to, subject, html }) {
+async function sendEmail({ to, subject, html, attachments }) {
   if (!RESEND_API_KEY) {
-    console.log(`[EMAIL] (no RESEND_API_KEY — not sent) To: ${to} | ${subject}`);
+    console.log(`[EMAIL] (no RESEND_API_KEY — not sent) To: ${to} | ${subject}${attachments && attachments.length ? ` | ${attachments.length} attachment(s)` : ''}`);
     console.log('[EMAIL] body:', html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
     return { sent: false };
   }
   try {
+    const payload = { from: EMAIL_FROM, to: [to], subject, html };
+    if (attachments && attachments.length) payload.attachments = attachments;
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject, html }),
+      body: JSON.stringify(payload),
     });
     if (!r.ok) { const t = await r.text(); console.error('[EMAIL] Resend failed:', r.status, t); return { sent: false, error: t }; }
     return { sent: true };
@@ -232,7 +233,7 @@ async function sendEmail({ to, subject, html }) {
 // Tiny on-brand email wrapper.
 function emailShell(title, bodyHtml) {
   return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#11161D">
-    <div style="font-size:18px;font-weight:600;color:#FF6B1A">Buildflex</div>
+    <div style="font-size:18px;font-weight:600;color:#FF6B1A">Buildsasa</div>
     <h2 style="font-size:18px;margin:16px 0 8px">${title}</h2>
     ${bodyHtml}
     <p style="font-size:12px;color:#8A95A5;margin-top:24px">If you didn't expect this email, you can safely ignore it.</p>
@@ -254,7 +255,7 @@ async function notifyAssignment(userIds, { subject, intro, link }) {
     const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { email: true, name: true } });
     for (const u of users) {
       if (!u.email) continue;
-      const html = emailShell(subject, `<p style="font-size:14px;color:#11161D">Hi ${u.name || ''}, ${intro}</p>${link ? button(link, 'Open in Buildflex') : ''}`);
+      const html = emailShell(subject, `<p style="font-size:14px;color:#11161D">Hi ${u.name || ''}, ${intro}</p>${link ? button(link, 'Open in Buildsasa') : ''}`);
       sendEmail({ to: u.email, subject, html }).catch(() => {});
     }
   } catch (e) { console.error('[NOTIFY] failed:', e && e.message); }
@@ -281,19 +282,13 @@ app.get('/api/access-logs', auth, async (_req, res) => {
 
 app.post('/api/signup', async (req, res) => {
   try {
-    const { name, email, password, role } = req.body || {};
+    const { name, email, password, role, company } = req.body || {};
     if (!name || !email || !password) return res.status(400).json({ error: 'Name, email and password are required' });
     if (String(password).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
-    // Invite-only: self-signup is allowed only to bootstrap the very first account
-    // (or when ALLOW_SIGNUP=true). After that, new people must be invited.
-    if (process.env.ALLOW_SIGNUP !== 'true') {
-      const userCount = await prisma.user.count();
-      if (userCount > 0) return res.status(403).json({ error: 'Sign-ups are invite-only — ask your workspace admin to invite you.' });
-    }
     const existing = await prisma.user.findUnique({ where: { email: String(email).toLowerCase() } });
     if (existing) return res.status(409).json({ error: 'An account with this email already exists' });
-    // A brand-new signup starts its own company (workspace) and owns it.
-    const ws = await prisma.workspace.create({ data: { name: `${name}'s workspace` } });
+    // Multi-tenant: each new signup creates its own isolated company (workspace) and owns it.
+    const ws = await prisma.workspace.create({ data: { name: (company && String(company).trim()) || `${name}'s company` } });
     const user = await prisma.user.create({ data: { name, email: String(email).toLowerCase(), passwordHash: bcrypt.hashSync(password, 10), role: role || 'Contractor', workspaceId: ws.id } });
     recordAccess(req, user); res.json({ token: issueToken(user), user: publicUser(user) });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -366,10 +361,10 @@ app.post('/api/auth/forgot', async (req, res) => {
         const token = jwt.sign({ sub: user.id, purpose: 'reset' }, JWT_SECRET, { expiresIn: '1h' });
         const link = `${APP_URL}/?reset=${encodeURIComponent(token)}`;
         const html = emailShell('Reset your password',
-          `<p style="font-size:14px;color:#11161D">Hi ${user.name || ''}, we received a request to reset your Buildflex password. This link expires in 1 hour.</p>
+          `<p style="font-size:14px;color:#11161D">Hi ${user.name || ''}, we received a request to reset your Buildsasa password. This link expires in 1 hour.</p>
            ${button(link, 'Reset password')}
            <p style="font-size:12px;color:#8A95A5">Or paste this link into your browser:<br/>${link}</p>`);
-        const mail = await sendEmail({ to: em, subject: 'Reset your Buildflex password', html });
+        const mail = await sendEmail({ to: em, subject: 'Reset your Buildsasa password', html });
         if (!mail.sent) return res.json({ ok: true, devLink: link });
       }
     }
@@ -408,12 +403,12 @@ app.post('/api/users/invite', auth, async (req, res) => {
     // Invited users JOIN the inviter's workspace (they don't start a new one).
     const user = await prisma.user.create({ data: { name, email: em, role, trade: trade || null, passwordHash: bcrypt.hashSync(tempPassword, 10), workspaceId: req.user?.ws || null } });
     const inviter = req.user?.name || 'Your team';
-    const html = emailShell('You\'ve been invited to Buildflex',
-      `<p style="font-size:14px;color:#11161D">Hi ${name}, ${inviter} added you to their Buildflex workspace as <b>${role}</b>.</p>
+    const html = emailShell('You\'ve been invited to Buildsasa',
+      `<p style="font-size:14px;color:#11161D">Hi ${name}, ${inviter} added you to their Buildsasa workspace as <b>${role}</b>.</p>
        <p style="font-size:14px;color:#11161D">Sign in with your email and this temporary password, then change it under your account:</p>
        <p style="font-size:14px"><b>Email:</b> ${em}<br/><b>Temporary password:</b> <code style="background:#F4F6FA;padding:2px 6px;border-radius:4px">${tempPassword}</code></p>
-       ${button(`${APP_URL}/`, 'Open Buildflex')}`);
-    const mail = await sendEmail({ to: em, subject: 'You\'ve been invited to Buildflex', html });
+       ${button(`${APP_URL}/`, 'Open Buildsasa')}`);
+    const mail = await sendEmail({ to: em, subject: 'You\'ve been invited to Buildsasa', html });
     // Only return the temp password to the UI when we could NOT email it
     // (i.e. dev / no key) so the owner can still share it manually.
     res.json({
@@ -437,178 +432,236 @@ app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
 // Projects
 app.get('/api/projects', auth, async (_req, res) => {
-  const projects = await prisma.project.findMany({ include: { assignments: true, _count: { select: { changeOrders: true } } } });
-  res.json(projects.map((p) => ({ ...p, changeOrderCount: p._count?.changeOrders ?? 0 })));
+  try {
+    const projects = await prisma.project.findMany({ include: { assignments: true, _count: { select: { changeOrders: true } } } });
+    res.json((projects || []).map((p) => ({ ...p, changeOrderCount: p._count?.changeOrders ?? 0 })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/projects', auth, async (req, res) => {
-  const { code, name, city, lat, lng, value, status, progress, exposure } = req.body;
-  const project = await prisma.project.create({ data: { code, name, city, lat: lat != null ? Number(lat) : undefined, lng: lng != null ? Number(lng) : undefined, value, status, progress, exposure } });
-  res.json(project);
+  try {
+    const { code, name, city, lat, lng, value, status, progress, exposure } = req.body;
+    const project = await prisma.project.create({ data: { code, name, city, lat: lat != null ? Number(lat) : undefined, lng: lng != null ? Number(lng) : undefined, value, status, progress, exposure } });
+    res.json(project);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/projects/:projectId', auth, async (req, res) => {
-  const { code, name, city, lat, lng, value, status, progress, exposure } = req.body;
-  const data = { code, name, city, value, status, progress, exposure };
-  if (lat !== undefined) data.lat = lat != null ? Number(lat) : null;
-  if (lng !== undefined) data.lng = lng != null ? Number(lng) : null;
-  const project = await prisma.project.update({
-    where: { id: req.params.projectId },
-    data,
-  });
-  res.json(project);
+  try {
+    const { code, name, city, lat, lng, value, status, progress, exposure } = req.body;
+    const data = { code, name, city, value, status, progress, exposure };
+    if (lat !== undefined) data.lat = lat != null ? Number(lat) : null;
+    if (lng !== undefined) data.lng = lng != null ? Number(lng) : null;
+    const project = await prisma.project.update({
+      where: { id: req.params.projectId },
+      data,
+    });
+    res.json(project);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/projects/:projectId', auth, async (req, res) => {
-  await prisma.project.delete({ where: { id: req.params.projectId } });
-  res.json({ ok: true });
+  try {
+    await prisma.project.delete({ where: { id: req.params.projectId } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Assignments
 app.post('/api/projects/:projectId/assignments', auth, async (req, res) => {
-  const { role, userId } = req.body;
-  const assignment = await prisma.assignment.create({ data: { role, userId, projectId: req.params.projectId } });
-  res.json(assignment);
+  try {
+    const { role, userId } = req.body;
+    const assignment = await prisma.assignment.create({ data: { role, userId, projectId: req.params.projectId } });
+    res.json(assignment);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/projects/:projectId/assignments/:assignmentId', auth, async (req, res) => {
-  const { role, userId } = req.body;
-  const assignment = await prisma.assignment.update({
-    where: { id: req.params.assignmentId },
-    data: { role, userId },
-  });
-  res.json(assignment);
+  try {
+    const { role, userId } = req.body;
+    const assignment = await prisma.assignment.update({
+      where: { id: req.params.assignmentId },
+      data: { role, userId },
+    });
+    res.json(assignment);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/projects/:projectId/assignments/:assignmentId', auth, async (req, res) => {
-  await prisma.assignment.delete({ where: { id: req.params.assignmentId } });
-  res.json({ ok: true });
+  try {
+    await prisma.assignment.delete({ where: { id: req.params.assignmentId } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Messages per project
 app.get('/api/projects/:projectId/messages', auth, async (req, res) => {
-  const messages = await prisma.message.findMany({
-    where: { projectId: req.params.projectId },
-    orderBy: { createdAt: 'asc' },
-    include: { user: true },
-  });
-  res.json(messages);
+  try {
+    const messages = await prisma.message.findMany({
+      where: { projectId: req.params.projectId },
+      orderBy: { createdAt: 'asc' },
+      include: { user: true },
+    });
+    res.json(messages || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/projects/:projectId/messages', auth, async (req, res) => {
-  const { text, attachment } = req.body;
-  const msg = await prisma.message.create({
-    data: {
-      text,
-      attachment,
-      projectId: req.params.projectId,
-      userId: demoUser.id,
-    },
-  });
-  res.json(msg);
+  try {
+    const { text, attachment } = req.body;
+    const msg = await prisma.message.create({
+      data: {
+        text,
+        attachment,
+        projectId: req.params.projectId,
+        userId: demoUser.id,
+      },
+    });
+    res.json(msg);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Ledger per project
 app.get('/api/projects/:projectId/ledger', auth, async (req, res) => {
-  const entries = await prisma.ledgerEntry.findMany({
-    where: { projectId: req.params.projectId },
-    orderBy: { date: 'asc' },
-  });
-  res.json(entries);
+  try {
+    const entries = await prisma.ledgerEntry.findMany({
+      where: { projectId: req.params.projectId },
+      orderBy: { date: 'asc' },
+    });
+    res.json(entries || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/projects/:projectId/ledger', auth, async (req, res) => {
-  const { date, desc, type, category, amountUSD } = req.body;
-  const entry = await prisma.ledgerEntry.create({
-    data: { date: new Date(date), desc, type, category, amountUSD: Number(amountUSD), projectId: req.params.projectId },
-  });
-  res.json(entry);
+  try {
+    const { date, desc, type, category, amountUSD, vendorId, commitmentId, applicationId, costCodeId, status, invoiceNumber, poNumber, subcontractNumber, changeOrderNumber } = req.body;
+    const entry = await prisma.ledgerEntry.create({
+      data: {
+        date: new Date(date), desc, type, category, amountUSD: Number(amountUSD), projectId: req.params.projectId,
+        vendorId, commitmentId, applicationId, costCodeId, status, invoiceNumber, poNumber, subcontractNumber, changeOrderNumber,
+      },
+    });
+    if (entry.commitmentId) await recomputeCommitment(entry.commitmentId);
+    res.json(entry);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/projects/:projectId/ledger/:entryId', auth, async (req, res) => {
-  const { date, desc, type, category, amountUSD } = req.body;
-  const entry = await prisma.ledgerEntry.update({
-    where: { id: req.params.entryId },
-    data: { date: new Date(date), desc, type, category, amountUSD: Number(amountUSD) },
-  });
-  res.json(entry);
+  try {
+    const { date, desc, type, category, amountUSD, vendorId, commitmentId, applicationId, costCodeId, status, invoiceNumber, poNumber, subcontractNumber, changeOrderNumber } = req.body;
+    const data = { desc, type, category };
+    if (date !== undefined) data.date = new Date(date);
+    if (amountUSD !== undefined) data.amountUSD = Number(amountUSD);
+    for (const [k, v] of Object.entries({ vendorId, commitmentId, applicationId, costCodeId, status, invoiceNumber, poNumber, subcontractNumber, changeOrderNumber })) {
+      if (v !== undefined) data[k] = v;
+    }
+    const entry = await prisma.ledgerEntry.update({ where: { id: req.params.entryId }, data });
+    if (entry.commitmentId) await recomputeCommitment(entry.commitmentId);
+    res.json(entry);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/projects/:projectId/ledger/:entryId', auth, async (req, res) => {
-  await prisma.ledgerEntry.delete({ where: { id: req.params.entryId } });
-  res.json({ ok: true });
+  try {
+    await prisma.ledgerEntry.delete({ where: { id: req.params.entryId } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Expenses per project
 app.get('/api/projects/:projectId/expenses', auth, async (req, res) => {
-  const rows = await prisma.expenseCategory.findMany({ where: { projectId: req.params.projectId } });
-  res.json(rows);
+  try {
+    const rows = await prisma.expenseCategory.findMany({ where: { projectId: req.params.projectId } });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/projects/:projectId/expenses', auth, async (req, res) => {
-  const { name, budgetUSD, actualUSD } = req.body;
-  const row = await prisma.expenseCategory.create({
-    data: { name, budgetUSD: Number(budgetUSD), actualUSD: Number(actualUSD), projectId: req.params.projectId },
-  });
-  res.json(row);
+  try {
+    const { name, budgetUSD, actualUSD } = req.body;
+    const row = await prisma.expenseCategory.create({
+      data: { name, budgetUSD: Number(budgetUSD), actualUSD: Number(actualUSD), projectId: req.params.projectId },
+    });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/projects/:projectId/expenses/:expenseId', auth, async (req, res) => {
-  const { name, budgetUSD, actualUSD } = req.body;
-  const row = await prisma.expenseCategory.update({
-    where: { id: req.params.expenseId },
-    data: { name, budgetUSD: Number(budgetUSD), actualUSD: Number(actualUSD) },
-  });
-  res.json(row);
+  try {
+    const { name, budgetUSD, actualUSD } = req.body;
+    const row = await prisma.expenseCategory.update({
+      where: { id: req.params.expenseId },
+      data: { name, budgetUSD: Number(budgetUSD), actualUSD: Number(actualUSD) },
+    });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/projects/:projectId/expenses/:expenseId', auth, async (req, res) => {
-  await prisma.expenseCategory.delete({ where: { id: req.params.expenseId } });
-  res.json({ ok: true });
+  try {
+    await prisma.expenseCategory.delete({ where: { id: req.params.expenseId } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Daily Log
 app.get('/api/projects/:projectId/daily-log', auth, async (req, res) => {
-  const rows = await prisma.dailyLog.findMany({ where: { projectId: req.params.projectId }, orderBy: { date: 'desc' } });
-  res.json(rows);
+  try {
+    const rows = await prisma.dailyLog.findMany({ where: { projectId: req.params.projectId }, orderBy: { date: 'desc' } });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/projects/:projectId/daily-log', auth, async (req, res) => {
-  const { date, crew, headcount, location, notes } = req.body;
-  const row = await prisma.dailyLog.create({ data: { date: new Date(date), crew, headcount: Number(headcount), location, notes, projectId: req.params.projectId } });
-  res.json(row);
+  try {
+    const { date, crew, headcount, location, notes } = req.body;
+    const row = await prisma.dailyLog.create({ data: { date: new Date(date), crew, headcount: Number(headcount), location, notes, projectId: req.params.projectId } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put('/api/projects/:projectId/daily-log/:id', auth, async (req, res) => {
-  const { date, crew, headcount, location, notes } = req.body;
-  const row = await prisma.dailyLog.update({ where: { id: req.params.id }, data: { date: new Date(date), crew, headcount: Number(headcount), location, notes } });
-  res.json(row);
+  try {
+    const { date, crew, headcount, location, notes } = req.body;
+    const row = await prisma.dailyLog.update({ where: { id: req.params.id }, data: { date: new Date(date), crew, headcount: Number(headcount), location, notes } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete('/api/projects/:projectId/daily-log/:id', auth, async (req, res) => {
-  await prisma.dailyLog.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  try {
+    await prisma.dailyLog.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Punch List
 app.get('/api/projects/:projectId/punch', auth, async (req, res) => {
-  const rows = await prisma.punchItem.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
-  res.json(rows);
+  try {
+    const rows = await prisma.punchItem.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/projects/:projectId/punch', auth, async (req, res) => {
-  const { code, area, desc, status, photos, videos, assignedTo, location, drawingRef, linkedTaskId } = req.body;
-  const row = await prisma.punchItem.create({ data: { code, area, desc, status, photos: photos ? JSON.stringify(photos) : null, videos: videos ? JSON.stringify(videos) : null, assignedTo, location, drawingRef: drawingRef ? JSON.stringify(drawingRef) : null, linkedTaskId, projectId: req.params.projectId } });
-  res.json(row);
+  try {
+    const { code, area, desc, status, photos, videos, assignedTo, location, drawingRef, linkedTaskId } = req.body;
+    const row = await prisma.punchItem.create({ data: { code, area, desc, status, photos: photos ? JSON.stringify(photos) : null, videos: videos ? JSON.stringify(videos) : null, assignedTo, location, drawingRef: drawingRef ? JSON.stringify(drawingRef) : null, linkedTaskId, projectId: req.params.projectId } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put('/api/projects/:projectId/punch/:id', auth, async (req, res) => {
-  const { code, area, desc, status, photos, videos, assignedTo, location, drawingRef, linkedTaskId } = req.body;
-  const data = { code, area, desc, status, assignedTo, location, linkedTaskId };
-  if (photos !== undefined) data.photos = photos ? JSON.stringify(photos) : null;
-  if (videos !== undefined) data.videos = videos ? JSON.stringify(videos) : null;
-  if (drawingRef !== undefined) data.drawingRef = drawingRef ? JSON.stringify(drawingRef) : null;
-  const row = await prisma.punchItem.update({ where: { id: req.params.id }, data });
-  res.json(row);
+  try {
+    const { code, area, desc, status, photos, videos, assignedTo, location, drawingRef, linkedTaskId } = req.body;
+    const data = { code, area, desc, status, assignedTo, location, linkedTaskId };
+    if (photos !== undefined) data.photos = photos ? JSON.stringify(photos) : null;
+    if (videos !== undefined) data.videos = videos ? JSON.stringify(videos) : null;
+    if (drawingRef !== undefined) data.drawingRef = drawingRef ? JSON.stringify(drawingRef) : null;
+    const row = await prisma.punchItem.update({ where: { id: req.params.id }, data });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete('/api/projects/:projectId/punch/:id', auth, async (req, res) => {
-  await prisma.punchItem.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  try {
+    await prisma.punchItem.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== PUNCH LIST (rich, item-centric, Procore-inspired) =====
@@ -667,7 +720,7 @@ app.post('/api/punch', auth, async (req, res) => {
     await prisma.punchItemActivity.create({ data: { punchItemId: row.id, actorId: data.createdById, actionType: 'created', after: row.status } });
     notifyAssignment(row.assignees, {
       subject: 'You have been assigned a punch item',
-      intro: `you've been assigned punch item ${row.code || ''} — "${row.title || row.desc || ''}". Open Buildflex to action it.`,
+      intro: `you've been assigned punch item ${row.code || ''} — "${row.title || row.desc || ''}". Open Buildsasa to action it.`,
       link: APP_URL,
     });
     res.json(row);
@@ -754,6 +807,80 @@ async function logCO(req, changeOrderId, data) {
 app.get('/api/change-orders', auth, async (req, res) => {
   try { const { projectId, status } = req.query; const where = {}; if (projectId) where.projectId = projectId; if (status) where.status = status; res.json(await prisma.changeOrder.findMany({ where, orderBy: { createdAt: 'desc' } })); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Real, data-driven dashboard insight for the current workspace. Returns null when
+// there's nothing to report (e.g. a brand-new company). Computes the key finding
+// deterministically (always works), then asks the AI to phrase it; falls back to
+// the deterministic version if no AI provider is configured or the call fails.
+app.get('/api/dashboard/insight', auth, async (req, res) => {
+  try {
+    const USD_TO_KES = Number(process.env.USD_TO_KES) || 130;
+    const cos = await prisma.changeOrder.findMany({ orderBy: { createdAt: 'desc' } });
+    if (!cos.length) return res.json(null);
+    const daysSince = (d) => (d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : 0);
+    const open = cos.filter((c) => ['drafted', 'pm_review', 'owner_approval'].includes(c.status));
+    const pendingApproval = open
+      .filter((c) => c.status === 'owner_approval')
+      .sort((a, b) => daysSince(b.submittedDate) - daysSince(a.submittedDate));
+    const stale = open
+      .filter((c) => daysSince(c.submittedDate) > 7)
+      .sort((a, b) => daysSince(b.submittedDate) - daysSince(a.submittedDate));
+    const focus = pendingApproval[0] || stale[0] || open[0] || null;
+    const totalOpenValueKES = Math.round(open.reduce((s, c) => s + (Number(c.costUSD) || 0) * USD_TO_KES, 0));
+    const fmtKES = (n) => 'KSh' + Number(n || 0).toLocaleString('en-KE');
+
+    // Deterministic baseline insight.
+    let insight;
+    if (pendingApproval.length) {
+      insight = {
+        title: `${pendingApproval.length} change order${pendingApproval.length > 1 ? 's' : ''} awaiting owner approval`,
+        detail: `${fmtKES(totalOpenValueKES)} in open change orders. Oldest: ${focus.number} open ${daysSince(focus.submittedDate)} day(s).`,
+        changeOrderId: focus ? focus.id : undefined,
+      };
+    } else if (stale.length) {
+      insight = {
+        title: `${stale.length} change order${stale.length > 1 ? 's' : ''} open for over a week`,
+        detail: `Review ${focus.number}${focus.title ? ` — ${focus.title}` : ''}.`,
+        changeOrderId: focus ? focus.id : undefined,
+      };
+    } else {
+      insight = {
+        title: `${open.length} open change order${open.length === 1 ? '' : 's'} in progress`,
+        detail: `${fmtKES(totalOpenValueKES)} in flight across your projects.`,
+        changeOrderId: focus ? focus.id : undefined,
+      };
+    }
+
+    // Try to enhance the phrasing with AI; keep the deterministic version on any failure.
+    try {
+      const summary = {
+        totalChangeOrders: cos.length,
+        open: open.length,
+        pendingOwnerApproval: pendingApproval.length,
+        staleOver7Days: stale.length,
+        totalOpenValueKES,
+        focus: focus ? { number: focus.number, title: focus.title, status: focus.status, daysOpen: daysSince(focus.submittedDate), costKES: Math.round((Number(focus.costUSD) || 0) * USD_TO_KES) } : null,
+      };
+      const text = await callAi([
+        { role: 'system', content: 'You are a construction project analyst. Given a JSON summary of one company\'s change orders, return ONE concise, specific insight as strict JSON only: {"title": string up to 90 chars stating the key finding, "detail": string up to 140 chars with the recommended action and numbers}. Use KES currency. No markdown, JSON object only.' },
+        { role: 'user', content: JSON.stringify(summary) },
+      ], { temperature: 0.3, max_tokens: 300 });
+      const m = text && text.match(/\{[\s\S]*\}/);
+      if (m) {
+        const j = JSON.parse(m[0]);
+        if (j && j.title) {
+          insight = {
+            title: String(j.title).slice(0, 120),
+            detail: j.detail ? String(j.detail).slice(0, 200) : insight.detail,
+            changeOrderId: focus ? focus.id : undefined,
+          };
+        }
+      }
+    } catch (e) { /* keep deterministic insight */ }
+
+    res.json(insight);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get('/api/projects/:projectId/change-orders', auth, async (req, res) => {
   try { res.json(await prisma.changeOrder.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } })); }
@@ -893,39 +1020,329 @@ Rules: 12-24 items in a logical construction sequence (mobilization, substructur
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Commitments
+// ===== CONSTRUCTION FINANCE (PAYABLES) =====
+// Reuses the existing change-order role model: PM/manager-capable roles may
+// create/review/submit; financial/owner-capable roles may approve/markPaid/release.
+const CAN_REVIEW_FINANCE = CAN_CREATE_CO;   // Contractor, Quantity Surveyor, Executive, Project Manager, Superintendent, Trade Lead
+const CAN_APPROVE_FINANCE = CAN_APPROVE_CO; // Contractor, Owner, Executive, Project Manager
+const num = (v) => (v == null || v === '' ? null : Number(v));
+
+// Record an audit-trail row. Best-effort: never blocks the main action.
+async function logApproval(req, entityType, entityId, action, comments) {
+  try {
+    await prisma.approval.create({ data: {
+      entityType, entityId, action,
+      actorId: req.user?.sub || null,
+      actorName: req.user?.name || null,
+      comments: comments || null,
+    } });
+  } catch (e) { console.error('[approval log] failed:', e.message); }
+}
+
+// Recalculate a commitment's running totals from its paid payment applications
+// and its paid/linked ledger entries. invoicedToDate counts all non-rejected
+// applications' requested amounts; paidToDate / retentionHeld come from paid ones.
+async function recomputeCommitment(commitmentId) {
+  try {
+    const commitment = await prisma.commitment.findUnique({ where: { id: commitmentId } });
+    if (!commitment) return null;
+    const apps = await prisma.paymentApplication.findMany({ where: { commitmentId } });
+    const ledger = await prisma.ledgerEntry.findMany({ where: { commitmentId } });
+    const invoicedToDate = apps
+      .filter((a) => a.status !== 'rejected' && a.status !== 'draft')
+      .reduce((s, a) => s + (Number(a.requestedAmount) || 0), 0);
+    const paidApps = apps.filter((a) => a.status === 'paid');
+    const paidFromApps = paidApps.reduce((s, a) => s + (Number(a.netPayable) || 0), 0);
+    const paidFromLedger = ledger
+      .filter((l) => l.status === 'paid')
+      .reduce((s, l) => s + (Number(l.amountUSD) || 0), 0);
+    const paidToDate = paidFromApps + paidFromLedger;
+    const retentionHeld = paidApps.reduce((s, a) => s + (Number(a.retentionAmount) || 0), 0);
+    const base = (Number(commitment.contractValue) || 0) + (Number(commitment.approvedVariations) || 0);
+    const balanceRemaining = base - paidToDate;
+    return await prisma.commitment.update({
+      where: { id: commitmentId },
+      data: { invoicedToDate, paidToDate, retentionHeld, balanceRemaining },
+    });
+  } catch (e) { console.error('[recomputeCommitment] failed:', e.message); return null; }
+}
+
+// Commitments (payables)
+const COMMITMENT_FIELDS = ['vendor', 'scope', 'amount', 'due', 'costCodeId', 'contractValue', 'approvedVariations', 'invoicedToDate', 'paidToDate', 'retentionPct', 'retentionHeld', 'balanceRemaining', 'status'];
+const pickCommitment = (body) => {
+  const d = {};
+  for (const f of COMMITMENT_FIELDS) {
+    if (body[f] === undefined) continue;
+    d[f] = ['contractValue', 'approvedVariations', 'invoicedToDate', 'paidToDate', 'retentionPct', 'retentionHeld', 'balanceRemaining'].includes(f) ? num(body[f]) : body[f];
+  }
+  return d;
+};
 app.get('/api/projects/:projectId/commitments', auth, async (req, res) => {
-  const rows = await prisma.commitment.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
-  res.json(rows);
+  try {
+    const rows = await prisma.commitment.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/projects/:projectId/commitments/:id', auth, async (req, res) => {
+  try {
+    const row = await prisma.commitment.findUnique({
+      where: { id: req.params.id },
+      include: { paymentApplications: true, retentionRecords: true },
+    });
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    const ledgerEntries = await prisma.ledgerEntry.findMany({ where: { commitmentId: req.params.id }, orderBy: { date: 'asc' } });
+    res.json({ ...row, ledgerEntries });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/projects/:projectId/commitments', auth, async (req, res) => {
-  const { vendor, scope, amount, due } = req.body;
-  const row = await prisma.commitment.create({ data: { vendor, scope, amount, due, projectId: req.params.projectId } });
-  res.json(row);
+  try {
+    if (!hasRole(req, CAN_REVIEW_FINANCE)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot create commitments` });
+    const data = pickCommitment(req.body);
+    data.projectId = req.params.projectId;
+    if (data.vendor === undefined) return res.status(400).json({ error: 'vendor required' });
+    const row = await prisma.commitment.create({ data });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put('/api/projects/:projectId/commitments/:id', auth, async (req, res) => {
-  const { vendor, scope, amount, due } = req.body;
-  const row = await prisma.commitment.update({ where: { id: req.params.id }, data: { vendor, scope, amount, due } });
-  res.json(row);
+  try {
+    if (!hasRole(req, CAN_REVIEW_FINANCE)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot edit commitments` });
+    const row = await prisma.commitment.update({ where: { id: req.params.id }, data: pickCommitment(req.body) });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete('/api/projects/:projectId/commitments/:id', auth, async (req, res) => {
-  await prisma.commitment.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  try {
+    if (!hasRole(req, CAN_APPROVE_FINANCE)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot delete commitments` });
+    await prisma.commitment.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Recompute a commitment's running totals on demand.
+app.post('/api/projects/:projectId/commitments/:id/recompute', auth, async (req, res) => {
+  try {
+    const row = await recomputeCommitment(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===== PAYMENT APPLICATIONS =====
+// Auto-derive retentionAmount/netPayable from requestedAmount + retentionPct.
+const calcPaymentApp = (data) => {
+  const requested = num(data.requestedAmount) || 0;
+  const pct = num(data.retentionPct) || 0;
+  const retentionAmount = +(requested * pct / 100).toFixed(2);
+  data.retentionAmount = retentionAmount;
+  data.netPayable = +(requested - retentionAmount).toFixed(2);
+  return data;
+};
+const PA_FIELDS = ['commitmentId', 'number', 'period', 'periodStart', 'periodEnd', 'workCompletedThisPeriod', 'previousCertified', 'requestedAmount', 'retentionPct', 'costCodeId', 'comments'];
+const pickPaymentApp = (body) => {
+  const d = {};
+  for (const f of PA_FIELDS) {
+    if (body[f] === undefined) continue;
+    if (['workCompletedThisPeriod', 'previousCertified', 'requestedAmount', 'retentionPct'].includes(f)) d[f] = num(body[f]);
+    else if (['periodStart', 'periodEnd'].includes(f)) d[f] = body[f] ? new Date(body[f]) : null;
+    else d[f] = body[f];
+  }
+  return d;
+};
+app.get('/api/projects/:projectId/payment-applications', auth, async (req, res) => {
+  try {
+    const where = { projectId: req.params.projectId };
+    if (req.query.commitmentId) where.commitmentId = req.query.commitmentId;
+    if (req.query.status) where.status = req.query.status;
+    res.json(await prisma.paymentApplication.findMany({ where, orderBy: { createdAt: 'desc' } }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/projects/:projectId/payment-applications/:id', auth, async (req, res) => {
+  try {
+    const row = await prisma.paymentApplication.findUnique({ where: { id: req.params.id } });
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/projects/:projectId/payment-applications', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_REVIEW_FINANCE)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot create payment applications` });
+    const data = pickPaymentApp(req.body);
+    if (!data.number) return res.status(400).json({ error: 'number required' });
+    data.projectId = req.params.projectId;
+    data.status = 'draft';
+    calcPaymentApp(data);
+    const row = await prisma.paymentApplication.create({ data });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put('/api/projects/:projectId/payment-applications/:id', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_REVIEW_FINANCE)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot edit payment applications` });
+    const existing = await prisma.paymentApplication.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+    const data = pickPaymentApp(req.body);
+    // Recalc derived amounts from the merged values.
+    const merged = { requestedAmount: existing.requestedAmount, retentionPct: existing.retentionPct, ...data };
+    calcPaymentApp(merged);
+    data.retentionAmount = merged.retentionAmount;
+    data.netPayable = merged.netPayable;
+    const row = await prisma.paymentApplication.update({ where: { id: req.params.id }, data });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/projects/:projectId/payment-applications/:id', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_APPROVE_FINANCE)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot delete payment applications` });
+    await prisma.paymentApplication.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Transition: submit (draft/rejected -> submitted)
+app.post('/api/projects/:projectId/payment-applications/:id/submit', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_REVIEW_FINANCE)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot submit payment applications` });
+    const row = await prisma.paymentApplication.update({ where: { id: req.params.id }, data: { status: 'submitted' } });
+    await logApproval(req, 'paymentApplication', row.id, 'submitted', req.body?.comments);
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Transition: approve (-> approved). Requires financial/owner capability.
+app.post('/api/projects/:projectId/payment-applications/:id/approve', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_APPROVE_FINANCE)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot approve payment applications` });
+    const row = await prisma.paymentApplication.update({
+      where: { id: req.params.id },
+      data: { status: 'approved', approvedById: req.user?.sub || null, approvedAt: new Date() },
+    });
+    await logApproval(req, 'paymentApplication', row.id, 'approved', req.body?.comments);
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Transition: reject (-> rejected).
+app.post('/api/projects/:projectId/payment-applications/:id/reject', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_APPROVE_FINANCE)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot reject payment applications` });
+    const comments = req.body?.comments || null;
+    const row = await prisma.paymentApplication.update({
+      where: { id: req.params.id },
+      data: { status: 'rejected', rejectedById: req.user?.sub || null, rejectedAt: new Date(), comments },
+    });
+    await logApproval(req, 'paymentApplication', row.id, 'rejected', comments);
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Transition: markPaid (approved -> paid only). Updates the linked commitment.
+app.post('/api/projects/:projectId/payment-applications/:id/mark-paid', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_APPROVE_FINANCE)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot mark payment applications paid` });
+    const existing = await prisma.paymentApplication.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+    if (existing.status !== 'approved') return res.status(400).json({ error: 'Payment application must be approved before it can be marked paid' });
+    const row = await prisma.paymentApplication.update({ where: { id: req.params.id }, data: { status: 'paid' } });
+    if (row.commitmentId) await recomputeCommitment(row.commitmentId);
+    await logApproval(req, 'paymentApplication', row.id, 'paid', req.body?.comments);
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===== RETENTION RECORDS =====
+app.get('/api/projects/:projectId/retention', auth, async (req, res) => {
+  try {
+    const where = {};
+    if (req.query.commitmentId) where.commitmentId = req.query.commitmentId;
+    else {
+      // Scope to the project's commitments when no specific commitment is given.
+      const commitments = await prisma.commitment.findMany({ where: { projectId: req.params.projectId }, select: { id: true } });
+      where.commitmentId = { in: commitments.map((c) => c.id) };
+    }
+    res.json(await prisma.retentionRecord.findMany({ where, orderBy: { createdAt: 'desc' } }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/projects/:projectId/retention', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_REVIEW_FINANCE)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot create retention records` });
+    const { commitmentId, amountHeld } = req.body;
+    if (!commitmentId) return res.status(400).json({ error: 'commitmentId required' });
+    const held = num(amountHeld) || 0;
+    const row = await prisma.retentionRecord.create({ data: { commitmentId, amountHeld: held, amountReleased: 0, remaining: held, status: 'held' } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Explicit release action: releases (part of) the held retention.
+app.post('/api/projects/:projectId/retention/:id/release', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_APPROVE_FINANCE)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot release retention` });
+    const existing = await prisma.retentionRecord.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+    const held = Number(existing.amountHeld) || 0;
+    const releaseAmount = req.body?.amount !== undefined ? (num(req.body.amount) || 0) : held - (Number(existing.amountReleased) || 0);
+    const amountReleased = (Number(existing.amountReleased) || 0) + releaseAmount;
+    const remaining = Math.max(0, held - amountReleased);
+    const row = await prisma.retentionRecord.update({
+      where: { id: req.params.id },
+      data: { amountReleased, remaining, status: remaining <= 0 ? 'released' : 'held', releaseDate: new Date() },
+    });
+    await logApproval(req, 'retentionRecord', row.id, 'released', req.body?.comments);
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===== COST CODES =====
+app.get('/api/cost-codes', auth, async (_req, res) => {
+  try { res.json(await prisma.costCode.findMany({ orderBy: { code: 'asc' } })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/cost-codes', auth, async (req, res) => {
+  try {
+    const { code, description } = req.body;
+    if (!code) return res.status(400).json({ error: 'code required' });
+    res.json(await prisma.costCode.create({ data: { code, description } }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put('/api/cost-codes/:id', auth, async (req, res) => {
+  try {
+    const { code, description } = req.body;
+    const data = {};
+    if (code !== undefined) data.code = code;
+    if (description !== undefined) data.description = description;
+    res.json(await prisma.costCode.update({ where: { id: req.params.id }, data }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/cost-codes/:id', auth, async (req, res) => {
+  try { await prisma.costCode.delete({ where: { id: req.params.id } }); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===== APPROVALS (audit trail) =====
+app.get('/api/approvals', auth, async (req, res) => {
+  try {
+    const { entityType, entityId } = req.query;
+    const where = {};
+    if (entityType) where.entityType = entityType;
+    if (entityId) where.entityId = entityId;
+    res.json(await prisma.approval.findMany({ where, orderBy: { createdAt: 'desc' } }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Documents (global or per-project)
 app.get('/api/documents', auth, async (_req, res) => {
-  const rows = await prisma.document.findMany({ orderBy: { updatedAt: 'desc' } });
-  res.json(rows);
+  try {
+    const rows = await prisma.document.findMany({ orderBy: { updatedAt: 'desc' } });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/documents', auth, async (req, res) => {
-  const { name, url, size, updated, projectId } = req.body;
-  const row = await prisma.document.create({ data: { name, url, size, updated, projectId } });
-  res.json(row);
+  try {
+    const { name, url, size, updated, projectId } = req.body;
+    const row = await prisma.document.create({ data: { name, url, size, updated, projectId } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete('/api/documents/:id', auth, async (req, res) => {
-  await prisma.document.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  try {
+    await prisma.document.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // File upload stub (local). Replace with S3 presign in production.
@@ -961,48 +1378,349 @@ app.post('/api/upload/presign', auth, async (req, res) => {
 
 // ===== BIDS =====
 app.get('/api/projects/:projectId/bids', auth, async (req, res) => {
-  const rows = await prisma.bid.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
-  res.json(rows);
+  try {
+    const rows = await prisma.bid.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/projects/:projectId/bids', auth, async (req, res) => {
-  const { subcontractor, trade, amount, status, notes, fileUrl, submittedAt } = req.body;
-  const row = await prisma.bid.create({ data: { subcontractor, trade, amount: Number(amount), status, notes, fileUrl, submittedAt, projectId: req.params.projectId } });
-  res.json(row);
+  try {
+    const { subcontractor, trade, amount, status, notes, fileUrl, submittedAt } = req.body;
+    const row = await prisma.bid.create({ data: { subcontractor, trade, amount: Number(amount), status, notes, fileUrl, submittedAt, projectId: req.params.projectId } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put('/api/projects/:projectId/bids/:id', auth, async (req, res) => {
-  const { subcontractor, trade, amount, status, notes, fileUrl, submittedAt } = req.body;
-  const row = await prisma.bid.update({ where: { id: req.params.id }, data: { subcontractor, trade, amount: Number(amount), status, notes, fileUrl, submittedAt } });
-  res.json(row);
+  try {
+    const { subcontractor, trade, amount, status, notes, fileUrl, submittedAt } = req.body;
+    const row = await prisma.bid.update({ where: { id: req.params.id }, data: { subcontractor, trade, amount: Number(amount), status, notes, fileUrl, submittedAt } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete('/api/projects/:projectId/bids/:id', auth, async (req, res) => {
-  await prisma.bid.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  try {
+    await prisma.bid.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===== BID PACKAGES (internal tendering) =====
+// A company posts a tender (bid package) on a project, shares a public bid link
+// so subcontractors can submit without an account, receives bids, and awards one.
+// Who may create/edit/delete/award a bid package. Mirrors the create-CO role
+// list (owners are Contractors/Executives here) plus the explicit Owner role.
+const CAN_MANAGE_BIDS = ['Contractor', 'Owner', 'Executive', 'Project Manager', 'Superintendent'];
+const BID_PKG_FIELDS = ['projectId', 'title', 'trade', 'description', 'dueDate', 'status'];
+const pickBidPackage = (b) => {
+  const d = {};
+  for (const f of BID_PKG_FIELDS) if (b[f] !== undefined) d[f] = b[f];
+  if (b.budgetKES !== undefined) d.budgetKES = b.budgetKES == null || b.budgetKES === '' ? null : Number(b.budgetKES);
+  return d;
+};
+
+// List packages (filter by ?projectId=), newest first.
+app.get('/api/bid-packages', auth, async (req, res) => {
+  try {
+    const { projectId } = req.query;
+    const where = {};
+    if (projectId) where.projectId = projectId;
+    res.json(await prisma.bidPackage.findMany({ where, orderBy: { createdAt: 'desc' }, include: { bids: true } }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Single package, including its bids.
+app.get('/api/bid-packages/:id', auth, async (req, res) => {
+  try {
+    const row = await prisma.bidPackage.findUnique({ where: { id: req.params.id }, include: { bids: { orderBy: { createdAt: 'desc' } } } });
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/bid-packages', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_BIDS)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot create bid packages` });
+    const d = pickBidPackage(req.body);
+    if (!d.projectId) return res.status(400).json({ error: 'projectId required' });
+    if (!d.title) return res.status(400).json({ error: 'title required' });
+    if (!d.status) d.status = 'open';
+    res.json(await prisma.bidPackage.create({ data: d }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/bid-packages/:id', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_BIDS)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot edit bid packages` });
+    res.json(await prisma.bidPackage.update({ where: { id: req.params.id }, data: pickBidPackage(req.body) }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/bid-packages/:id', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_BIDS)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot delete bid packages` });
+    await prisma.bidPackage.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Generate (or return existing) a public bid link for the package.
+app.post('/api/bid-packages/:id/share', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_BIDS)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot share bid packages` });
+    const pkg = await prisma.bidPackage.findUnique({ where: { id: req.params.id } });
+    if (!pkg) return res.status(404).json({ error: 'Not found' });
+    const token = pkg.publicToken || require('crypto').randomBytes(9).toString('base64url');
+    const updated = pkg.publicToken ? pkg : await prisma.bidPackage.update({ where: { id: pkg.id }, data: { publicToken: token } });
+    res.json({ token: updated.publicToken, url: `${APP_URL}/?bid=${updated.publicToken}` });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Internally log an (offline) bid against a package.
+app.post('/api/bid-packages/:id/bids', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_BIDS)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot add bids` });
+    const pkg = await prisma.bidPackage.findUnique({ where: { id: req.params.id } });
+    if (!pkg) return res.status(404).json({ error: 'Not found' });
+    const { subcontractor, contactName, trade, amount, status, notes, fileUrl, submittedAt, contactEmail, contactPhone } = req.body || {};
+    const row = await prisma.bid.create({ data: {
+      subcontractor: subcontractor || contactName || 'Unknown',
+      trade: trade || pkg.trade || 'General',
+      amount: Number(amount) || 0,
+      status: status || 'submitted',
+      notes: notes || null,
+      fileUrl: fileUrl || null,
+      submittedAt: submittedAt || new Date().toISOString(),
+      contactName: contactName || null,
+      contactEmail: contactEmail || null,
+      contactPhone: contactPhone || null,
+      bidPackageId: pkg.id,
+      projectId: pkg.projectId,
+    } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Award a bid: marks the package awarded, the chosen bid awarded, the rest rejected.
+app.post('/api/bid-packages/:id/award', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_BIDS)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot award bids` });
+    const { bidId } = req.body || {};
+    if (!bidId) return res.status(400).json({ error: 'bidId required' });
+    const pkg = await prisma.bidPackage.findUnique({ where: { id: req.params.id }, include: { bids: true } });
+    if (!pkg) return res.status(404).json({ error: 'Not found' });
+    if (!pkg.bids.some((b) => b.id === bidId)) return res.status(400).json({ error: 'That bid does not belong to this package' });
+    for (const b of pkg.bids) {
+      await prisma.bid.update({ where: { id: b.id }, data: { status: b.id === bidId ? 'awarded' : 'rejected' } });
+    }
+    const updated = await prisma.bidPackage.update({ where: { id: pkg.id }, data: { awardedBidId: bidId, status: 'awarded' }, include: { bids: { orderBy: { createdAt: 'desc' } } } });
+    // Notify bidders of the outcome. Each send is isolated so one failure never
+    // breaks the response or stops the others.
+    const fmtKES = (n) => 'KSh ' + Number(n || 0).toLocaleString('en-KE');
+    for (const b of pkg.bids) {
+      if (!b.contactEmail) continue;
+      const isWinner = b.id === bidId;
+      try {
+        await sendEmail({
+          to: b.contactEmail,
+          subject: isWinner ? `Your bid for ${pkg.title} was accepted` : `Update on your bid for ${pkg.title} — not selected this time`,
+          html: emailShell(
+            isWinner ? 'Your bid was accepted' : 'Update on your bid',
+            isWinner
+              ? `<p>Good news — your bid of ${fmtKES(b.amount)} for <strong>${pkg.title}</strong> has been accepted. The team will be in touch with next steps.</p>${button(APP_URL, 'View details')}`
+              : `<p>Thank you for bidding on <strong>${pkg.title}</strong>. After review, your bid was not selected this time. We appreciate your effort and hope to work with you on a future tender.</p>`
+          ),
+        });
+      } catch (e) { console.error('[BID] award outcome email failed:', e && e.message); }
+    }
+    res.json(updated);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Respond to an individual bid: shortlist, decline (with optional reason), or
+// reset to submitted. Manage-gated like award. Declines email the bidder.
+app.post('/api/bid-packages/:id/bids/:bidId/respond', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_BIDS)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot respond to bids` });
+    const { status, reason } = req.body || {};
+    const ALLOWED = ['submitted', 'shortlisted', 'declined'];
+    if (!ALLOWED.includes(status)) return res.status(400).json({ error: `status must be one of: ${ALLOWED.join(', ')}` });
+    const pkg = await prisma.bidPackage.findUnique({ where: { id: req.params.id }, include: { bids: true } });
+    if (!pkg) return res.status(404).json({ error: 'Not found' });
+    const bid = pkg.bids.find((b) => b.id === req.params.bidId);
+    if (!bid) return res.status(400).json({ error: 'That bid does not belong to this package' });
+    const data = { status };
+    if (reason && String(reason).trim()) {
+      const line = `[Decline reason] ${String(reason).trim()}`;
+      data.notes = bid.notes ? `${bid.notes}\n${line}` : line;
+    }
+    const updated = await prisma.bid.update({ where: { id: bid.id }, data });
+    if (status === 'declined' && updated.contactEmail) {
+      try {
+        await sendEmail({
+          to: updated.contactEmail,
+          subject: `Update on your bid for ${pkg.title} — not selected`,
+          html: emailShell(
+            'Update on your bid',
+            `<p>Thank you for bidding on <strong>${pkg.title}</strong>. After review, your bid was not selected.</p>${reason && String(reason).trim() ? `<p><strong>Reason:</strong> ${String(reason).trim()}</p>` : ''}<p>We appreciate your effort and hope to work with you on a future tender.</p>`
+          ),
+        });
+      } catch (e) { console.error('[BID] decline email failed:', e && e.message); }
+    }
+    res.json(updated);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ----- PUBLIC bid endpoints (NO auth) -----
+// Mirrors the public-forms pattern: there is no auth middleware, so wsStore has
+// no store and currentWs() is null — the Prisma tenant extension passes through
+// (behaves like prismaBase). The package is resolved by its unguessable token,
+// and on create we explicitly stamp the package's workspaceId + projectId since
+// nothing else will. Reads only ever return the single token-matched package, so
+// no other tenant's data can leak.
+
+// Public: fetch a shared bid package by token. Only when it's open for bidding.
+app.get('/api/public/bids/:token', async (req, res) => {
+  try {
+    const pkg = await prisma.bidPackage.findUnique({ where: { publicToken: req.params.token } });
+    if (!pkg || pkg.status !== 'open') return res.status(404).json({ error: 'This tender is not available.' });
+    let companyName = null;
+    if (pkg.workspaceId) {
+      const ws = await prismaBase.workspace.findUnique({ where: { id: pkg.workspaceId }, select: { name: true } });
+      companyName = ws ? ws.name : null;
+    }
+    res.json({
+      title: pkg.title,
+      trade: pkg.trade,
+      description: pkg.description,
+      budgetKES: pkg.budgetKES,
+      dueDate: pkg.dueDate,
+      status: pkg.status,
+      companyName,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Public: submit a bid against a shared package. Only when it's open.
+app.post('/api/public/bids/:token', async (req, res) => {
+  try {
+    const pkg = await prisma.bidPackage.findUnique({ where: { publicToken: req.params.token } });
+    if (!pkg || pkg.status !== 'open') return res.status(404).json({ error: 'This tender is not accepting bids.' });
+    const b = req.body || {};
+    const name = b.subcontractor || b.contactName;
+    if (!name) return res.status(400).json({ error: 'Your name or company is required' });
+    if (b.amount == null || b.amount === '') return res.status(400).json({ error: 'A bid amount is required' });
+    const row = await prismaBase.bid.create({ data: {
+      subcontractor: String(name).slice(0, 200),
+      trade: (b.trade || pkg.trade || 'General'),
+      amount: Number(b.amount) || 0,
+      status: 'submitted',
+      notes: b.notes ? String(b.notes) : null,
+      fileUrl: b.fileUrl ? String(b.fileUrl) : null,
+      submittedAt: new Date().toISOString(),
+      contactName: b.contactName ? String(b.contactName).slice(0, 200) : (b.subcontractor ? String(b.subcontractor).slice(0, 200) : null),
+      contactEmail: b.contactEmail ? String(b.contactEmail).slice(0, 200) : null,
+      contactPhone: b.contactPhone ? String(b.contactPhone).slice(0, 60) : null,
+      bidPackageId: pkg.id,
+      projectId: pkg.projectId,
+      workspaceId: pkg.workspaceId,
+    } });
+    // Notifications. This is a PUBLIC route with no ws context, so use prismaBase
+    // and the package's workspaceId. Each send is isolated in its own try/catch so
+    // an email failure can never break the public bid submission.
+    const fmtKES = (n) => 'KSh ' + Number(n || 0).toLocaleString('en-KE');
+    const bidderLabel = row.subcontractor || row.contactName || 'a subcontractor';
+    // (a) Notify the company's bid managers.
+    try {
+      if (pkg.workspaceId) {
+        const managers = await prismaBase.user.findMany({ where: { workspaceId: pkg.workspaceId, role: { in: CAN_MANAGE_BIDS } }, select: { email: true, name: true } });
+        for (const m of managers) {
+          if (!m.email) continue;
+          try {
+            await sendEmail({
+              to: m.email,
+              subject: `New bid received for ${pkg.title} from ${bidderLabel} — ${fmtKES(row.amount)}`,
+              html: emailShell(
+                'New bid received',
+                `<p><strong>${bidderLabel}</strong> submitted a bid of ${fmtKES(row.amount)} for <strong>${pkg.title}</strong>.</p>${button(APP_URL, 'Review bids')}`
+              ),
+            });
+          } catch (e) { console.error('[BID] manager notify email failed:', e && e.message); }
+        }
+      }
+    } catch (e) { console.error('[BID] manager lookup failed:', e && e.message); }
+    // (b) Confirm receipt to the bidder.
+    try {
+      if (row.contactEmail) {
+        await sendEmail({
+          to: row.contactEmail,
+          subject: `We've received your bid for ${pkg.title}`,
+          html: emailShell(
+            'Bid received',
+            `<p>Thank you, ${bidderLabel}. We've received your bid of ${fmtKES(row.amount)} for <strong>${pkg.title}</strong> and it's now under review. We'll be in touch about the outcome.</p>`
+          ),
+        });
+      }
+    } catch (e) { console.error('[BID] bidder confirmation email failed:', e && e.message); }
+    res.json({ ok: true, id: row.id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== INVOICES =====
 app.get('/api/projects/:projectId/invoices', auth, async (req, res) => {
-  const rows = await prisma.invoice.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
-  res.json(rows);
+  try {
+    const rows = await prisma.invoice.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// Coerce a numeric field: empty string / null / undefined -> null, else Number.
+const invNum = (v) => (v === undefined || v === null || v === '' ? null : Number(v));
 app.post('/api/projects/:projectId/invoices', auth, async (req, res) => {
-  const { invoiceNumber, clientName, amount, status, issueDate, dueDate, items, notes } = req.body;
-  const row = await prisma.invoice.create({ data: { invoiceNumber, clientName, amount: Number(amount), status, issueDate, dueDate, items, notes, projectId: req.params.projectId } });
-  res.json(row);
+  try {
+    const b = req.body;
+    const row = await prisma.invoice.create({
+      data: {
+        invoiceNumber: b.invoiceNumber,
+        clientName: b.clientName,
+        amount: Math.round(Number(b.amount) || 0),
+        status: b.status,
+        issueDate: b.issueDate,
+        dueDate: b.dueDate,
+        items: b.items,
+        notes: b.notes,
+        billToAddress: b.billToAddress,
+        shipTo: b.shipTo,
+        poNumber: b.poNumber,
+        paymentTerms: b.paymentTerms,
+        terms: b.terms,
+        taxRate: invNum(b.taxRate),
+        discount: invNum(b.discount),
+        shipping: invNum(b.shipping),
+        subtotal: invNum(b.subtotal),
+        paidAmount: b.paidAmount === undefined ? null : Math.round(Number(b.paidAmount) || 0),
+        paidDate: b.paidDate,
+        projectId: req.params.projectId,
+      },
+    });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put('/api/projects/:projectId/invoices/:id', auth, async (req, res) => {
   try {
     // Partial update — only touch provided fields (so "record payment" doesn't wipe others).
     const data = {};
-    for (const f of ['invoiceNumber', 'clientName', 'status', 'issueDate', 'dueDate', 'items', 'notes', 'paidDate']) if (req.body[f] !== undefined) data[f] = req.body[f];
-    if (req.body.amount !== undefined) data.amount = Number(req.body.amount);
-    if (req.body.paidAmount !== undefined) data.paidAmount = req.body.paidAmount === null ? null : Number(req.body.paidAmount);
+    for (const f of ['invoiceNumber', 'clientName', 'status', 'issueDate', 'dueDate', 'items', 'notes', 'paidDate', 'billToAddress', 'shipTo', 'poNumber', 'paymentTerms', 'terms']) if (req.body[f] !== undefined) data[f] = req.body[f];
+    for (const f of ['taxRate', 'discount', 'shipping', 'subtotal']) if (req.body[f] !== undefined) data[f] = invNum(req.body[f]);
+    if (req.body.amount !== undefined) data.amount = Math.round(Number(req.body.amount) || 0);
+    if (req.body.paidAmount !== undefined) data.paidAmount = req.body.paidAmount === null ? null : Math.round(Number(req.body.paidAmount) || 0);
     const row = await prisma.invoice.update({ where: { id: req.params.id }, data });
     res.json(row);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete('/api/projects/:projectId/invoices/:id', auth, async (req, res) => {
-  await prisma.invoice.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  try {
+    await prisma.invoice.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== INSPECTIONS =====
@@ -1022,142 +1740,314 @@ function canTransition(from, to) {
 }
 
 app.get('/api/projects/:projectId/inspections', auth, async (req, res) => {
-  const rows = await prisma.inspection.findMany({
-    where: { projectId: req.params.projectId },
-    orderBy: { createdAt: 'desc' },
-    include: { approvals: { orderBy: { createdAt: 'desc' } } },
-  });
-  res.json(rows);
+  try {
+    const rows = await prisma.inspection.findMany({
+      where: { projectId: req.params.projectId },
+      orderBy: { createdAt: 'desc' },
+      include: { approvals: { orderBy: { createdAt: 'desc' } } },
+    });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/inspections/:id', auth, async (req, res) => {
-  const row = await prisma.inspection.findUnique({
-    where: { id: req.params.id },
-    include: { approvals: { orderBy: { createdAt: 'desc' } } },
-  });
-  if (!row) return res.status(404).json({ error: 'Not found' });
-  res.json(row);
+  try {
+    const row = await prisma.inspection.findUnique({
+      where: { id: req.params.id },
+      include: { approvals: { orderBy: { createdAt: 'desc' } } },
+    });
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/projects/:projectId/inspections', auth, async (req, res) => {
-  const { type, inspector, date, status, notes, checklist, photos, videos, readinessPhotos, assignedTo, createdBy, checklistId, templateId, drawingRef } = req.body;
-  const initialStatus = status && INSPECTION_STATUSES.includes(status) ? status : 'draft';
-  const row = await prisma.inspection.create({
-    data: {
-      type, inspector, date,
-      status: initialStatus,
-      notes, checklist,
-      photos: photos ? JSON.stringify(photos) : null,
-      videos: videos ? JSON.stringify(videos) : null,
-      readinessPhotos: readinessPhotos ? JSON.stringify(readinessPhotos) : null,
-      assignedTo, createdBy: createdBy || req.user.sub,
-      checklistId, templateId,
-      drawingRef: drawingRef ? JSON.stringify(drawingRef) : null,
-      projectId: req.params.projectId,
-    },
-  });
-  res.json(row);
+  try {
+    const { type, inspector, date, status, notes, checklist, photos, videos, readinessPhotos, assignedTo, createdBy, checklistId, templateId, drawingRef } = req.body;
+    const initialStatus = status && INSPECTION_STATUSES.includes(status) ? status : 'draft';
+    const row = await prisma.inspection.create({
+      data: {
+        type, inspector, date,
+        status: initialStatus,
+        notes, checklist,
+        photos: photos ? JSON.stringify(photos) : null,
+        videos: videos ? JSON.stringify(videos) : null,
+        readinessPhotos: readinessPhotos ? JSON.stringify(readinessPhotos) : null,
+        assignedTo, createdBy: createdBy || req.user.sub,
+        checklistId, templateId,
+        drawingRef: drawingRef ? JSON.stringify(drawingRef) : null,
+        projectId: req.params.projectId,
+      },
+    });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/projects/:projectId/inspections/:id', auth, async (req, res) => {
-  const existing = await prisma.inspection.findUnique({ where: { id: req.params.id } });
-  if (!existing) return res.status(404).json({ error: 'Not found' });
-  const { type, inspector, date, status, notes, checklist, photos, videos, readinessPhotos, assignedTo, checklistId, templateId, drawingRef } = req.body;
-  if (status && status !== existing.status && !canTransition(existing.status, status)) {
-    return res.status(400).json({ error: `Invalid status transition from ${existing.status} to ${status}` });
-  }
-  const data = { type, inspector, date, status, notes, checklist, assignedTo, checklistId, templateId };
-  if (photos !== undefined) data.photos = photos ? JSON.stringify(photos) : null;
-  if (videos !== undefined) data.videos = videos ? JSON.stringify(videos) : null;
-  if (readinessPhotos !== undefined) data.readinessPhotos = readinessPhotos ? JSON.stringify(readinessPhotos) : null;
-  if (drawingRef !== undefined) data.drawingRef = drawingRef ? JSON.stringify(drawingRef) : null;
-  const row = await prisma.inspection.update({ where: { id: req.params.id }, data });
-  res.json(row);
+  try {
+    const existing = await prisma.inspection.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+    const { type, inspector, date, status, notes, checklist, photos, videos, readinessPhotos, assignedTo, checklistId, templateId, drawingRef } = req.body;
+    if (status && status !== existing.status && !canTransition(existing.status, status)) {
+      return res.status(400).json({ error: `Invalid status transition from ${existing.status} to ${status}` });
+    }
+    const data = { type, inspector, date, status, notes, checklist, assignedTo, checklistId, templateId };
+    if (photos !== undefined) data.photos = photos ? JSON.stringify(photos) : null;
+    if (videos !== undefined) data.videos = videos ? JSON.stringify(videos) : null;
+    if (readinessPhotos !== undefined) data.readinessPhotos = readinessPhotos ? JSON.stringify(readinessPhotos) : null;
+    if (drawingRef !== undefined) data.drawingRef = drawingRef ? JSON.stringify(drawingRef) : null;
+    const row = await prisma.inspection.update({ where: { id: req.params.id }, data });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/projects/:projectId/inspections/:id', auth, async (req, res) => {
-  await prisma.inspection.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  try {
+    await prisma.inspection.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Inspection approvals (consultant workflow)
 app.post('/api/inspections/:id/approvals', auth, async (req, res) => {
-  const { status, comments } = req.body;
-  if (!['approved', 'rejected', 'rework_required'].includes(status)) {
-    return res.status(400).json({ error: 'Invalid approval status' });
-  }
-  const inspection = await prisma.inspection.findUnique({ where: { id: req.params.id } });
-  if (!inspection) return res.status(404).json({ error: 'Inspection not found' });
-  if (!['in_review', 'pending_consultant'].includes(inspection.status)) {
-    return res.status(400).json({ error: `Cannot approve/reject inspection in status ${inspection.status}` });
-  }
-  const approval = await prisma.inspectionApproval.create({
-    data: { status, comments: comments || null, approvedBy: req.user.sub, inspectionId: req.params.id },
-  });
-  let newStatus = inspection.status;
-  if (status === 'approved') newStatus = 'approved';
-  else if (status === 'rejected') newStatus = 'rejected';
-  else if (status === 'rework_required') newStatus = 'rework_required';
-  await prisma.inspection.update({ where: { id: req.params.id }, data: { status: newStatus } });
-  res.json({ approval, inspectionStatus: newStatus });
+  try {
+    const { status, comments } = req.body;
+    if (!['approved', 'rejected', 'rework_required'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid approval status' });
+    }
+    const inspection = await prisma.inspection.findUnique({ where: { id: req.params.id } });
+    if (!inspection) return res.status(404).json({ error: 'Inspection not found' });
+    if (!['in_review', 'pending_consultant'].includes(inspection.status)) {
+      return res.status(400).json({ error: `Cannot approve/reject inspection in status ${inspection.status}` });
+    }
+    const approval = await prisma.inspectionApproval.create({
+      data: { status, comments: comments || null, approvedBy: req.user.sub, inspectionId: req.params.id },
+    });
+    let newStatus = inspection.status;
+    if (status === 'approved') newStatus = 'approved';
+    else if (status === 'rejected') newStatus = 'rejected';
+    else if (status === 'rework_required') newStatus = 'rework_required';
+    await prisma.inspection.update({ where: { id: req.params.id }, data: { status: newStatus } });
+    res.json({ approval, inspectionStatus: newStatus });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/inspections/:id/approvals', auth, async (req, res) => {
-  const rows = await prisma.inspectionApproval.findMany({ where: { inspectionId: req.params.id }, orderBy: { createdAt: 'desc' } });
-  res.json(rows);
+  try {
+    const rows = await prisma.inspectionApproval.findMany({ where: { inspectionId: req.params.id }, orderBy: { createdAt: 'desc' } });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== SAFETY INCIDENTS =====
 app.get('/api/projects/:projectId/safety-incidents', auth, async (req, res) => {
-  const rows = await prisma.safetyIncident.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
-  res.json(rows);
+  try {
+    const rows = await prisma.safetyIncident.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/projects/:projectId/safety-incidents', auth, async (req, res) => {
-  const { date, incidentType, severity, description, reporter, witnesses, correctiveAction, status } = req.body;
-  const row = await prisma.safetyIncident.create({ data: { date, incidentType, severity, description, reporter, witnesses, correctiveAction, status, projectId: req.params.projectId } });
-  res.json(row);
+  try {
+    const { date, incidentType, severity, description, reporter, witnesses, correctiveAction, status } = req.body;
+    const row = await prisma.safetyIncident.create({ data: { date, incidentType, severity, description, reporter, witnesses, correctiveAction, status, projectId: req.params.projectId } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put('/api/projects/:projectId/safety-incidents/:id', auth, async (req, res) => {
-  const { date, incidentType, severity, description, reporter, witnesses, correctiveAction, status } = req.body;
-  const row = await prisma.safetyIncident.update({ where: { id: req.params.id }, data: { date, incidentType, severity, description, reporter, witnesses, correctiveAction, status } });
-  res.json(row);
+  try {
+    const { date, incidentType, severity, description, reporter, witnesses, correctiveAction, status } = req.body;
+    const row = await prisma.safetyIncident.update({ where: { id: req.params.id }, data: { date, incidentType, severity, description, reporter, witnesses, correctiveAction, status } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete('/api/projects/:projectId/safety-incidents/:id', auth, async (req, res) => {
-  await prisma.safetyIncident.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  try {
+    await prisma.safetyIncident.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== EQUIPMENT =====
 app.get('/api/equipment', auth, async (_req, res) => {
-  const rows = await prisma.equipment.findMany({ orderBy: { createdAt: 'desc' } });
-  res.json(rows);
+  try {
+    const rows = await prisma.equipment.findMany({ orderBy: { createdAt: 'desc' } });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// Build the equipment data payload from a request body. `partial` controls
+// update semantics: when true (PUT), fields that are `undefined` in the body are
+// left out entirely so existing values are untouched; when false (POST) every
+// field is included. Date fields are coerced to Date, numeric fields via Number.
+function buildEquipmentData(body, { partial } = { partial: false }) {
+  const dateFields = ['hireStartDate', 'hireEndDate', 'insuranceExpiry', 'inspectionExpiry'];
+  const numberFields = ['hireRate', 'purchaseCost', 'currentValue', 'meterHours', 'lastServiceHours', 'serviceIntervalHours'];
+  const stringFields = [
+    'name', 'category', 'serialNumber', 'manufacturer', 'purchaseDate', 'status',
+    'lastService', 'nextService', 'location', 'notes', 'projectId',
+    'assetTag', 'condition', 'operator', 'ownership', 'hireVendor', 'hireRateUnit',
+    'photoUrl', 'documents',
+  ];
+  const data = {};
+  const setField = (key, value) => {
+    if (partial && value === undefined) return; // leave untouched on update
+    data[key] = value;
+  };
+  for (const key of stringFields) setField(key, body[key]);
+  for (const key of numberFields) {
+    const v = body[key];
+    setField(key, v === undefined ? undefined : (v === null || v === '' ? null : Number(v)));
+  }
+  for (const key of dateFields) {
+    const v = body[key];
+    setField(key, v === undefined ? undefined : (v === null || v === '' ? null : new Date(v)));
+  }
+  return data;
+}
 app.post('/api/equipment', auth, async (req, res) => {
-  const { name, category, serialNumber, manufacturer, purchaseDate, status, lastService, nextService, location, notes, projectId } = req.body;
-  const row = await prisma.equipment.create({ data: { name, category, serialNumber, manufacturer, purchaseDate, status, lastService, nextService, location, notes, projectId } });
-  res.json(row);
+  try {
+    const data = buildEquipmentData(req.body, { partial: false });
+    const row = await prisma.equipment.create({ data });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put('/api/equipment/:id', auth, async (req, res) => {
-  const { name, category, serialNumber, manufacturer, purchaseDate, status, lastService, nextService, location, notes, projectId } = req.body;
-  const row = await prisma.equipment.update({ where: { id: req.params.id }, data: { name, category, serialNumber, manufacturer, purchaseDate, status, lastService, nextService, location, notes, projectId } });
-  res.json(row);
+  try {
+    const data = buildEquipmentData(req.body, { partial: true });
+    const row = await prisma.equipment.update({ where: { id: req.params.id }, data });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete('/api/equipment/:id', auth, async (req, res) => {
-  await prisma.equipment.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  try {
+    await prisma.equipment.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===== INVENTORY (construction materials + stock-movement ledger) =====
+// Viewing is open to any authenticated user. Creating/editing/deleting items and
+// recording movements is limited to the site/management roles that run material
+// stock (mirrors CAN_ASSIGN_TASKS: site supervisors, PM, contractor, etc.).
+const CAN_MANAGE_INVENTORY = ['Contractor', 'Executive', 'Project Manager', 'Superintendent', 'Trade Lead'];
+const INVENTORY_FIELDS = ['projectId', 'name', 'category', 'unit', 'reorderLevel', 'unitCostKES', 'supplier', 'location', 'notes', 'status', 'sku', 'minLevel', 'maxLevel', 'reorderQty', 'leadTimeDays', 'supplierContact'];
+const INVENTORY_NUMERIC_FIELDS = ['reorderLevel', 'unitCostKES', 'minLevel', 'maxLevel', 'reorderQty', 'leadTimeDays'];
+const pickInventory = (b) => {
+  const d = {};
+  for (const f of INVENTORY_FIELDS) if (b[f] !== undefined) d[f] = b[f];
+  // Numeric coercion for the float/int fields (empty -> null). Strings (sku,
+  // supplier, supplierContact, etc.) are persisted as-is.
+  for (const f of INVENTORY_NUMERIC_FIELDS) {
+    if (d[f] !== undefined) d[f] = d[f] == null || d[f] === '' ? null : Number(d[f]);
+  }
+  return d;
+};
+
+// List items (optional ?projectId= and ?type= filters; type filters by items that
+// have at least one movement of that type). Newest first.
+app.get('/api/inventory', auth, async (req, res) => {
+  try {
+    const { projectId, type } = req.query;
+    const where = {};
+    if (projectId) where.projectId = projectId;
+    if (type) where.movements = { some: { type } };
+    res.json(await prisma.inventoryItem.findMany({ where, orderBy: { createdAt: 'desc' } }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Items at or below their reorder level (only when a reorder level is set > 0).
+app.get('/api/inventory/low-stock', auth, async (_req, res) => {
+  try {
+    const rows = await prisma.inventoryItem.findMany({ orderBy: { createdAt: 'desc' } });
+    res.json(rows.filter((r) => r.reorderLevel != null && r.reorderLevel > 0 && r.currentStock <= r.reorderLevel));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Single item including its movement ledger (newest first).
+app.get('/api/inventory/:id', auth, async (req, res) => {
+  try {
+    const row = await prisma.inventoryItem.findUnique({ where: { id: req.params.id }, include: { movements: { orderBy: { date: 'desc' } } } });
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/inventory', auth, requireRole(CAN_MANAGE_INVENTORY), async (req, res) => {
+  try {
+    const d = pickInventory(req.body);
+    if (!d.name) return res.status(400).json({ error: 'name required' });
+    if (!d.unit) return res.status(400).json({ error: 'unit required' });
+    if (req.body.currentStock !== undefined) d.currentStock = Number(req.body.currentStock) || 0; // optional opening balance
+    res.json(await prisma.inventoryItem.create({ data: d }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Update item fields. currentStock is deliberately ignored here — it only changes
+// via movements, so direct edits can't silently desync the cached balance.
+app.put('/api/inventory/:id', auth, requireRole(CAN_MANAGE_INVENTORY), async (req, res) => {
+  try {
+    res.json(await prisma.inventoryItem.update({ where: { id: req.params.id }, data: pickInventory(req.body) }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/inventory/:id', auth, requireRole(CAN_MANAGE_INVENTORY), async (req, res) => {
+  try {
+    await prisma.inventoryItem.delete({ where: { id: req.params.id } }); // cascades movements
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Movement ledger for one item (newest first).
+app.get('/api/inventory/:id/movements', auth, async (req, res) => {
+  try {
+    res.json(await prisma.inventoryMovement.findMany({ where: { itemId: req.params.id }, orderBy: { date: 'desc' } }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Record a movement and apply the stock logic to the item's cached currentStock:
+//   in     -> currentStock += quantity
+//   out    -> currentStock -= quantity (may go to/below 0; UI flags negatives)
+//   adjust -> currentStock = quantity (a correction sets the absolute value)
+app.post('/api/inventory/:id/movements', auth, requireRole(CAN_MANAGE_INVENTORY), async (req, res) => {
+  try {
+    const { type, quantity, reference, notes, date } = req.body || {};
+    if (!['in', 'out', 'adjust'].includes(type)) return res.status(400).json({ error: 'type must be in | out | adjust' });
+    const qty = Number(quantity);
+    if (!Number.isFinite(qty)) return res.status(400).json({ error: 'quantity must be a number' });
+    const item = await prisma.inventoryItem.findUnique({ where: { id: req.params.id } });
+    if (!item) return res.status(404).json({ error: 'Not found' });
+    let newStock;
+    if (type === 'in') newStock = item.currentStock + qty;
+    else if (type === 'out') newStock = item.currentStock - qty;
+    else newStock = qty; // adjust = absolute correction
+    const movement = await prisma.inventoryMovement.create({ data: {
+      itemId: item.id,
+      type,
+      quantity: qty,
+      balanceAfter: newStock,
+      date: date ? new Date(date) : undefined,
+      reference: reference || null,
+      notes: notes || null,
+      actorId: (req.user && req.user.sub) || null,
+      actorName: (req.user && req.user.name) || null,
+    } });
+    const updated = await prisma.inventoryItem.update({ where: { id: item.id }, data: { currentStock: newStock } });
+    res.json({ movement, item: updated });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== ATTENDANCE =====
 app.get('/api/attendance', auth, async (req, res) => {
-  const userId = req.user.sub;
-  const { date, userId: queryUserId, all } = req.query;
-  const where = {};
-  // all=1 → team-wide (for managers' manpower view); otherwise the user's own.
-  if (all === '1') { if (queryUserId) where.userId = queryUserId; }
-  else { where.userId = queryUserId || userId; }
-  if (date) where.date = date;
-  const rows = await prisma.attendance.findMany({ where, orderBy: { date: 'desc' }, include: { user: { select: { name: true, role: true, email: true } } } });
-  res.json(rows);
+  try {
+    const userId = req.user.sub;
+    const { date, userId: queryUserId, all } = req.query;
+    const where = {};
+    // all=1 → team-wide (for managers' manpower view); otherwise the user's own.
+    if (all === '1') { if (queryUserId) where.userId = queryUserId; }
+    else { where.userId = queryUserId || userId; }
+    if (date) where.date = date;
+    const rows = await prisma.attendance.findMany({ where, orderBy: { date: 'desc' }, include: { user: { select: { name: true, role: true, email: true } } } });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // Resolve the request's user to a REAL row so attendance's foreign key holds.
 // Handles the demo account / token users whose row may not exist yet.
@@ -1200,40 +2090,48 @@ app.delete('/api/attendance/:id', auth, async (req, res) => {
 
 // ===== CHECKLIST TEMPLATES =====
 app.get('/api/checklist-templates', auth, async (req, res) => {
-  const where = {};
-  if (req.query.isGlobal === 'true') where.isGlobal = true;
-  if (req.query.status) where.status = req.query.status;
-  const rows = await prisma.checklistTemplate.findMany({ where, orderBy: { createdAt: 'desc' } });
-  res.json(rows);
+  try {
+    const where = {};
+    if (req.query.isGlobal === 'true') where.isGlobal = true;
+    if (req.query.status) where.status = req.query.status;
+    const rows = await prisma.checklistTemplate.findMany({ where, orderBy: { createdAt: 'desc' } });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/checklist-templates', auth, async (req, res) => {
-  const { title, trade, category, items, isGlobal, status } = req.body;
-  const row = await prisma.checklistTemplate.create({
-    data: {
-      title, trade, category,
-      items: typeof items === 'string' ? items : JSON.stringify(items || []),
-      isGlobal: !!isGlobal,
-      status: status || 'active',
-      createdBy: req.user.sub,
-    }
-  });
-  res.json(row);
+  try {
+    const { title, trade, category, items, isGlobal, status } = req.body;
+    const row = await prisma.checklistTemplate.create({
+      data: {
+        title, trade, category,
+        items: typeof items === 'string' ? items : JSON.stringify(items || []),
+        isGlobal: !!isGlobal,
+        status: status || 'active',
+        createdBy: req.user.sub,
+      }
+    });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put('/api/checklist-templates/:id', auth, async (req, res) => {
-  const { title, trade, category, items, isGlobal, status } = req.body;
-  const data = {};
-  if (title !== undefined) data.title = title;
-  if (trade !== undefined) data.trade = trade;
-  if (category !== undefined) data.category = category;
-  if (items !== undefined) data.items = typeof items === 'string' ? items : JSON.stringify(items || []);
-  if (isGlobal !== undefined) data.isGlobal = !!isGlobal;
-  if (status !== undefined) data.status = status;
-  const row = await prisma.checklistTemplate.update({ where: { id: req.params.id }, data });
-  res.json(row);
+  try {
+    const { title, trade, category, items, isGlobal, status } = req.body;
+    const data = {};
+    if (title !== undefined) data.title = title;
+    if (trade !== undefined) data.trade = trade;
+    if (category !== undefined) data.category = category;
+    if (items !== undefined) data.items = typeof items === 'string' ? items : JSON.stringify(items || []);
+    if (isGlobal !== undefined) data.isGlobal = !!isGlobal;
+    if (status !== undefined) data.status = status;
+    const row = await prisma.checklistTemplate.update({ where: { id: req.params.id }, data });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete('/api/checklist-templates/:id', auth, async (req, res) => {
-  await prisma.checklistTemplate.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  try {
+    await prisma.checklistTemplate.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== SHAREABLE FORM LINKS =====
@@ -1290,6 +2188,7 @@ app.post('/api/public/forms/:token/submit', async (req, res) => {
 
 // CSV / AI upload to create a checklist template
 app.post('/api/checklist-templates/from-csv', auth, async (req, res) => {
+  try {
   const { title, trade, category, csvText, source } = req.body;
   if (!csvText || !title) return res.status(400).json({ error: 'title and csvText required' });
 
@@ -1338,6 +2237,7 @@ app.post('/api/checklist-templates/from-csv', auth, async (req, res) => {
     }
   });
   res.json({ template, parsedItems: items });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Parse uploaded file (.csv or .xlsx) and return preview + suggested column mappings
@@ -1392,6 +2292,7 @@ app.post('/api/checklist-templates/parse-file', auth, upload.single('file'), asy
 
 // Create template from user-confirmed parsed data
 app.post('/api/checklist-templates/from-parsed', auth, async (req, res) => {
+  try {
   const { title, trade, category, rows, mappings } = req.body;
   if (!title || !Array.isArray(rows) || !mappings) return res.status(400).json({ error: 'title, rows, and mappings required' });
 
@@ -1432,6 +2333,7 @@ app.post('/api/checklist-templates/from-parsed', auth, async (req, res) => {
     }
   });
   res.json({ template, parsedItems: items });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Create checklist from template
@@ -1448,6 +2350,7 @@ function qExtra(q) {
 }
 
 app.post('/api/checklists/from-template/:templateId', auth, async (req, res) => {
+  try {
   const template = await prisma.checklistTemplate.findUnique({ where: { id: req.params.templateId } });
   if (!template) return res.status(404).json({ error: 'Template not found' });
 
@@ -1529,274 +2432,323 @@ app.post('/api/checklists/from-template/:templateId', auth, async (req, res) => 
     include: { questions: { orderBy: { position: 'asc' } } },
   });
   res.json(full);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== CHECKLISTS =====
 app.get('/api/checklists', auth, async (req, res) => {
-  const where = {};
-  if (req.query.projectId) where.projectId = req.query.projectId;
-  if (req.query.status) where.status = req.query.status;
-  const rows = await prisma.checklist.findMany({ where, orderBy: { createdAt: 'desc' }, include: { questions: { orderBy: { position: 'asc' } }, responses: true } });
-  res.json(rows);
+  try {
+    const where = {};
+    if (req.query.projectId) where.projectId = req.query.projectId;
+    if (req.query.status) where.status = req.query.status;
+    const rows = await prisma.checklist.findMany({ where, orderBy: { createdAt: 'desc' }, include: { questions: { orderBy: { position: 'asc' } }, responses: true } });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/checklists', auth, requireRole(CAN_GENERATE_CHECKLISTS), async (req, res) => {
-  const { title, description, category, trade, source, questions, assignee, assignedTo, templateId, dueDate, projectId } = req.body;
-  const checklist = await prisma.checklist.create({
-    data: {
-      title,
-      description,
-      category,
-      trade: trade || undefined,
-      source: source || 'manual',
-      status: 'draft',
-      assignee: assignee || undefined,
-      assignedTo: assignedTo ? JSON.stringify(assignedTo) : undefined,
-      templateId: templateId || undefined,
-      dueDate: dueDate ? new Date(dueDate) : undefined,
-      projectId: projectId || undefined,
-      createdBy: req.user.sub,
-      questions: { create: (questions || []).map((q, i) => ({ question: q.question, questionType: q.questionType, required: !!q.required, position: q.position ?? i, options: typeof q.options === 'string' ? q.options : JSON.stringify(q.options || []), parentId: q.parentId || null, ...qExtra(q) })) }
-    },
-    include: { questions: { orderBy: { position: 'asc' } } },
-  });
-  res.json(checklist);
+  try {
+    const { title, description, category, trade, source, questions, assignee, assignedTo, templateId, dueDate, projectId } = req.body;
+    const checklist = await prisma.checklist.create({
+      data: {
+        title,
+        description,
+        category,
+        trade: trade || undefined,
+        source: source || 'manual',
+        status: 'draft',
+        assignee: assignee || undefined,
+        assignedTo: assignedTo ? JSON.stringify(assignedTo) : undefined,
+        templateId: templateId || undefined,
+        dueDate: dueDate ? new Date(dueDate) : undefined,
+        projectId: projectId || undefined,
+        createdBy: req.user.sub,
+        questions: { create: (questions || []).map((q, i) => ({ question: q.question, questionType: q.questionType, required: !!q.required, position: q.position ?? i, options: typeof q.options === 'string' ? q.options : JSON.stringify(q.options || []), parentId: q.parentId || null, ...qExtra(q) })) }
+      },
+      include: { questions: { orderBy: { position: 'asc' } } },
+    });
+    res.json(checklist);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get('/api/checklists/:id', auth, async (req, res) => {
-  const row = await prisma.checklist.findUnique({ where: { id: req.params.id }, include: { questions: { orderBy: { position: 'asc' } }, responses: true } });
-  if (!row) return res.status(404).json({ error: 'Not found' });
-  res.json(row);
+  try {
+    const row = await prisma.checklist.findUnique({ where: { id: req.params.id }, include: { questions: { orderBy: { position: 'asc' } }, responses: true } });
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put('/api/checklists/:id', auth, requireRole(CAN_ASSIGN_TASKS), async (req, res) => {
-  const { title, description, category, trade, reportedProgress, status, assigned, assignee, assignedTo, templateId, dueDate, projectId } = req.body;
-  const data = {};
-  if (title !== undefined) data.title = title;
-  if (trade !== undefined) data.trade = trade || null;
-  if (reportedProgress !== undefined) data.reportedProgress = reportedProgress == null ? null : Math.max(0, Math.min(100, Math.round(Number(reportedProgress))));
-  if (description !== undefined) data.description = description;
-  if (category !== undefined) data.category = category;
-  if (status !== undefined) data.status = status;
-  if (assigned !== undefined) data.assigned = assigned;
-  if (assignee !== undefined) data.assignee = assignee || undefined;
-  if (assignedTo !== undefined) data.assignedTo = Array.isArray(assignedTo) ? JSON.stringify(assignedTo) : assignedTo;
-  if (templateId !== undefined) data.templateId = templateId || undefined;
-  if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : undefined;
-  if (projectId !== undefined) data.projectId = projectId || undefined;
-  const row = await prisma.checklist.update({ where: { id: req.params.id }, data });
-  res.json(row);
+  try {
+    const { title, description, category, trade, reportedProgress, status, assigned, assignee, assignedTo, templateId, dueDate, projectId } = req.body;
+    const data = {};
+    if (title !== undefined) data.title = title;
+    if (trade !== undefined) data.trade = trade || null;
+    if (reportedProgress !== undefined) data.reportedProgress = reportedProgress == null ? null : Math.max(0, Math.min(100, Math.round(Number(reportedProgress))));
+    if (description !== undefined) data.description = description;
+    if (category !== undefined) data.category = category;
+    if (status !== undefined) data.status = status;
+    if (assigned !== undefined) data.assigned = assigned;
+    if (assignee !== undefined) data.assignee = assignee || undefined;
+    if (assignedTo !== undefined) data.assignedTo = Array.isArray(assignedTo) ? JSON.stringify(assignedTo) : assignedTo;
+    if (templateId !== undefined) data.templateId = templateId || undefined;
+    if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : undefined;
+    if (projectId !== undefined) data.projectId = projectId || undefined;
+    const row = await prisma.checklist.update({ where: { id: req.params.id }, data });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete('/api/checklists/:id', auth, async (req, res) => {
-  await prisma.checklist.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  try {
+    await prisma.checklist.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Assign checklist to users
 app.post('/api/checklists/:id/assign', auth, requireRole(CAN_ASSIGN_TASKS), async (req, res) => {
-  const { userIds } = req.body;
-  if (!Array.isArray(userIds) || userIds.length === 0) return res.status(400).json({ error: 'userIds array required' });
-  const row = await prisma.checklist.update({
-    where: { id: req.params.id },
-    data: { assigned: true, assignedTo: JSON.stringify(userIds), status: 'assigned' },
-  });
-  notifyAssignment(userIds, {
-    subject: 'You have been assigned a checklist',
-    intro: `you've been assigned the checklist "${row.title}"${row.dueDate ? ` (due ${row.dueDate})` : ''}. Open Buildflex to complete it.`,
-    link: APP_URL,
-  });
-  res.json(row);
+  try {
+    const { userIds } = req.body;
+    if (!Array.isArray(userIds) || userIds.length === 0) return res.status(400).json({ error: 'userIds array required' });
+    const row = await prisma.checklist.update({
+      where: { id: req.params.id },
+      data: { assigned: true, assignedTo: JSON.stringify(userIds), status: 'assigned' },
+    });
+    notifyAssignment(userIds, {
+      subject: 'You have been assigned a checklist',
+      intro: `you've been assigned the checklist "${row.title}"${row.dueDate ? ` (due ${row.dueDate})` : ''}. Open Buildsasa to complete it.`,
+      link: APP_URL,
+    });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Contractor-reported field progress (0-100) for a work item. This is the
 // assignee's estimate of how far the actual work is, separate from QA
 // completion (answered/total). Advancing it nudges the status to in_progress.
 app.post('/api/checklists/:id/progress', auth, requireRole(CAN_FILL_CHECKLISTS), async (req, res) => {
-  let pct = Number(req.body?.progress);
-  if (!Number.isFinite(pct)) return res.status(400).json({ error: 'progress (0-100) required' });
-  pct = Math.max(0, Math.min(100, Math.round(pct)));
-  const existing = await prisma.checklist.findUnique({ where: { id: req.params.id } });
-  if (!existing) return res.status(404).json({ error: 'Not found' });
-  const data = { reportedProgress: pct };
-  if (existing.status === 'assigned' && pct > 0) data.status = 'in_progress';
-  const row = await prisma.checklist.update({ where: { id: req.params.id }, data });
-  res.json(row);
+  try {
+    let pct = Number(req.body?.progress);
+    if (!Number.isFinite(pct)) return res.status(400).json({ error: 'progress (0-100) required' });
+    pct = Math.max(0, Math.min(100, Math.round(pct)));
+    const existing = await prisma.checklist.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+    const data = { reportedProgress: pct };
+    if (existing.status === 'assigned' && pct > 0) data.status = 'in_progress';
+    const row = await prisma.checklist.update({ where: { id: req.params.id }, data });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Submit checklist responses
 app.post('/api/checklists/:id/submit', auth, requireRole(CAN_FILL_CHECKLISTS), async (req, res) => {
-  const { responses } = req.body; // [{ questionId, value }]
-  if (!Array.isArray(responses)) return res.status(400).json({ error: 'responses array required' });
+  try {
+    const { responses } = req.body; // [{ questionId, value }]
+    if (!Array.isArray(responses)) return res.status(400).json({ error: 'responses array required' });
 
-  const checklist = await prisma.checklist.findUnique({ where: { id: req.params.id } });
-  if (!checklist) return res.status(404).json({ error: 'Not found' });
+    const checklist = await prisma.checklist.findUnique({ where: { id: req.params.id } });
+    if (!checklist) return res.status(404).json({ error: 'Not found' });
 
-  // Upsert each response
-  const created = [];
-  for (const r of responses) {
-    if (!r.questionId) continue;
-    const existing = await prisma.checklistResponse.findFirst({
-      where: { checklistId: req.params.id, questionId: r.questionId, userId: req.user.sub },
-    });
-    if (existing) {
-      const updated = await prisma.checklistResponse.update({
-        where: { id: existing.id },
-        data: { value: String(r.value || ''), status: 'submitted' },
+    // Upsert each response
+    const created = [];
+    for (const r of responses) {
+      if (!r.questionId) continue;
+      const existing = await prisma.checklistResponse.findFirst({
+        where: { checklistId: req.params.id, questionId: r.questionId, userId: req.user.sub },
       });
-      created.push(updated);
-    } else {
-      const newRow = await prisma.checklistResponse.create({
-        data: { value: String(r.value || ''), questionId: r.questionId, checklistId: req.params.id, userId: req.user.sub, status: 'submitted' },
-      });
-      created.push(newRow);
+      if (existing) {
+        const updated = await prisma.checklistResponse.update({
+          where: { id: existing.id },
+          data: { value: String(r.value || ''), status: 'submitted' },
+        });
+        created.push(updated);
+      } else {
+        const newRow = await prisma.checklistResponse.create({
+          data: { value: String(r.value || ''), questionId: r.questionId, checklistId: req.params.id, userId: req.user.sub, status: 'submitted' },
+        });
+        created.push(newRow);
+      }
     }
-  }
 
-  // Update checklist status to submitted
-  const updatedChecklist = await prisma.checklist.update({
-    where: { id: req.params.id },
-    data: { status: 'submitted', submittedAt: new Date(), submittedBy: req.user.sub },
-  });
-  res.json({ checklist: updatedChecklist, responses: created });
+    // Update checklist status to submitted
+    const updatedChecklist = await prisma.checklist.update({
+      where: { id: req.params.id },
+      data: { status: 'submitted', submittedAt: new Date(), submittedBy: req.user.sub },
+    });
+    res.json({ checklist: updatedChecklist, responses: created });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Checklist questions
 app.post('/api/checklists/:id/questions', auth, async (req, res) => {
-  const { question, questionType, required, position, options, parentId } = req.body;
-  const row = await prisma.checklistQuestion.create({
-    data: { question, questionType, required: !!required, position: position ?? 0, options: typeof options === 'string' ? options : JSON.stringify(options || []), parentId: parentId || null, checklistId: req.params.id, ...qExtra(req.body) },
-  });
-  res.json(row);
+  try {
+    const { question, questionType, required, position, options, parentId } = req.body;
+    const row = await prisma.checklistQuestion.create({
+      data: { question, questionType, required: !!required, position: position ?? 0, options: typeof options === 'string' ? options : JSON.stringify(options || []), parentId: parentId || null, checklistId: req.params.id, ...qExtra(req.body) },
+    });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put('/api/checklists/:id/questions/:questionId', auth, async (req, res) => {
-  const { question, questionType, required, position, options, parentId } = req.body;
-  const row = await prisma.checklistQuestion.update({
-    where: { id: req.params.questionId },
-    data: { question, questionType, required: !!required, position, options: typeof options === 'string' ? options : JSON.stringify(options || []), parentId: parentId || null },
-  });
-  res.json(row);
+  try {
+    const { question, questionType, required, position, options, parentId } = req.body;
+    const row = await prisma.checklistQuestion.update({
+      where: { id: req.params.questionId },
+      data: { question, questionType, required: !!required, position, options: typeof options === 'string' ? options : JSON.stringify(options || []), parentId: parentId || null },
+    });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete('/api/checklists/:id/questions/:questionId', auth, async (req, res) => {
-  await prisma.checklistQuestion.delete({ where: { id: req.params.questionId } });
-  res.json({ ok: true });
+  try {
+    await prisma.checklistQuestion.delete({ where: { id: req.params.questionId } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Checklist responses
 app.get('/api/checklists/:id/responses', auth, requireRole(CAN_VIEW_CHECKLISTS), async (req, res) => {
-  const rows = await prisma.checklistResponse.findMany({ where: { checklistId: req.params.id }, orderBy: { createdAt: 'desc' } });
-  res.json(rows);
+  try {
+    const rows = await prisma.checklistResponse.findMany({ where: { checklistId: req.params.id }, orderBy: { createdAt: 'desc' } });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/checklists/:id/responses', auth, requireRole(CAN_FILL_CHECKLISTS), async (req, res) => {
-  const { questionId, value, status } = req.body;
-  const row = await prisma.checklistResponse.create({
-    data: { value: String(value), questionId, checklistId: req.params.id, userId: req.user.sub, status: status || 'submitted' },
-  });
-  res.json(row);
+  try {
+    const { questionId, value, status } = req.body;
+    const row = await prisma.checklistResponse.create({
+      data: { value: String(value), questionId, checklistId: req.params.id, userId: req.user.sub, status: status || 'submitted' },
+    });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put('/api/checklists/:id/responses/:responseId', auth, requireRole(CAN_VIEW_CHECKLISTS), async (req, res) => {
-  const { value, status, reviewNote } = req.body;
-  const data = {};
-  if (value !== undefined) data.value = String(value);
-  if (status !== undefined) data.status = status;
-  if (reviewNote !== undefined) data.reviewNote = reviewNote;
-  if (status === 'needs_correction') data.reviewerId = req.user.sub;
-  const row = await prisma.checklistResponse.update({ where: { id: req.params.responseId }, data });
-  res.json(row);
+  try {
+    const { value, status, reviewNote } = req.body;
+    const data = {};
+    if (value !== undefined) data.value = String(value);
+    if (status !== undefined) data.status = status;
+    if (reviewNote !== undefined) data.reviewNote = reviewNote;
+    if (status === 'needs_correction') data.reviewerId = req.user.sub;
+    const row = await prisma.checklistResponse.update({ where: { id: req.params.responseId }, data });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete('/api/checklists/:id/responses/:responseId', auth, requireRole(CAN_FILL_CHECKLISTS), async (req, res) => {
-  await prisma.checklistResponse.delete({ where: { id: req.params.responseId } });
-  res.json({ ok: true });
+  try {
+    await prisma.checklistResponse.delete({ where: { id: req.params.responseId } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== CHAT / INBOX =====
 app.get('/api/conversations', auth, async (req, res) => {
-  const userId = req.user.id;
-  const rows = await prisma.conversation.findMany({
-    where: { members: { some: { userId } } },
-    include: {
-      members: true,
-      messages: { orderBy: { createdAt: 'desc' }, take: 1 },
-    },
-    orderBy: { updatedAt: 'desc' },
-  });
-  res.json(rows);
+  try {
+    const userId = req.user.id;
+    const rows = await prisma.conversation.findMany({
+      where: { members: { some: { userId } } },
+      include: {
+        members: true,
+        messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/conversations/:id/messages', auth, async (req, res) => {
-  const rows = await prisma.chatMessage.findMany({
-    where: { conversationId: req.params.id },
-    orderBy: { createdAt: 'asc' },
-  });
-  res.json(rows);
+  try {
+    const rows = await prisma.chatMessage.findMany({
+      where: { conversationId: req.params.id },
+      orderBy: { createdAt: 'asc' },
+    });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/conversations', auth, async (req, res) => {
-  const { name, type, memberIds } = req.body;
-  const userId = req.user.id;
-  const row = await prisma.conversation.create({
-    data: {
-      name: name || undefined,
-      type: type || 'group',
-      creatorId: userId,
-      members: {
-        create: [
-          { userId, role: 'admin' },
-          ...(memberIds || []).filter((id) => id !== userId).map((id) => ({ userId: id, role: 'member' })),
-        ],
+  try {
+    const { name, type, memberIds } = req.body;
+    const userId = req.user.id;
+    const row = await prisma.conversation.create({
+      data: {
+        name: name || undefined,
+        type: type || 'group',
+        creatorId: userId,
+        members: {
+          create: [
+            { userId, role: 'admin' },
+            ...(memberIds || []).filter((id) => id !== userId).map((id) => ({ userId: id, role: 'member' })),
+          ],
+        },
       },
-    },
-    include: { members: true },
-  });
-  res.json(row);
+      include: { members: true },
+    });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/conversations/:id/messages', auth, async (req, res) => {
-  const { text, attachment, replyToId, taskId, taskTitle } = req.body;
-  const userId = req.user.id;
-  const row = await prisma.chatMessage.create({
-    data: {
-      text: text || '',
-      attachment: attachment || undefined,
-      replyToId: replyToId || undefined,
-      taskId: taskId || undefined,
-      taskTitle: taskTitle || undefined,
-      userId,
-      conversationId: req.params.id,
-    },
-  });
-  await prisma.conversation.update({ where: { id: req.params.id }, data: { updatedAt: new Date() } });
-  res.json(row);
+  try {
+    const { text, attachment, replyToId, taskId, taskTitle } = req.body;
+    const userId = req.user.id;
+    const row = await prisma.chatMessage.create({
+      data: {
+        text: text || '',
+        attachment: attachment || undefined,
+        replyToId: replyToId || undefined,
+        taskId: taskId || undefined,
+        taskTitle: taskTitle || undefined,
+        userId,
+        conversationId: req.params.id,
+      },
+    });
+    await prisma.conversation.update({ where: { id: req.params.id }, data: { updatedAt: new Date() } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/conversations/:id', auth, async (req, res) => {
-  await prisma.conversation.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  try {
+    await prisma.conversation.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/conversations/:id/name', auth, async (req, res) => {
-  const { name } = req.body;
-  const row = await prisma.conversation.update({ where: { id: req.params.id }, data: { name } });
-  res.json(row);
+  try {
+    const { name } = req.body;
+    const row = await prisma.conversation.update({ where: { id: req.params.id }, data: { name } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/conversations/:id/members', auth, async (req, res) => {
-  const { userId: memberId } = req.body;
-  const row = await prisma.conversationMember.create({
-    data: { conversationId: req.params.id, userId: memberId, role: 'member' },
-  });
-  res.json(row);
+  try {
+    const { userId: memberId } = req.body;
+    const row = await prisma.conversationMember.create({
+      data: { conversationId: req.params.id, userId: memberId, role: 'member' },
+    });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/conversations/:id/members/:memberId', auth, async (req, res) => {
-  await prisma.conversationMember.deleteMany({
-    where: { conversationId: req.params.id, userId: req.params.memberId },
-  });
-  res.json({ ok: true });
+  try {
+    await prisma.conversationMember.deleteMany({
+      where: { conversationId: req.params.id, userId: req.params.memberId },
+    });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/conversations/:id/read', auth, async (req, res) => {
-  await prisma.chatMessage.updateMany({
-    where: { conversationId: req.params.id, userId: { not: req.user.id }, read: false },
-    data: { read: true },
-  });
-  res.json({ ok: true });
+  try {
+    await prisma.chatMessage.updateMany({
+      where: { conversationId: req.params.id, userId: { not: req.user.id }, read: false },
+      data: { read: true },
+    });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== WEBSOCKET =====
@@ -1851,13 +2803,17 @@ wss.on('connection', (ws, req) => {
 
 // ===== PLAN MARKUPS =====
 app.get('/api/projects/:projectId/markups', auth, async (req, res) => {
-  const rows = await prisma.planMarkup.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
-  res.json(rows);
+  try {
+    const rows = await prisma.planMarkup.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/projects/:projectId/markups', auth, async (req, res) => {
-  const { drawingId, type, x, y, text, color, createdBy } = req.body;
-  const row = await prisma.planMarkup.create({ data: { drawingId, type, x, y, text, color, createdBy, projectId: req.params.projectId } });
-  res.json(row);
+  try {
+    const { drawingId, type, x, y, text, color, createdBy } = req.body;
+    const row = await prisma.planMarkup.create({ data: { drawingId, type, x, y, text, color, createdBy, projectId: req.params.projectId } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put('/api/projects/:projectId/markups/:id', auth, async (req, res) => {
   try {
@@ -1873,76 +2829,102 @@ app.put('/api/projects/:projectId/markups/:id', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete('/api/projects/:projectId/markups/:id', auth, async (req, res) => {
-  await prisma.planMarkup.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  try {
+    await prisma.planMarkup.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== DRAWING VERSIONS =====
 app.get('/api/projects/:projectId/drawing-versions', auth, async (req, res) => {
-  const rows = await prisma.drawingVersion.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
-  res.json(rows);
+  try {
+    const rows = await prisma.drawingVersion.findMany({ where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' } });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/projects/:projectId/drawing-versions', auth, async (req, res) => {
-  const { drawingId, rev, url, uploadedBy } = req.body;
-  const row = await prisma.drawingVersion.create({ data: { drawingId, rev, url, uploadedBy, projectId: req.params.projectId } });
-  res.json(row);
+  try {
+    const { drawingId, rev, url, uploadedBy } = req.body;
+    const row = await prisma.drawingVersion.create({ data: { drawingId, rev, url, uploadedBy, projectId: req.params.projectId } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== SCHEDULED REPORTS =====
 app.get('/api/scheduled-reports', auth, async (_req, res) => {
-  const rows = await prisma.scheduledReport.findMany({ orderBy: { createdAt: 'desc' } });
-  res.json(rows);
+  try {
+    const rows = await prisma.scheduledReport.findMany({ orderBy: { createdAt: 'desc' } });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/scheduled-reports', auth, async (req, res) => {
-  const { name, reportType, frequency, recipients, projectId } = req.body;
-  const nextRunAt = new Date();
-  if (frequency === 'daily') nextRunAt.setDate(nextRunAt.getDate() + 1);
-  if (frequency === 'weekly') nextRunAt.setDate(nextRunAt.getDate() + 7);
-  if (frequency === 'monthly') nextRunAt.setMonth(nextRunAt.getMonth() + 1);
-  const row = await prisma.scheduledReport.create({ data: { name, reportType, frequency, recipients, projectId: projectId || null, nextRunAt } });
-  res.json(row);
+  try {
+    const { name, reportType, frequency, recipients, projectId } = req.body;
+    const nextRunAt = new Date();
+    if (frequency === 'daily') nextRunAt.setDate(nextRunAt.getDate() + 1);
+    if (frequency === 'weekly') nextRunAt.setDate(nextRunAt.getDate() + 7);
+    if (frequency === 'monthly') nextRunAt.setMonth(nextRunAt.getMonth() + 1);
+    const row = await prisma.scheduledReport.create({ data: { name, reportType, frequency, recipients, projectId: projectId || null, nextRunAt } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put('/api/scheduled-reports/:id', auth, async (req, res) => {
-  const { name, reportType, frequency, recipients, active, projectId } = req.body;
-  const data = { name, reportType, frequency, recipients, active, projectId: projectId || null };
-  const row = await prisma.scheduledReport.update({ where: { id: req.params.id }, data });
-  res.json(row);
+  try {
+    const { name, reportType, frequency, recipients, active, projectId } = req.body;
+    const data = { name, reportType, frequency, recipients, active, projectId: projectId || null };
+    const row = await prisma.scheduledReport.update({ where: { id: req.params.id }, data });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete('/api/scheduled-reports/:id', auth, async (req, res) => {
-  await prisma.scheduledReport.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  try {
+    await prisma.scheduledReport.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== FORM TEMPLATES =====
 app.get('/api/form-templates', auth, async (_req, res) => {
-  const rows = await prisma.formTemplate.findMany({ orderBy: { createdAt: 'desc' } });
-  res.json(rows);
+  try {
+    const rows = await prisma.formTemplate.findMany({ orderBy: { createdAt: 'desc' } });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/form-templates', auth, async (req, res) => {
-  const { name, description, category, source, fields, projectId } = req.body;
-  const row = await prisma.formTemplate.create({ data: { name, description, category, source, fields: typeof fields === 'string' ? fields : JSON.stringify(fields), projectId: projectId || null } });
-  res.json(row);
+  try {
+    const { name, description, category, source, fields, projectId } = req.body;
+    const row = await prisma.formTemplate.create({ data: { name, description, category, source, fields: typeof fields === 'string' ? fields : JSON.stringify(fields), projectId: projectId || null } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put('/api/form-templates/:id', auth, async (req, res) => {
-  const { name, description, category, source, fields, projectId } = req.body;
-  const row = await prisma.formTemplate.update({ where: { id: req.params.id }, data: { name, description, category, source, fields: typeof fields === 'string' ? fields : JSON.stringify(fields), projectId: projectId || null } });
-  res.json(row);
+  try {
+    const { name, description, category, source, fields, projectId } = req.body;
+    const row = await prisma.formTemplate.update({ where: { id: req.params.id }, data: { name, description, category, source, fields: typeof fields === 'string' ? fields : JSON.stringify(fields), projectId: projectId || null } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete('/api/form-templates/:id', auth, async (req, res) => {
-  await prisma.formTemplate.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  try {
+    await prisma.formTemplate.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== TASK-LINKED MESSAGES =====
 app.get('/api/projects/:projectId/messages', auth, async (req, res) => {
-  const rows = await prisma.message.findMany({ where: { projectId: req.params.projectId }, include: { user: { select: { name: true, role: true } } }, orderBy: { createdAt: 'desc' }, take: 200 });
-  res.json(rows);
+  try {
+    const rows = await prisma.message.findMany({ where: { projectId: req.params.projectId }, include: { user: { select: { name: true, role: true } } }, orderBy: { createdAt: 'desc' }, take: 200 });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/projects/:projectId/messages', auth, async (req, res) => {
-  const userId = req.user.sub;
-  const { text, attachment, taskType, taskId } = req.body;
-  const row = await prisma.message.create({ data: { text, attachment, taskType, taskId, projectId: req.params.projectId, userId } });
-  res.json(row);
+  try {
+    const userId = req.user.sub;
+    const { text, attachment, taskType, taskId } = req.body;
+    const row = await prisma.message.create({ data: { text, attachment, taskType, taskId, projectId: req.params.projectId, userId } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== DEEPSEEK AI =====
@@ -2010,8 +2992,27 @@ app.post('/api/ai/chat', async (req, res) => {
   try {
     const { question } = req.body;
     if (!question) return res.status(400).json({ error: 'question required' });
-    const answer = await callAi([{ role: 'system', content: 'You are Buildflex AI, a construction management assistant. Be concise, practical, and actionable. Use bullet points for steps.' }, { role: 'user', content: question }], { temperature: 0.7 });
+    const answer = await callAi([{ role: 'system', content: 'You are Buildsasa AI, a construction management assistant. Be concise, practical, and actionable. Use bullet points for steps.' }, { role: 'user', content: question }], { temperature: 0.7 });
     res.json({ answer });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Shemmy — public customer-support chatbot. Mirrors /api/ai/chat (no auth) but
+// keeps a short rolling conversation so follow-up questions have context.
+const SUPPORT_WHATSAPP = process.env.SUPPORT_WHATSAPP || '+254769041607';
+const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || 'hello@buildsasa.com';
+const SHEMMY_SYSTEM_PROMPT = `You are Shemmy, the friendly customer-support assistant for Buildsasa — a construction project-management software built for contractors, project managers and site teams in Kenya and East Africa (currency KES, payments via Paystack/M-Pesa). Help users understand and use the product, troubleshoot, and answer billing/account questions. Be warm, concise, and practical; use simple language; sentence case. Buildsasa's features include: Dashboard with AI insights; Projects; Change Orders with an approval pipeline; Checklists & digitized forms; Tasks & Trades; Schedule (Gantt, dates, milestones); Daily Log; Punch List; Plans & Drawings; Inspections; Safety Incidents; Observations; Action Plans; Coordination Issues; Financials (cash flow ledger, budget vs actual, commitments/payables, payment applications/progress claims with retention, cost codes); Invoicing (line-item invoices with PDF download + emailed receipts); Bidding/Tendering (post bid packages, share a public bid link, receive and award bids); Inventory (materials with a stock-movement ledger plus an equipment register with hire/service/compliance tracking); Documents; Directory; Crews; Team & Role Manager; Attendance; Reports; and a Buildsasa AI assistant. Billing is per company (workspace) — new companies see a paywall until they choose a plan; plans are paid in KES via Paystack. When a question needs account-specific action you can't do (refunds, data changes, bugs), tell them to contact our team on WhatsApp at ${SUPPORT_WHATSAPP} or by email at ${SUPPORT_EMAIL}, or use the in-app billing page. Never invent features that aren't listed; if unsure, say so and offer to connect them to the team. Keep answers short unless asked for detail.`;
+
+app.post('/api/support/chat', async (req, res) => {
+  try {
+    const incoming = Array.isArray(req.body?.messages) ? req.body.messages : [];
+    const recent = incoming
+      .filter((m) => m && m.content && (m.role === 'user' || m.role === 'assistant'))
+      .slice(-10)
+      .map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content).slice(0, 2000) }));
+    const messages = [{ role: 'system', content: SHEMMY_SYSTEM_PROMPT }, ...recent];
+    const reply = await callAi(messages, { temperature: 0.4, max_tokens: 700 });
+    res.json({ reply });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2061,7 +3062,7 @@ app.post('/api/ai/build-checklist', async (req, res) => {
     const { prompt, trade, category, current, history } = req.body || {};
     if (!prompt || !String(prompt).trim()) return res.status(400).json({ error: 'prompt required' });
     const hasCurrent = Array.isArray(current) && current.length > 0;
-    const sys = 'You are Buildflex AI, a friendly construction QA/QC expert who designs AND edits digital inspection checklists in a conversation. Use the prior turns for context (remember what was asked and built). Respond with ONLY valid JSON — no markdown, no commentary.';
+    const sys = 'You are Buildsasa AI, a friendly construction QA/QC expert who designs AND edits digital inspection checklists in a conversation. Use the prior turns for context (remember what was asked and built). Respond with ONLY valid JSON — no markdown, no commentary.';
     // Prior conversation for continuity (mapped to chat roles, capped & trimmed).
     const hist = (Array.isArray(history) ? history : [])
       .filter((h) => h && h.content)
@@ -2170,13 +3171,13 @@ app.post('/api/ai/assistant', auth, async (req, res) => {
 
     let systemPrompt;
     if (isWorker) {
-      systemPrompt = `You are Buildflex AI, a construction site assistant for field workers and trade leads. Help with how-to guidance, tools, safety/PPE, trade techniques, reading plans, and understanding assigned checklists.
+      systemPrompt = `You are Buildsasa AI, a construction site assistant for field workers and trade leads. Help with how-to guidance, tools, safety/PPE, trade techniques, reading plans, and understanding assigned checklists.
 - Do NOT discuss budgets, financials, change orders, billing, invoices, reports, or subcontractor pricing. If asked, reply: "I can help with how-to and safety questions. For financials or reports, please ask your Project Manager or Superintendent."
 
 PROJECT CONTEXT (for how-to help only):
 ${safeLines.join('\n\n')}`;
     } else {
-      systemPrompt = `You are Buildflex AI, the management assistant for a construction company. You have the user's REAL project and financial data below (all money in USD). Use it to give specific, numbers-backed answers and reports.
+      systemPrompt = `You are Buildsasa AI, the management assistant for a construction company. You have the user's REAL project and financial data below (all money in USD). Use it to give specific, numbers-backed answers and reports.
 
 You can produce on request:
 - Project status & health reports (progress, status, exposure, open risks).
@@ -2471,8 +3472,8 @@ function crudRoutes(path, model, fields, jsonFields = []) {
     }
     return data;
   };
-  app.get(`/api/${path}`, async (_req, res) => {
-    try { res.json(await prisma[model].findMany({ orderBy: { createdAt: 'desc' } })); }
+  app.get(`/api/${path}`, auth, async (_req, res) => {
+    try { res.json((await prisma[model].findMany({ orderBy: { createdAt: 'desc' } })) || []); }
     catch (e) { res.status(500).json({ error: e.message }); }
   });
   app.post(`/api/${path}`, auth, async (req, res) => {
@@ -2512,10 +3513,10 @@ crudRoutes('announcements', 'announcement',
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || '';
 const USD_TO_KES = Number(process.env.USD_TO_KES || 130);
 const PLANS = [
-  { id: 'monthly', name: 'Buildflex Pro — Monthly', cycle: 'monthly', usd: 60, kes: 60 * USD_TO_KES },
-  { id: 'yearly', name: 'Buildflex Pro — Yearly', cycle: 'yearly', usd: 715, kes: 715 * USD_TO_KES, note: 'Save $5 vs paying monthly (12 months)' },
+  { id: 'weekly', name: 'Buildsasa Pro — Weekly (test)', cycle: 'weekly', usd: 0.1, kes: 10, days: 7, note: 'Test plan — KSh 10 per week' },
 ];
 const planById = (id) => PLANS.find((p) => p.id === id);
+const planDays = (id) => { const p = planById(id); return (p && p.days) || 30; };
 
 function paystackRequest(path, method, body) {
   return new Promise((resolve, reject) => {
@@ -2531,7 +3532,7 @@ app.get('/api/billing/plans', (_req, res) => res.json({ plans: PLANS, usdToKes: 
 
 app.get('/api/billing/subscription', auth, async (req, res) => {
   try {
-    const sub = await prisma.subscription.findFirst({ where: { userId: req.user.sub }, orderBy: { createdAt: 'desc' } });
+    const sub = await prisma.subscription.findFirst({ where: {}, orderBy: { createdAt: 'desc' } });
     res.json(sub || { status: 'inactive' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -2545,7 +3546,7 @@ async function issueInvoice(userId, planId, ref, opts = {}) {
     userId,
     number: nextInvoiceNumber(),
     plan: p.id || null,
-    description: opts.description || `Buildflex ${(p.name || p.id || 'plan')} subscription`,
+    description: opts.description || `${(p.name || p.id || 'Subscription')} subscription`,
     amountUSD: p.usd || 0,
     amountKES: p.kes || 0,
     currency: opts.currency === 'USD' ? 'USD' : 'KES',
@@ -2555,14 +3556,93 @@ async function issueInvoice(userId, planId, ref, opts = {}) {
   } });
 }
 
+// Send a branded receipt when an invoice is paid. Fully guarded so a failure
+// here can never break the payment flow; sendEmail no-ops/logs without Resend.
+// Generate a one-page branded PDF invoice as a Buffer. Lazily requires pdfkit so
+// the server still runs (emailing the HTML receipt only) if the dependency isn't
+// installed yet. Returns null on any problem.
+async function buildInvoicePdfBuffer(invoice, billedToName, billedToEmail) {
+  let PDFDocument;
+  try { PDFDocument = require('pdfkit'); } catch { return null; }
+  return new Promise((resolve) => {
+    try {
+      const doc = new PDFDocument({ size: 'A4', margin: 50 });
+      const chunks = [];
+      doc.on('data', (c) => chunks.push(c));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', () => resolve(null));
+      const paid = invoice.status === 'paid';
+      const money = invoice.currency !== 'USD'
+        ? `KSh ${Math.round(invoice.amountKES || 0).toLocaleString()}`
+        : `$${Math.round(invoice.amountUSD || 0).toLocaleString()}`;
+      doc.fillColor('#FF6B1A').font('Helvetica-Bold').fontSize(22).text('Buildsasa', 50, 50);
+      doc.fillColor('#11161D').fontSize(16).text('INVOICE', 50, 52, { width: 495, align: 'right' });
+      doc.font('Helvetica').fontSize(10).fillColor(paid ? '#22C55E' : '#F59E0B').text(paid ? 'PAID' : 'UNPAID', 50, 73, { width: 495, align: 'right' });
+      doc.moveTo(50, 92).lineTo(545, 92).strokeColor('#DCE0E6').stroke();
+      doc.fillColor('#11161D').font('Helvetica-Bold').fontSize(12).text(`Invoice ${invoice.number}`, 50, 106);
+      doc.font('Helvetica').fontSize(10).fillColor('#5A6675');
+      let y = 126;
+      doc.text(`Issued: ${invoice.issuedAt ? new Date(invoice.issuedAt).toLocaleDateString() : '—'}`, 50, y); y += 15;
+      doc.text(`Due: ${invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : '—'}`, 50, y); y += 15;
+      if (invoice.paidAt) { doc.text(`Paid: ${new Date(invoice.paidAt).toLocaleDateString()}`, 50, y); y += 15; }
+      if (billedToName || billedToEmail) {
+        doc.fillColor('#11161D').font('Helvetica-Bold').text('Billed to', 350, 106, { width: 195, align: 'right' });
+        doc.font('Helvetica').fillColor('#5A6675');
+        if (billedToName) doc.text(billedToName, 350, 126, { width: 195, align: 'right' });
+        if (billedToEmail) doc.text(billedToEmail, 350, 141, { width: 195, align: 'right' });
+      }
+      const top = Math.max(y, 168) + 10;
+      doc.rect(50, top, 495, 22).fill('#FF6B1A');
+      doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(10).text('Description', 58, top + 7);
+      doc.fillColor('#FFFFFF').text('Amount', 50, top + 7, { width: 487, align: 'right' });
+      doc.fillColor('#11161D').font('Helvetica').text(invoice.description || 'Subscription', 58, top + 32, { width: 380 });
+      doc.text(money, 50, top + 32, { width: 487, align: 'right' });
+      doc.moveTo(50, top + 52).lineTo(545, top + 52).strokeColor('#DCE0E6').stroke();
+      doc.font('Helvetica-Bold').fontSize(12).fillColor('#11161D').text('Total', 58, top + 62);
+      doc.text(money, 50, top + 62, { width: 487, align: 'right' });
+      doc.font('Helvetica').fontSize(10).fillColor('#5A6675').text('Thank you for your business', 50, 770);
+      doc.fillColor('#FF6B1A').font('Helvetica-Bold').text('Buildsasa', 50, 785);
+      doc.end();
+    } catch { resolve(null); }
+  });
+}
+
+async function emailInvoiceReceipt(invoice, toEmail) {
+  try {
+    if (!invoice || !toEmail) return;
+    const amount = invoice.currency !== 'USD'
+      ? `KSh ${(invoice.amountKES || 0).toLocaleString()}`
+      : `$${(invoice.amountUSD || 0).toLocaleString()}`;
+    const issued = invoice.issuedAt ? new Date(invoice.issuedAt).toLocaleDateString() : '—';
+    const paid = invoice.paidAt ? new Date(invoice.paidAt).toLocaleDateString() : new Date().toLocaleDateString();
+    const html = emailShell('Payment received', `
+      <p style="font-size:14px;color:#11161D">We've received your payment — thank you. Here is your receipt.</p>
+      <table style="font-size:14px;color:#11161D;border-collapse:collapse;margin:8px 0">
+        <tr><td style="padding:4px 16px 4px 0;color:#8A95A5">Invoice</td><td style="padding:4px 0">${invoice.number}</td></tr>
+        <tr><td style="padding:4px 16px 4px 0;color:#8A95A5">Description</td><td style="padding:4px 0">${invoice.description || 'Subscription'}</td></tr>
+        <tr><td style="padding:4px 16px 4px 0;color:#8A95A5">Amount</td><td style="padding:4px 0">${amount}</td></tr>
+        <tr><td style="padding:4px 16px 4px 0;color:#8A95A5">Issued</td><td style="padding:4px 0">${issued}</td></tr>
+        <tr><td style="padding:4px 16px 4px 0;color:#8A95A5">Paid</td><td style="padding:4px 0">${paid}</td></tr>
+      </table>
+      <p style="font-size:14px;font-weight:600;color:#22C55E;margin:8px 0">PAID</p>
+      ${button(APP_URL, 'View in Buildsasa')}
+    `);
+    const pdf = await buildInvoicePdfBuffer(invoice, '', toEmail);
+    const attachments = pdf ? [{ filename: `Invoice_${invoice.number}.pdf`, content: pdf.toString('base64') }] : undefined;
+    await sendEmail({ to: toEmail, subject: `Your Buildsasa receipt — invoice ${invoice.number}`, html, attachments });
+  } catch (e) {
+    console.error('[RECEIPT] failed:', e && e.message);
+  }
+}
+
 app.get('/api/billing/invoices', auth, async (req, res) => {
   try {
     // Lazy renewal: if the active subscription has lapsed and there's no open
     // invoice, auto-issue one due now so the user is prompted to pay & continue.
-    const sub = await prisma.subscription.findFirst({ where: { userId: req.user.sub }, orderBy: { createdAt: 'desc' } });
+    const sub = await prisma.subscription.findFirst({ where: {}, orderBy: { createdAt: 'desc' } });
     const openInvoice = await prisma.billingInvoice.findFirst({ where: { userId: req.user.sub, status: 'unpaid' } });
     if (sub && sub.status === 'active' && sub.currentPeriodEnd && new Date(sub.currentPeriodEnd) < new Date() && !openInvoice) {
-      await issueInvoice(req.user.sub, sub.plan, null, { currency: sub.currency, dueDays: 0, description: `Buildflex ${sub.plan} renewal` });
+      await issueInvoice(req.user.sub, sub.plan, null, { currency: sub.currency, dueDays: 0, description: `${sub.plan} renewal` });
     }
     const rows = await prisma.billingInvoice.findMany({ where: { userId: req.user.sub }, orderBy: { issuedAt: 'desc' } });
     res.json(rows);
@@ -2578,7 +3658,7 @@ app.post('/api/billing/invoices/:id/pay', auth, async (req, res) => {
     const cur = inv.currency === 'USD' ? 'USD' : 'KES';
     if (!PAYSTACK_SECRET) return res.json({ demo: true, message: 'Paystack not set — add PAYSTACK_SECRET_KEY in backend/.env, or have the owner mark this invoice paid.' });
     const amount = Math.round((cur === 'USD' ? inv.amountUSD : inv.amountKES) * 100);
-    const init = await paystackRequest('/transaction/initialize', 'POST', { email: req.user.email || 'owner@buildsasa.com', amount, currency: cur, metadata: { userId: inv.userId, planId: inv.plan, invoiceId: inv.id } });
+    const init = await paystackRequest('/transaction/initialize', 'POST', { email: req.user.email || 'owner@buildsasa.com', amount, currency: cur, callback_url: process.env.APP_URL || 'http://localhost:5173', metadata: { userId: inv.userId, planId: inv.plan, invoiceId: inv.id } });
     if (!init.status) return res.status(502).json({ error: init.message || 'Paystack init failed' });
     await prisma.billingInvoice.update({ where: { id: inv.id }, data: { paystackRef: init.data.reference } });
     res.json({ authorizationUrl: init.data.authorization_url, reference: init.data.reference });
@@ -2590,11 +3670,18 @@ app.post('/api/billing/invoices/:id/mark-paid', auth, async (req, res) => {
   try {
     const inv = await prisma.billingInvoice.findUnique({ where: { id: req.params.id } });
     if (!inv || inv.userId !== req.user.sub) return res.status(404).json({ error: 'Invoice not found' });
-    await prisma.billingInvoice.update({ where: { id: inv.id }, data: { status: 'paid', paidAt: new Date() } });
-    const end = new Date(Date.now() + ((inv.plan === 'yearly' ? 365 : 30) * 864e5));
-    const sub = await prisma.subscription.findFirst({ where: { userId: req.user.sub }, orderBy: { createdAt: 'desc' } });
+    const paidInv = await prisma.billingInvoice.update({ where: { id: inv.id }, data: { status: 'paid', paidAt: new Date() } });
+    // Email a receipt — recipient is the authed user, falling back to the invoice owner.
+    let receiptEmail = req.user.email;
+    if (!receiptEmail) {
+      const owner = await prismaBase.user.findUnique({ where: { id: paidInv.userId } });
+      receiptEmail = owner && owner.email;
+    }
+    if (receiptEmail) await emailInvoiceReceipt(paidInv, receiptEmail);
+    const end = new Date(Date.now() + (planDays(inv.plan) * 864e5));
+    const sub = await prisma.subscription.findFirst({ where: {}, orderBy: { createdAt: 'desc' } });
     if (sub) await prisma.subscription.update({ where: { id: sub.id }, data: { status: 'active', currentPeriodEnd: end } });
-    else await prisma.subscription.create({ data: { userId: req.user.sub, plan: inv.plan || 'monthly', status: 'active', amountUSD: inv.amountUSD, currency: inv.currency, currentPeriodEnd: end } });
+    else await prisma.subscription.create({ data: { userId: req.user.sub, plan: inv.plan || 'weekly', status: 'active', amountUSD: inv.amountUSD, currency: inv.currency, currentPeriodEnd: end } });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -2608,12 +3695,10 @@ app.post('/api/billing/checkout', auth, async (req, res) => {
     if (!plan) return res.status(400).json({ error: 'Unknown plan' });
     const cur = currency === 'USD' ? 'USD' : 'KES';
     if (!PAYSTACK_SECRET) {
-      await prisma.subscription.create({ data: { userId, email: email || null, plan: plan.id, status: 'inactive', amountUSD: plan.usd, currency: cur } });
-      await issueInvoice(userId, plan.id, null, { currency: cur });
-      return res.json({ demo: true, message: 'Paystack key not set — add PAYSTACK_SECRET_KEY in backend/.env to enable real checkout. (Plan recorded & invoice issued.)' });
+      return res.status(400).json({ error: 'Payments are not configured. Set PAYSTACK_SECRET_KEY in backend/.env.' });
     }
     const amount = Math.round((cur === 'USD' ? plan.usd : plan.kes) * 100); // lowest unit
-    const init = await paystackRequest('/transaction/initialize', 'POST', { email: email || req.user.email || 'owner@buildsasa.com', amount, currency: cur, metadata: { userId, planId: plan.id } });
+    const init = await paystackRequest('/transaction/initialize', 'POST', { email: email || req.user.email || 'owner@buildsasa.com', amount, currency: cur, callback_url: process.env.APP_URL || 'http://localhost:5173', metadata: { userId, planId: plan.id } });
     if (!init.status) return res.status(502).json({ error: init.message || 'Paystack init failed' });
     await prisma.subscription.create({ data: { userId, email: email || null, plan: plan.id, status: 'inactive', amountUSD: plan.usd, currency: cur, paystackRef: init.data.reference } });
     await issueInvoice(userId, plan.id, init.data.reference, { currency: cur });
@@ -2629,9 +3714,20 @@ app.post('/api/billing/verify', auth, async (req, res) => {
     const v = await paystackRequest(`/transaction/verify/${encodeURIComponent(reference)}`, 'GET');
     if (v.status && v.data && v.data.status === 'success') {
       const planId = v.data.metadata?.planId || 'monthly';
-      const end = new Date(Date.now() + (planId === 'yearly' ? 365 : 30) * 864e5);
+      const end = new Date(Date.now() + planDays(planId) * 864e5);
       await prisma.subscription.updateMany({ where: { paystackRef: reference }, data: { status: 'active', currentPeriodEnd: end } });
+      // Capture which invoices we're about to mark paid so we can email receipts.
+      const toPay = await prisma.billingInvoice.findMany({ where: { paystackRef: reference, status: 'unpaid' } });
       await prisma.billingInvoice.updateMany({ where: { paystackRef: reference, status: 'unpaid' }, data: { status: 'paid', paidAt: new Date() } });
+      if (toPay.length) {
+        // Recipient: the authed user, falling back to the invoice owner.
+        let receiptEmail = req.user.email;
+        if (!receiptEmail) {
+          const owner = await prismaBase.user.findUnique({ where: { id: toPay[0].userId } });
+          receiptEmail = owner && owner.email;
+        }
+        if (receiptEmail) for (const iv of toPay) await emailInvoiceReceipt({ ...iv, status: 'paid', paidAt: new Date() }, receiptEmail);
+      }
       return res.json({ ok: true, status: 'active' });
     }
     res.json({ ok: false, status: v.data?.status || 'failed' });
@@ -2649,9 +3745,15 @@ app.post('/api/billing/webhook', async (req, res) => {
     const evt = req.body;
     if (evt.event === 'charge.success' && evt.data && evt.data.reference) {
       const planId = (evt.data.metadata && evt.data.metadata.planId) || 'monthly';
-      const end = new Date(Date.now() + (planId === 'yearly' ? 365 : 30) * 864e5);
+      const end = new Date(Date.now() + planDays(planId) * 864e5);
       await prisma.subscription.updateMany({ where: { paystackRef: evt.data.reference }, data: { status: 'active', currentPeriodEnd: end } });
+      // Capture invoices being paid so we can email receipts (no auth context here).
+      const toPay = await prisma.billingInvoice.findMany({ where: { paystackRef: evt.data.reference, status: 'unpaid' } });
       await prisma.billingInvoice.updateMany({ where: { paystackRef: evt.data.reference, status: 'unpaid' }, data: { status: 'paid', paidAt: new Date() } });
+      for (const iv of toPay) {
+        const owner = await prismaBase.user.findUnique({ where: { id: iv.userId } });
+        if (owner && owner.email) await emailInvoiceReceipt({ ...iv, status: 'paid', paidAt: new Date() }, owner.email);
+      }
     }
     res.json({ received: true });
   } catch (e) { res.status(200).json({ received: true }); }

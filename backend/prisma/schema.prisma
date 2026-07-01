@@ -102,6 +102,15 @@ model LedgerEntry {
   type      String   // in | out
   category  String
   amountUSD Int
+  vendorId           String?
+  commitmentId       String?
+  applicationId      String?
+  costCodeId         String?
+  status             String? @default("pending") // pending | approved | paid | partial | overdue
+  invoiceNumber      String?
+  poNumber           String?
+  subcontractNumber  String?
+  changeOrderNumber  String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   project   Project  @relation(fields: [projectId], references: [id])
@@ -301,10 +310,84 @@ model Commitment {
   scope     String
   amount    String
   due       String
+  costCodeId         String?
+  contractValue      Float?
+  approvedVariations Float?  @default(0)
+  invoicedToDate     Float?  @default(0)
+  paidToDate         Float?  @default(0)
+  retentionPct       Float?  @default(0)
+  retentionHeld      Float?  @default(0)
+  balanceRemaining   Float?  @default(0)
+  status             String? @default("active") // active | completed | overdue | on_hold
   project   Project  @relation(fields: [projectId], references: [id])
   projectId String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  paymentApplications PaymentApplication[]
+  retentionRecords    RetentionRecord[]
+}
+
+model PaymentApplication {
+  id        String   @id @default(cuid())
+  workspaceId String?
+  projectId String
+  commitment   Commitment? @relation(fields: [commitmentId], references: [id])
+  commitmentId String?
+  number    String
+  period    String?
+  periodStart DateTime?
+  periodEnd   DateTime?
+  workCompletedThisPeriod Float?
+  previousCertified       Float?  @default(0)
+  requestedAmount         Float?
+  retentionPct            Float?  @default(0)
+  retentionAmount         Float?
+  netPayable              Float?
+  status    String   @default("draft") // draft | submitted | under_review | approved | rejected | paid
+  costCodeId   String?
+  approvedById String?
+  approvedAt   DateTime?
+  rejectedById String?
+  rejectedAt   DateTime?
+  comments     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model RetentionRecord {
+  id        String   @id @default(cuid())
+  workspaceId String?
+  commitment   Commitment @relation(fields: [commitmentId], references: [id])
+  commitmentId String
+  amountHeld     Float?
+  amountReleased Float?  @default(0)
+  remaining      Float?
+  releaseDate    DateTime?
+  status         String  @default("held") // held | released | overdue
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CostCode {
+  id        String   @id @default(cuid())
+  workspaceId String?
+  code      String
+  description String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Approval {
+  id        String   @id @default(cuid())
+  workspaceId String?
+  entityType String  // commitment | paymentApplication | retentionRecord | ledgerEntry
+  entityId   String
+  action     String  // submitted | approved | rejected | paid | released
+  actorId    String?
+  actorName  String?
+  comments   String?
+  createdAt DateTime @default(now())
 }
 
 model Document {
@@ -320,6 +403,27 @@ model Document {
   updatedAt DateTime @updatedAt
 }
 
+// A tender / bid package a company posts on a project. Subcontractors submit
+// bids against it — internally (offline entry) or via a public shared link
+// (no account needed). One bid is eventually awarded.
+model BidPackage {
+  id           String   @id @default(cuid())
+  workspaceId  String?
+  projectId    String
+  title        String
+  trade        String?
+  description  String?
+  budgetKES    Float?
+  dueDate      String?
+  status       String   @default("open") // draft | open | closed | awarded
+  publicToken  String?  @unique
+  awardedBidId String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  bids         Bid[]
+}
+
 model Bid {
   id            String   @id @default(cuid())
   workspaceId String?
@@ -330,6 +434,14 @@ model Bid {
   notes         String?
   fileUrl       String?
   submittedAt   String
+  // Optional link to a tender / bid package. Bids may be standalone (logged
+  // directly on a project, as before) or attached to a package.
+  bidPackageId  String?
+  bidPackage    BidPackage? @relation(fields: [bidPackageId], references: [id], onDelete: SetNull)
+  // Contact details — used mainly for public submissions (no user account).
+  contactName   String?
+  contactEmail  String?
+  contactPhone  String?
   project       Project  @relation(fields: [projectId], references: [id])
   projectId     String
   createdAt     DateTime @default(now())
@@ -345,10 +457,19 @@ model Invoice {
   status        String   // draft | sent | paid | overdue
   issueDate     String
   dueDate       String
-  items         String?  // JSON
+  items         String?  // JSON array of line items: { description, quantity, rate }
   notes         String?
   paidDate      String?  // when payment was received
   paidAmount    Int?     // how much has been received (supports partial)
+  billToAddress String?  // client address (under client name)
+  shipTo        String?  // optional ship-to
+  poNumber      String?
+  paymentTerms  String?  // e.g. "Net 30"
+  taxRate       Float?   // percent
+  discount      Float?   // KES amount
+  shipping      Float?   // KES amount
+  subtotal      Float?   // sum of line items (stored for reference)
+  terms         String?  // terms & conditions text
   project       Project  @relation(fields: [projectId], references: [id])
   projectId     String
   createdAt     DateTime @default(now())
@@ -420,10 +541,84 @@ model Equipment {
   nextService   String?
   location      String?
   notes         String?
+  // --- Fleet / asset tracking ---
+  assetTag             String?    // internal fleet/asset number e.g. "EXC-03"
+  condition            String?    // new | good | fair | poor
+  operator             String?    // assigned operator or crew
+  // --- Ownership / hire (rental) tracking ---
+  ownership            String?    // owned | hired (treat missing as owned)
+  hireVendor           String?    // hire company (when hired)
+  hireRate             Float?     // rental rate amount
+  hireRateUnit         String?    // day | week | month
+  hireStartDate        DateTime?
+  hireEndDate          DateTime?  // expected return date
+  // --- Costs ---
+  purchaseCost         Float?     // KES
+  currentValue         Float?     // KES
+  // --- Service by engine hours ---
+  meterHours           Float?     // current hour-meter / running hours
+  lastServiceHours     Float?     // meter reading at last service
+  serviceIntervalHours Float?     // service every N engine hours
+  // --- Compliance ---
+  insuranceExpiry      DateTime?
+  inspectionExpiry     DateTime?
+  // --- Media / attachments ---
+  photoUrl             String?    // single photo URL
+  documents            String?    // JSON string array of { name, url } attachments
   project       Project? @relation(fields: [projectId], references: [id])
   projectId     String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+// Construction materials inventory. Each item carries a cached currentStock that
+// is kept authoritative for list queries; the source of truth for how it changed
+// is the InventoryMovement ledger (in / out / adjust).
+model InventoryItem {
+  id           String   @id @default(cuid())
+  workspaceId  String?
+  projectId    String?  // null = company-wide stock (not tied to a single project)
+  name         String
+  category     String?
+  unit         String   // e.g. "bags", "tonnes", "m", "pcs"
+  currentStock Float    @default(0)
+  reorderLevel Float?   @default(0)
+  unitCostKES  Float?
+  supplier     String?
+  location     String?
+  notes        String?
+  status       String?  @default("active")
+  // --- Material depth: codes, stock thresholds, supplier lead time ---
+  sku             String?  // item / SKU code
+  minLevel        Float?   // critical safety minimum
+  maxLevel        Float?   // maximum / target stock
+  reorderQty      Float?   // suggested quantity to reorder
+  leadTimeDays    Int?     // supplier lead time in days
+  supplierContact String?  // supplier phone/email
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  movements    InventoryMovement[]
+}
+
+// A single stock movement against an inventory item. Drives the running balance.
+model InventoryMovement {
+  id           String   @id @default(cuid())
+  workspaceId  String?
+  itemId       String
+  type         String   // in | out | adjust
+  quantity     Float
+  balanceAfter Float?   // resulting currentStock after this movement was applied
+  date         DateTime @default(now())
+  reference    String?
+  actorId      String?
+  actorName    String?
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  item         InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
 }
 
 model ChecklistTemplate {

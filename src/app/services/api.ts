@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || ":/http/localhost:5000";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const token = localStorage.getItem("constructai-token");
@@ -79,6 +79,15 @@ export type LedgerEntryDto = {
   type: "in" | "out";
   category: string;
   amountUSD: number;
+  vendorId?: string | null;
+  commitmentId?: string | null;
+  applicationId?: string | null;
+  costCodeId?: string | null;
+  status?: string | null; // pending | approved | paid | partial | overdue
+  invoiceNumber?: string | null;
+  poNumber?: string | null;
+  subcontractNumber?: string | null;
+  changeOrderNumber?: string | null;
 };
 
 export type ExpenseDto = {
@@ -117,6 +126,65 @@ export type CommitmentDto = {
   scope: string;
   amount: string;
   due: string;
+  costCodeId?: string | null;
+  contractValue?: number | null;
+  approvedVariations?: number | null;
+  invoicedToDate?: number | null;
+  paidToDate?: number | null;
+  retentionPct?: number | null;
+  retentionHeld?: number | null;
+  balanceRemaining?: number | null;
+  status?: string | null; // active | completed | overdue | on_hold
+};
+
+export type PaymentApplicationDto = {
+  id: string;
+  projectId: string;
+  commitmentId?: string | null;
+  number: string;
+  period?: string | null;
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  workCompletedThisPeriod?: number | null;
+  previousCertified?: number | null;
+  requestedAmount?: number | null;
+  retentionPct?: number | null;
+  retentionAmount?: number | null;
+  netPayable?: number | null;
+  status: string; // draft | submitted | under_review | approved | rejected | paid
+  costCodeId?: string | null;
+  approvedById?: string | null;
+  approvedAt?: string | null;
+  rejectedById?: string | null;
+  rejectedAt?: string | null;
+  comments?: string | null;
+};
+
+export type RetentionRecordDto = {
+  id: string;
+  commitmentId: string;
+  amountHeld?: number | null;
+  amountReleased?: number | null;
+  remaining?: number | null;
+  releaseDate?: string | null;
+  status: string; // held | released | overdue
+};
+
+export type CostCodeDto = {
+  id: string;
+  code: string;
+  description?: string | null;
+};
+
+export type ApprovalDto = {
+  id: string;
+  entityType: string;
+  entityId: string;
+  action: string; // submitted | approved | rejected | paid | released
+  actorId?: string | null;
+  actorName?: string | null;
+  comments?: string | null;
+  createdAt: string;
 };
 
 export type DocumentDto = {
@@ -138,6 +206,27 @@ export type BidDto = {
   fileUrl?: string | null;
   submittedAt: string;
   projectId: string;
+  bidPackageId?: string | null;
+  contactName?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+};
+
+export type BidPackageDto = {
+  id: string;
+  workspaceId?: string | null;
+  projectId: string;
+  title: string;
+  trade?: string | null;
+  description?: string | null;
+  budgetKES?: number | null;
+  dueDate?: string | null;
+  status: string; // draft | open | closed | awarded
+  publicToken?: string | null;
+  awardedBidId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  bids?: BidDto[];
 };
 
 export type InvoiceDto = {
@@ -152,6 +241,15 @@ export type InvoiceDto = {
   notes?: string | null;
   paidDate?: string | null;
   paidAmount?: number | null;
+  billToAddress?: string | null;
+  shipTo?: string | null;
+  poNumber?: string | null;
+  paymentTerms?: string | null;
+  terms?: string | null;
+  taxRate?: number | null;
+  discount?: number | null;
+  shipping?: number | null;
+  subtotal?: number | null;
   projectId: string;
 };
 
@@ -211,6 +309,71 @@ export type EquipmentDto = {
   location?: string | null;
   notes?: string | null;
   projectId?: string | null;
+  // Fleet / asset tracking
+  assetTag?: string | null;
+  condition?: string | null;
+  operator?: string | null;
+  // Ownership / hire (rental) tracking
+  ownership?: string | null;
+  hireVendor?: string | null;
+  hireRate?: number | null;
+  hireRateUnit?: string | null;
+  hireStartDate?: string | null;
+  hireEndDate?: string | null;
+  // Costs (KES)
+  purchaseCost?: number | null;
+  currentValue?: number | null;
+  // Service by engine hours
+  meterHours?: number | null;
+  lastServiceHours?: number | null;
+  serviceIntervalHours?: number | null;
+  // Compliance
+  insuranceExpiry?: string | null;
+  inspectionExpiry?: string | null;
+  // Media / attachments
+  photoUrl?: string | null;
+  documents?: string | null;
+};
+
+export type InventoryItemDto = {
+  id: string;
+  workspaceId?: string | null;
+  projectId?: string | null;
+  name: string;
+  category?: string | null;
+  unit: string;
+  currentStock: number;
+  reorderLevel?: number | null;
+  unitCostKES?: number | null;
+  supplier?: string | null;
+  location?: string | null;
+  notes?: string | null;
+  status?: string | null;
+  // Material depth: codes, stock thresholds, supplier lead time
+  sku?: string | null;
+  minLevel?: number | null;
+  maxLevel?: number | null;
+  reorderQty?: number | null;
+  leadTimeDays?: number | null;
+  supplierContact?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  movements?: InventoryMovementDto[];
+};
+
+export type InventoryMovementDto = {
+  id: string;
+  workspaceId?: string | null;
+  itemId: string;
+  type: string; // "in" | "out" | "adjust"
+  quantity: number;
+  balanceAfter?: number | null;
+  date: string;
+  reference?: string | null;
+  actorId?: string | null;
+  actorName?: string | null;
+  notes?: string | null;
+  createdAt?: string;
 };
 
 export type ChecklistItemDto = {
@@ -422,7 +585,7 @@ export type BillingInvoiceDto = {
 
 export const api = {
   login: (email: string, password: string) => http<{ token: string; user: any }>("/api/login", { method: "POST", body: JSON.stringify({ email, password }) }),
-  signup: (name: string, email: string, password: string, role?: string) => http<{ token: string; user: any }>("/api/signup", { method: "POST", body: JSON.stringify({ name, email, password, role }) }),
+  signup: (name: string, email: string, password: string, company?: string, role?: string) => http<{ token: string; user: any }>("/api/signup", { method: "POST", body: JSON.stringify({ name, email, password, company, role }) }),
   me: () => http<UserProfile>("/api/me"),
   updateMe: (payload: Partial<Omit<UserProfile, "id" | "role" | "email">>) => http<UserProfile>("/api/me", { method: "PUT", body: JSON.stringify(payload) }),
   changePassword: (currentPassword: string, newPassword: string) => http<{ ok: boolean }>("/api/me/password", { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) }),
@@ -451,6 +614,7 @@ export const api = {
     return url.startsWith("http") ? url : `${API_URL}${url}`;
   },
   getProjects: () => http<ProjectDto[]>("/api/projects"),
+  getDashboardInsight: () => http<{ title: string; detail?: string; changeOrderId?: string } | null>("/api/dashboard/insight"),
   getProjectMessages: (projectId: string) => http<MessageDto[]>(`/api/projects/${projectId}/messages`),
   getProjectLedger: (projectId: string) => http<LedgerEntryDto[]>(`/api/projects/${projectId}/ledger`),
   getProjectExpenses: (projectId: string) => http<ExpenseDto[]>(`/api/projects/${projectId}/expenses`),
@@ -508,9 +672,35 @@ export const api = {
   payBillingInvoice: (id: string) => http<{ authorizationUrl?: string; reference?: string; demo?: boolean; message?: string; ok?: boolean; alreadyPaid?: boolean }>(`/api/billing/invoices/${id}/pay`, { method: "POST" }),
   markBillingInvoicePaid: (id: string) => http<{ ok: boolean }>(`/api/billing/invoices/${id}/mark-paid`, { method: "POST" }),
   getCommitments: (projectId: string) => http<CommitmentDto[]>(`/api/projects/${projectId}/commitments`),
+  getCommitment: (projectId: string, id: string) => http<CommitmentDto & { paymentApplications?: PaymentApplicationDto[]; retentionRecords?: RetentionRecordDto[]; ledgerEntries?: LedgerEntryDto[] }>(`/api/projects/${projectId}/commitments/${id}`),
   createCommitment: (projectId: string, payload: Partial<CommitmentDto>) => http<CommitmentDto>(`/api/projects/${projectId}/commitments`, { method: "POST", body: JSON.stringify(payload) }),
   updateCommitment: (projectId: string, id: string, payload: Partial<CommitmentDto>) => http<CommitmentDto>(`/api/projects/${projectId}/commitments/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteCommitment: (projectId: string, id: string) => http(`/api/projects/${projectId}/commitments/${id}`, { method: "DELETE" }),
+  recomputeCommitment: (projectId: string, id: string) => http<CommitmentDto>(`/api/projects/${projectId}/commitments/${id}/recompute`, { method: "POST" }),
+  // Payment applications
+  getPaymentApplications: (projectId: string, params?: { commitmentId?: string; status?: string }) => {
+    const qs = params ? "?" + new URLSearchParams(Object.entries(params).filter(([, v]) => v != null) as [string, string][]).toString() : "";
+    return http<PaymentApplicationDto[]>(`/api/projects/${projectId}/payment-applications${qs}`);
+  },
+  getPaymentApplication: (projectId: string, id: string) => http<PaymentApplicationDto>(`/api/projects/${projectId}/payment-applications/${id}`),
+  createPaymentApplication: (projectId: string, payload: Partial<PaymentApplicationDto>) => http<PaymentApplicationDto>(`/api/projects/${projectId}/payment-applications`, { method: "POST", body: JSON.stringify(payload) }),
+  updatePaymentApplication: (projectId: string, id: string, payload: Partial<PaymentApplicationDto>) => http<PaymentApplicationDto>(`/api/projects/${projectId}/payment-applications/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deletePaymentApplication: (projectId: string, id: string) => http(`/api/projects/${projectId}/payment-applications/${id}`, { method: "DELETE" }),
+  submitPaymentApplication: (projectId: string, id: string, comments?: string) => http<PaymentApplicationDto>(`/api/projects/${projectId}/payment-applications/${id}/submit`, { method: "POST", body: JSON.stringify({ comments }) }),
+  approvePaymentApplication: (projectId: string, id: string, comments?: string) => http<PaymentApplicationDto>(`/api/projects/${projectId}/payment-applications/${id}/approve`, { method: "POST", body: JSON.stringify({ comments }) }),
+  rejectPaymentApplication: (projectId: string, id: string, comments?: string) => http<PaymentApplicationDto>(`/api/projects/${projectId}/payment-applications/${id}/reject`, { method: "POST", body: JSON.stringify({ comments }) }),
+  markPaymentApplicationPaid: (projectId: string, id: string, comments?: string) => http<PaymentApplicationDto>(`/api/projects/${projectId}/payment-applications/${id}/mark-paid`, { method: "POST", body: JSON.stringify({ comments }) }),
+  // Retention
+  getRetention: (projectId: string, commitmentId?: string) => http<RetentionRecordDto[]>(`/api/projects/${projectId}/retention${commitmentId ? `?commitmentId=${commitmentId}` : ""}`),
+  createRetention: (projectId: string, payload: { commitmentId: string; amountHeld?: number }) => http<RetentionRecordDto>(`/api/projects/${projectId}/retention`, { method: "POST", body: JSON.stringify(payload) }),
+  releaseRetention: (projectId: string, id: string, payload?: { amount?: number; comments?: string }) => http<RetentionRecordDto>(`/api/projects/${projectId}/retention/${id}/release`, { method: "POST", body: JSON.stringify(payload || {}) }),
+  // Cost codes
+  getCostCodes: () => http<CostCodeDto[]>(`/api/cost-codes`),
+  createCostCode: (payload: { code: string; description?: string }) => http<CostCodeDto>(`/api/cost-codes`, { method: "POST", body: JSON.stringify(payload) }),
+  updateCostCode: (id: string, payload: Partial<CostCodeDto>) => http<CostCodeDto>(`/api/cost-codes/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteCostCode: (id: string) => http(`/api/cost-codes/${id}`, { method: "DELETE" }),
+  // Approvals (audit trail)
+  getApprovals: (entityType: string, entityId: string) => http<ApprovalDto[]>(`/api/approvals?entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId)}`),
   getDocuments: () => http<DocumentDto[]>(`/api/documents`),
   createDocument: (payload: Partial<DocumentDto>) => http<DocumentDto>(`/api/documents`, { method: "POST", body: JSON.stringify(payload) }),
   deleteDocument: (id: string) => http(`/api/documents/${id}`, { method: "DELETE" }),
@@ -520,6 +710,19 @@ export const api = {
   createBid: (projectId: string, payload: Partial<BidDto>) => http<BidDto>(`/api/projects/${projectId}/bids`, { method: "POST", body: JSON.stringify(payload) }),
   updateBid: (projectId: string, id: string, payload: Partial<BidDto>) => http<BidDto>(`/api/projects/${projectId}/bids/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteBid: (projectId: string, id: string) => http(`/api/projects/${projectId}/bids/${id}`, { method: "DELETE" }),
+  // Bid packages (internal tendering)
+  getBidPackages: (params?: { projectId?: string }) => http<BidPackageDto[]>("/api/bid-packages" + (params ? "?" + new URLSearchParams(params as Record<string, string>).toString() : "")),
+  getBidPackage: (id: string) => http<BidPackageDto>(`/api/bid-packages/${id}`),
+  createBidPackage: (payload: Partial<BidPackageDto>) => http<BidPackageDto>("/api/bid-packages", { method: "POST", body: JSON.stringify(payload) }),
+  updateBidPackage: (id: string, payload: Partial<BidPackageDto>) => http<BidPackageDto>(`/api/bid-packages/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteBidPackage: (id: string) => http(`/api/bid-packages/${id}`, { method: "DELETE" }),
+  shareBidPackage: (id: string) => http<{ token: string; url: string }>(`/api/bid-packages/${id}/share`, { method: "POST" }),
+  addPackageBid: (id: string, payload: Partial<BidDto>) => http<BidDto>(`/api/bid-packages/${id}/bids`, { method: "POST", body: JSON.stringify(payload) }),
+  awardBid: (id: string, bidId: string) => http<BidPackageDto>(`/api/bid-packages/${id}/award`, { method: "POST", body: JSON.stringify({ bidId }) }),
+  respondToBid: (packageId: string, bidId: string, payload: { status: string; reason?: string }) => http<BidDto>(`/api/bid-packages/${packageId}/bids/${bidId}/respond`, { method: "POST", body: JSON.stringify(payload) }),
+  // Public tender link (no auth needed; http() still sends a token if present — harmless)
+  getPublicBidPackage: (token: string) => http<{ title: string; trade?: string | null; description?: string | null; budgetKES?: number | null; dueDate?: string | null; status: string; companyName?: string | null }>(`/api/public/bids/${token}`),
+  submitPublicBid: (token: string, payload: { subcontractor?: string; contactName?: string; contactEmail?: string; contactPhone?: string; trade?: string; amount: number; notes?: string; fileUrl?: string }) => http<{ ok: boolean; id?: string }>(`/api/public/bids/${token}`, { method: "POST", body: JSON.stringify(payload) }),
   // Invoices
   getInvoices: (projectId: string) => http<InvoiceDto[]>(`/api/projects/${projectId}/invoices`),
   createInvoice: (projectId: string, payload: Partial<InvoiceDto>) => http<InvoiceDto>(`/api/projects/${projectId}/invoices`, { method: "POST", body: JSON.stringify(payload) }),
@@ -543,6 +746,15 @@ export const api = {
   createEquipment: (payload: Partial<EquipmentDto>) => http<EquipmentDto>("/api/equipment", { method: "POST", body: JSON.stringify(payload) }),
   updateEquipment: (id: string, payload: Partial<EquipmentDto>) => http<EquipmentDto>(`/api/equipment/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteEquipment: (id: string) => http(`/api/equipment/${id}`, { method: "DELETE" }),
+  // Inventory (construction materials + stock-movement ledger)
+  getInventory: (params?: { projectId?: string; type?: string }) => http<InventoryItemDto[]>("/api/inventory" + (params ? "?" + new URLSearchParams(params as Record<string, string>).toString() : "")),
+  getInventoryItem: (id: string) => http<InventoryItemDto>(`/api/inventory/${id}`),
+  createInventoryItem: (payload: Partial<InventoryItemDto>) => http<InventoryItemDto>("/api/inventory", { method: "POST", body: JSON.stringify(payload) }),
+  updateInventoryItem: (id: string, payload: Partial<InventoryItemDto>) => http<InventoryItemDto>(`/api/inventory/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteInventoryItem: (id: string) => http(`/api/inventory/${id}`, { method: "DELETE" }),
+  getInventoryMovements: (id: string) => http<InventoryMovementDto[]>(`/api/inventory/${id}/movements`),
+  addInventoryMovement: (id: string, payload: { type: string; quantity: number; reference?: string; notes?: string; date?: string }) => http<{ movement: InventoryMovementDto; item: InventoryItemDto }>(`/api/inventory/${id}/movements`, { method: "POST", body: JSON.stringify(payload) }),
+  getLowStock: () => http<InventoryItemDto[]>("/api/inventory/low-stock"),
   // Attendance
   getAttendance: (params?: { date?: string; userId?: string }) => http<AttendanceDto[]>("/api/attendance" + (params ? "?" + new URLSearchParams(params as Record<string, string>).toString() : "")),
   createAttendance: (payload: Partial<AttendanceDto>) => http<AttendanceDto>("/api/attendance", { method: "POST", body: JSON.stringify(payload) }),
@@ -593,6 +805,7 @@ export const api = {
   deleteChecklistResponse: (checklistId: string, responseId: string) => http(`/api/checklists/${checklistId}/responses/${responseId}`, { method: "DELETE" }),
   // AI
   aiChat: (question: string) => http<{ answer: string }>("/api/ai/chat", { method: "POST", body: JSON.stringify({ question }) }),
+  supportChat: (messages: { role: string; content: string }[]) => http<{ reply: string }>("/api/support/chat", { method: "POST", body: JSON.stringify({ messages }) }),
   aiAssistant: (question: string, history?: { role: string; content: string }[], signal?: AbortSignal) => http<{ answer: string }>("/api/ai/assistant", { method: "POST", body: JSON.stringify({ question, history }), signal }),
   aiGenerateChecklist: (payload: { trade: string; projectType: string; scope?: string }) => http<{ title: string; items: any[] }>("/api/ai/generate-checklist", { method: "POST", body: JSON.stringify(payload) }),
   buildChecklistAI: (payload: { prompt: string; trade?: string; category?: string; current?: any[]; history?: { role: string; content: string }[] }, signal?: AbortSignal) => http<{ title: string; reply?: string; items: any[]; trade?: string; category?: string }>("/api/ai/build-checklist", { method: "POST", body: JSON.stringify(payload), signal }),

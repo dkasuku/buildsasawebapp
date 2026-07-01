@@ -12,6 +12,7 @@ import type { Role } from "./roles";
 import { ROLES, TRADES } from "./roles";
 import { useTeam, resolveName } from "./useTeam";
 import api, { type ScheduleItemDto, type ProjectDto, type ChecklistDto } from "../../services/api";
+import { EmptyState } from "./EmptyState";
 
 const DAY = 86400000;
 const STATUS: Record<string, { label: string; bar: string }> = {
@@ -38,11 +39,20 @@ export function Schedule({ role = "Contractor" }: { role?: Role }) {
   const [genOpen, setGenOpen] = useState(false);
 
   useEffect(() => {
-    api.getProjects().then((p) => {
-      const list = Array.isArray(p) ? p : [];
-      setProjects(list);
-      setProjectId((cur) => cur || list[0]?.id || "");
-    }).catch(() => {}).finally(() => setLoading(false));
+    // Resolve the loading flag on BOTH success and error so the page never hangs
+    // on the spinner if the backend is unreachable.
+    (async () => {
+      try {
+        const p = await api.getProjects();
+        const list = Array.isArray(p) ? p : [];
+        setProjects(list);
+        setProjectId((cur) => cur || list[0]?.id || "");
+      } catch {
+        setProjects([]);
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
   const load = () => {
@@ -125,6 +135,16 @@ export function Schedule({ role = "Contractor" }: { role?: Role }) {
         <div className="text-center py-16 text-[#5B6675] text-[13px]"><Loader2 className="w-4 h-4 animate-spin inline mr-1.5" /> Loading schedule…</div>
       ) : !projectId ? (
         <div className="rounded-xl border border-dashed border-[#222A35] p-8 text-center text-[13px] text-[#8A95A5]">Create a project first, then build its schedule here.</div>
+      ) : items.length === 0 && overlay.length === 0 ? (
+        <EmptyState
+          icon={CalendarDays}
+          title="No schedule items yet"
+          description="Build this project's timeline by adding tasks, phases and milestones."
+          actionLabel={canManage ? "Add your first schedule item" : undefined}
+          onAction={canManage ? () => setEditing("new") : undefined}
+          secondaryLabel={canManage ? "AI schedule" : undefined}
+          onSecondary={canManage ? () => setGenOpen(true) : undefined}
+        />
       ) : (
         <div className="rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden">
           <div className="flex">

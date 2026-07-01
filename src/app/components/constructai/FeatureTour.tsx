@@ -22,7 +22,7 @@ const CATALOG: Step[] = [
   { key: "projects", icon: FolderKanban, title: "Projects", body: "Each site or job is a project. Open one to see its details, team, drawings, and progress." },
   { key: "tasks", icon: ClipboardCheck, title: "Tasks & Trades", body: "Your assigned forms and checklists live here, grouped by trade. Update your field % as work advances and submit when done." },
   { key: "checklists", icon: ClipboardList, title: "Checklists & forms", body: "Build a digital checklist (or generate one with AI), then assign it to your team and review submissions." },
-  { key: "buildflex-ai", icon: Sparkles, title: "Buildflex AI", body: "Ask for reports or insights on your projects, finances, and change orders — in plain language." },
+  { key: "buildflex-ai", icon: Sparkles, title: "Buildsasa AI", body: "Ask for reports or insights on your projects, finances, and change orders — in plain language." },
   { key: "team", icon: Users, title: "Your team", body: "Invite teammates and give each a role. The people you invite are who you assign work to." },
   { key: "billing", icon: CreditCard, title: "Billing & plan", body: "Manage your subscription and payments here. That's the tour — you're ready to build." },
 ];

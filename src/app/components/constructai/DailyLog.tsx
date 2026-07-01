@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ClipboardList, Calendar, User, MapPin, Plus, Trash2 } from "lucide-react";
 import api from "../../services/api";
+import { EmptyState } from "./EmptyState";
 
 type LogRow = { id?: string; date: string; crew: string; headcount: number; location: string; notes: string };
 
@@ -76,10 +77,7 @@ export function DailyLog() {
           </div>
         ))}
         {entries.length === 0 && (
-          <div className="text-center py-8 rounded-xl border border-dashed border-[#222A35] bg-[#11161D]">
-            <ClipboardList className="w-6 h-6 text-[#5B6675] mx-auto mb-1" />
-            <div className="text-[12px] text-[#5B6675]">No daily logs yet.</div>
-          </div>
+          <EmptyState icon={ClipboardList} title="No daily logs yet." />
         )}
       </div>
     </div>

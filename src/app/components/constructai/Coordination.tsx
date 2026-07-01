@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Plus, Search, X, Briefcase, MessageSquare, Send, AlertCircle, CheckCircle2, Clock3 } from "lucide-react";
 import type { Role } from "./roles";
 import api from "../../services/api";
+import { EmptyState } from "./EmptyState";
 
 type Comment = { author: string; text: string; date: string };
 type Issue = {
@@ -18,34 +19,6 @@ type Issue = {
   description: string;
   comments: Comment[];
 };
-
-const SEED: Issue[] = [
-  {
-    id: "RFI-045", title: "Beam depth conflict with HVAC duct at Grid 5-B", type: "Clash", status: "open", priority: "high",
-    raisedBy: "James Mwangi", assignedTo: "Architect — Lena Hassan", project: "Westside Tower", date: "2026-06-10",
-    description: "600mm deep beam at Grid 5-B clashes with the 400mm main supply duct. Ceiling zone only allows 350mm clearance. Request resolution: notch beam, reroute duct, or drop ceiling.",
-    comments: [
-      { author: "Lena Hassan", text: "Reviewing with structural. Likely duct reroute via corridor.", date: "2026-06-11" },
-    ],
-  },
-  {
-    id: "RFI-046", title: "Window schedule W-07 missing head detail", type: "RFI", status: "answered", priority: "medium",
-    raisedBy: "Grace Njeri", assignedTo: "Architect — Lena Hassan", project: "Westside Tower", date: "2026-06-08",
-    description: "Drawing A-501 references head detail 7/A-510 for window type W-07 but that detail is not on the sheet. Please advise.",
-    comments: [
-      { author: "Lena Hassan", text: "Detail issued in revision A-510 Rev C, transmitted today.", date: "2026-06-09" },
-    ],
-  },
-  {
-    id: "RFI-044", title: "Concrete grade for ground beams — confirm C30/37", type: "Design Question", status: "closed", priority: "low",
-    raisedBy: "Peter Otieno", assignedTo: "Engineer — David Kim", project: "Riverside Mall", date: "2026-06-02",
-    description: "Spec section 03 30 00 says C30/37 but drawing S-201 notes C25/30 for ground beams. Which governs?",
-    comments: [
-      { author: "David Kim", text: "C30/37 governs. Drawing updated in S-201 Rev D.", date: "2026-06-03" },
-      { author: "Peter Otieno", text: "Received, closing out.", date: "2026-06-04" },
-    ],
-  },
-];
 
 const mapIssue = (r: any): Issue => ({
   id: r.id, title: r.title, type: r.type, status: r.status, priority: r.priority,
@@ -67,18 +40,18 @@ const TYPE_CLS: Record<Issue["type"], string> = {
 };
 
 export default function Coordination({ role }: { role: Role }) {
-  const [issues, setIssues] = useState<Issue[]>(SEED);
+  const [issues, setIssues] = useState<Issue[]>([]);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<string>("all");
   const [detail, setDetail] = useState<Issue | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [newComment, setNewComment] = useState("");
 
-  // Load persisted issues; keep SEED only if the backend is unreachable
+  // Load persisted issues; the API response is authoritative (including empty)
   useEffect(() => {
     (async () => {
-      try { setIssues((await api.getCoordinationIssues()).map(mapIssue)); }
-      catch { /* offline — keep SEED */ }
+      try { setIssues(((await api.getCoordinationIssues()) ?? []).map(mapIssue)); }
+      catch { /* offline — leave list empty */ }
     })();
   }, []);
 
@@ -123,7 +96,15 @@ export default function Coordination({ role }: { role: Role }) {
       </div>
 
       <div className="space-y-2">
-        {filtered.length === 0 && <div className="text-center text-[13px] text-[#5B6675] py-10">No issues match your filters.</div>}
+        {filtered.length === 0 && (
+          <EmptyState
+            icon={Briefcase}
+            title="No issues yet"
+            description="Raise your first RFI, clash or design question to start coordinating with the team."
+            actionLabel="New Issue"
+            onAction={() => setShowNew(true)}
+          />
+        )}
         {filtered.map((i) => {
           const M = STATUS_META[i.status];
           return (

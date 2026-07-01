@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Plus, Search, X, UsersRound, HardHat, MapPin, Trash2, UserPlus, ChevronDown, ChevronRight } from "lucide-react";
 import type { Role } from "./roles";
 import api from "../../services/api";
+import { EmptyState } from "./EmptyState";
 
 const mapCrew = (r: any): Crew => ({
   id: r.id, name: r.name, trade: r.trade || "", foreman: r.foreman || "", project: r.project || "",
@@ -23,41 +24,6 @@ type Crew = {
   members: CrewMember[];
 };
 
-const SEED: Crew[] = [
-  {
-    id: "CRW-01", name: "Concrete Crew A", trade: "Concrete & Formwork", foreman: "James Mwangi", project: "Westside Tower", location: "Level 3 — Zone A", shift: "Day", status: "on_site",
-    members: [
-      { id: "m1", name: "Samuel Kiprop", trade: "Formwork Carpenter" },
-      { id: "m2", name: "Daniel Omondi", trade: "Steel Fixer" },
-      { id: "m3", name: "John Kamau", trade: "Concrete Finisher" },
-      { id: "m4", name: "Brian Mutua", trade: "General Labourer" },
-    ],
-  },
-  {
-    id: "CRW-02", name: "Electrical Crew 1", trade: "Electrical", foreman: "Grace Njeri", project: "Westside Tower", location: "Level 1 — Risers", shift: "Day", status: "on_site",
-    members: [
-      { id: "m1", name: "Kevin Ochieng", trade: "Electrician" },
-      { id: "m2", name: "Felix Wafula", trade: "Electrician" },
-      { id: "m3", name: "Moses Kilonzo", trade: "Apprentice" },
-    ],
-  },
-  {
-    id: "CRW-03", name: "Plumbing Crew", trade: "Plumbing & Drainage", foreman: "Peter Otieno", project: "Riverside Mall", location: "Basement — Plant room", shift: "Day", status: "off_site",
-    members: [
-      { id: "m1", name: "Anthony Njoroge", trade: "Plumber" },
-      { id: "m2", name: "George Mburu", trade: "Pipe Fitter" },
-    ],
-  },
-  {
-    id: "CRW-04", name: "Night Finishing Crew", trade: "Finishes", foreman: "Mary Wanjiku", project: "Riverside Mall", location: "Ground floor retail", shift: "Night", status: "on_leave",
-    members: [
-      { id: "m1", name: "Paul Maina", trade: "Painter" },
-      { id: "m2", name: "Esther Achieng", trade: "Tiler" },
-      { id: "m3", name: "Victor Baraka", trade: "Plasterer" },
-    ],
-  },
-];
-
 const STATUS_META: Record<Crew["status"], { label: string; cls: string }> = {
   on_site: { label: "On Site", cls: "bg-[#22C55E]/15 text-[#22C55E] border-[#22C55E]/30" },
   off_site: { label: "Off Site", cls: "bg-[#5B6675]/15 text-[#8A95A5] border-[#5B6675]/30" },
@@ -65,19 +31,19 @@ const STATUS_META: Record<Crew["status"], { label: string; cls: string }> = {
 };
 
 export default function Crews({ role }: { role: Role }) {
-  const [crews, setCrews] = useState<Crew[]>(SEED);
+  const [crews, setCrews] = useState<Crew[]>([]);
   const [q, setQ] = useState("");
   const [showNew, setShowNew] = useState(false);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set([SEED[0]?.id]));
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [addingTo, setAddingTo] = useState<string | null>(null);
   const [newMemberName, setNewMemberName] = useState("");
   const [newMemberTrade, setNewMemberTrade] = useState("");
 
-  // Load persisted crews; keep SEED only if the backend is unreachable
+  // Load persisted crews; the API response is authoritative (including empty)
   useEffect(() => {
     (async () => {
-      try { setCrews((await api.getCrews()).map(mapCrew)); }
-      catch { /* offline — keep SEED */ }
+      try { setCrews(((await api.getCrews()) ?? []).map(mapCrew)); }
+      catch { /* offline — leave list empty */ }
     })();
   }, []);
 
@@ -146,7 +112,15 @@ export default function Crews({ role }: { role: Role }) {
       </div>
 
       <div className="space-y-3">
-        {filtered.length === 0 && <div className="text-center text-[13px] text-[#5B6675] py-10">No crews match your search.</div>}
+        {filtered.length === 0 && (
+          <EmptyState
+            icon={UsersRound}
+            title="No crews yet"
+            description="Set up your first crew to organise workers by trade, shift and site location."
+            actionLabel="New Crew"
+            onAction={() => setShowNew(true)}
+          />
+        )}
         {filtered.map((c) => {
           const isOpen = expanded.has(c.id);
           return (

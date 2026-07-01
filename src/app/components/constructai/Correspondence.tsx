@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Plus, Search, X, MessageSquare, FileText, Send, Download, ArrowUpRight, ArrowDownLeft, Paperclip } from "lucide-react";
 import type { Role } from "./roles";
 import api from "../../services/api";
+import { EmptyState } from "./EmptyState";
 
 const mapCorr = (r: any): Correspondence => ({
   id: r.id, subject: r.subject, type: r.type, direction: r.direction, status: r.status,
@@ -24,33 +25,6 @@ type Correspondence = {
   attachments: string[];
 };
 
-const SEED: Correspondence[] = [
-  {
-    id: "LTR-0089", subject: "Notice of delay — inclement weather W23", type: "Letter", direction: "outgoing", status: "sent",
-    from: "Buildflex Construction Ltd", to: "Westside Developments (Client)", project: "Westside Tower", date: "2026-06-10",
-    body: "We hereby notify you of a 3-day delay to the programme arising from heavy rainfall recorded between 5–7 June 2026, in accordance with clause 24.1 of the contract. Updated programme attached.",
-    attachments: ["Updated_Programme_RevF.pdf", "Rainfall_Records_W23.pdf"],
-  },
-  {
-    id: "SUB-0142", subject: "Submittal — curtain wall shop drawings package 2", type: "Submittal", direction: "outgoing", status: "responded",
-    from: "Buildflex Construction Ltd", to: "Lena Hassan (Architect)", project: "Westside Tower", date: "2026-06-06",
-    body: "Please find attached curtain wall shop drawings package 2 covering elevations N2–N5 for review and approval. Response requested within 10 working days.",
-    attachments: ["CW_ShopDwgs_Pkg2.pdf"],
-  },
-  {
-    id: "TRN-0231", subject: "Transmittal — revised structural drawings S-201 Rev D", type: "Transmittal", direction: "incoming", status: "received",
-    from: "David Kim (Engineer)", to: "Buildflex Construction Ltd", project: "Riverside Mall", date: "2026-06-04",
-    body: "Transmitting revised drawing S-201 Rev D incorporating concrete grade clarification per RFI-044. Superseded copies should be marked accordingly.",
-    attachments: ["S-201_RevD.pdf"],
-  },
-  {
-    id: "NTC-0017", subject: "Notice to proceed — Phase 2 fit-out", type: "Notice", direction: "incoming", status: "received",
-    from: "Westside Developments (Client)", to: "Buildflex Construction Ltd", project: "Westside Tower", date: "2026-06-01",
-    body: "You are hereby instructed to proceed with Phase 2 interior fit-out works per the agreed scope and pricing schedule dated 28 May 2026.",
-    attachments: [],
-  },
-];
-
 const TYPE_CLS: Record<Correspondence["type"], string> = {
   Letter: "bg-[#3B82F6]/15 text-[#3B82F6]",
   Submittal: "bg-[#A855F7]/15 text-[#A855F7]",
@@ -66,17 +40,17 @@ const STATUS_CLS: Record<Correspondence["status"], string> = {
 };
 
 export default function CorrespondenceModule({ role }: { role: Role }) {
-  const [items, setItems] = useState<Correspondence[]>(SEED);
+  const [items, setItems] = useState<Correspondence[]>([]);
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [detail, setDetail] = useState<Correspondence | null>(null);
   const [showNew, setShowNew] = useState(false);
 
-  // Load persisted correspondence; keep SEED only if the backend is unreachable
+  // Load persisted correspondence; the API response is authoritative (including empty)
   useEffect(() => {
     (async () => {
-      try { setItems((await api.getCorrespondence()).map(mapCorr)); }
-      catch { /* offline — keep SEED */ }
+      try { setItems(((await api.getCorrespondence()) ?? []).map(mapCorr)); }
+      catch { /* offline — leave list empty */ }
     })();
   }, []);
 
@@ -115,7 +89,15 @@ export default function CorrespondenceModule({ role }: { role: Role }) {
       </div>
 
       <div className="space-y-2">
-        {filtered.length === 0 && <div className="text-center text-[13px] text-[#5B6675] py-10">No correspondence matches your filters.</div>}
+        {filtered.length === 0 && (
+          <EmptyState
+            icon={FileText}
+            title="No correspondence yet"
+            description="Draft your first letter, submittal, transmittal or notice to start your project record."
+            actionLabel="New Correspondence"
+            onAction={() => setShowNew(true)}
+          />
+        )}
         {filtered.map((c) => (
           <button key={c.id} onClick={() => setDetail(c)} className="w-full text-left bg-[#11161D] border border-[#222A35] rounded-xl p-4 hover:border-[#2E3947] transition">
             <div className="flex items-center gap-2 flex-wrap">
@@ -203,7 +185,7 @@ function NewCorrespondenceModal({ onClose, onCreate }: { onClose: () => void; on
     onCreate({
       id: `${PREFIX[type]}-${String(Math.floor(Math.random() * 9000) + 1000).padStart(4, "0")}`,
       subject: subject.trim(), type, direction: "outgoing", status: "draft",
-      from: "Buildflex Construction Ltd", to: to.trim() || "Unspecified recipient", project,
+      from: "Buildsasa Construction Ltd", to: to.trim() || "Unspecified recipient", project,
       date: new Date().toISOString().slice(0, 10),
       body: body.trim(), attachments: [],
     });

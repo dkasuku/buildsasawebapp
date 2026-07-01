@@ -71,7 +71,7 @@ export const aiErrorText = (err: any): string => {
   return String(raw).replace(/\s+/g, " ").trim().slice(0, 240) || "unknown error";
 };
 
-export const AI_GREETING: Msg = { role: "ai", text: "Hi — I'm Buildflex AI. Ask me about your projects, finances, change orders, or how to do something. e.g. \"What's my biggest cost exposure right now?\"" };
+export const AI_GREETING: Msg = { role: "ai", text: "Hi — I'm Buildsasa AI. Ask me about your projects, finances, change orders, or how to do something. e.g. \"What's my biggest cost exposure right now?\"" };
 
 export function AiAssistantPanel({
   open,
@@ -171,7 +171,7 @@ export function AiAssistantPanel({
         <div className="shrink-0 px-4 py-3.5 border-b border-[#222A35] bg-[#11161D] flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-[#FF6B1A]/15 flex items-center justify-center"><Sparkles className="w-4 h-4 text-[#FF6B1A]" /></div>
           <div className="flex-1 min-w-0">
-            <div className="text-[13px] text-white font-display leading-tight">Buildflex AI</div>
+            <div className="text-[13px] text-white font-display leading-tight">Buildsasa AI</div>
             <div className="text-[10px] text-[#5B6675]">Project & financial assistant</div>
           </div>
           <button onClick={newChat} title="New chat" className="h-8 w-8 rounded-md text-[#8A95A5] hover:text-white hover:bg-[#161C24] flex items-center justify-center"><SquarePen className="w-4 h-4" /></button>
@@ -211,7 +211,7 @@ export function AiAssistantPanel({
 
         <div className="p-3 border-t border-[#222A35] shrink-0">
           <div className="flex items-end gap-2">
-            <textarea ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} rows={1} placeholder="Ask Buildflex AI…" className="flex-1 resize-none max-h-28 bg-[#11161D] border border-[#222A35] rounded-lg px-3 py-2 text-[12.5px] text-white placeholder:text-[#3A4350] focus:outline-none focus:border-[#FF6B1A]" />
+            <textarea ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} rows={1} placeholder="Ask Buildsasa AI…" className="flex-1 resize-none max-h-28 bg-[#11161D] border border-[#222A35] rounded-lg px-3 py-2 text-[12.5px] text-white placeholder:text-[#3A4350] focus:outline-none focus:border-[#FF6B1A]" />
             {busy ? (
               <button onClick={stop} title="Stop generating" className="h-9 w-9 shrink-0 rounded-lg bg-[#222A35] hover:bg-[#2C3744] text-white flex items-center justify-center"><Square className="w-3.5 h-3.5 fill-current" /></button>
             ) : (

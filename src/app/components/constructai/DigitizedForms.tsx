@@ -8,6 +8,7 @@ import {
 import type { Role } from "./roles";
 import { api } from "../../services/api";
 import type { ChecklistDto, FormTemplateDto, ChecklistTemplateDto } from "../../services/api";
+import { EmptyState } from "./EmptyState";
 
 const fieldToQuestionType = (t: string) => {
   if (t === "checkbox") return "yes_no";
@@ -567,11 +568,7 @@ export function DigitizedForms({ role }: { role: Role }) {
       {activeTab === "checklists" && (
         <div className="space-y-3">
           {checklists.length === 0 && (
-            <div className="rounded-xl border border-dashed border-[#222A35] py-16 text-center">
-              <ClipboardList className="w-8 h-8 text-[#5B6675] mx-auto" />
-              <div className="text-[14px] text-white mt-3 font-display">No checklists yet</div>
-              <div className="text-[12px] text-[#8A95A5] mt-1">Save a template as a checklist to see it here</div>
-            </div>
+            <EmptyState icon={ClipboardList} title="No checklists yet" description="Save a template as a checklist to see it here" />
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             {checklists.map((cl) => (

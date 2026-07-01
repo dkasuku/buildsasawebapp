@@ -6,6 +6,7 @@ import { ROLES, ROLE_COLORS } from "./roles";
 import type { Role } from "./roles";
 import api from "../../services/api";
 import { ExpandableText } from "./ExpandableText";
+import { EmptyState } from "./EmptyState";
 
 const parseJSON = (s: any) => { try { return s ? JSON.parse(s) : undefined; } catch { return undefined; } };
 const mapAnn = (r: any): Announcement => ({
@@ -49,85 +50,6 @@ const PROJECTS = [
 
 const ALL_ROLES = Object.keys(ROLES) as Role[];
 
-const INITIAL: Announcement[] = [
-  {
-    id: "ann-1",
-    title: "Site safety stand-down — June 2nd",
-    body: "All crews must attend the mandatory safety stand-down on June 2nd at 7:00 AM. Topics include fall protection updates, new crane signaling protocol, and heat stress prevention for the summer months. Attendance will be recorded. Contact your superintendent if you have questions.",
-    author: "Marcus Rivera",
-    authorRole: "Contractor",
-    date: "2026-05-31",
-    pinned: true,
-    priority: "urgent",
-    audience: "company",
-    requireAck: true,
-    ackCount: 38,
-    attachments: [{ name: "Fall-Protection-Update-2026.pdf", size: "1.2 MB" }, { name: "Crane-Signaling-Protocol.pdf", size: "840 KB" }],
-    readBy: 42,
-    totalRecipients: 56,
-  },
-  {
-    id: "ann-2",
-    title: "Harborfront Tower concrete pour delayed",
-    body: "The Level 3 slab pour scheduled for June 1st has been pushed to June 3rd due to weather. The rebar inspection passed, and the pump truck is rebooked. All trades please adjust schedules accordingly.",
-    author: "Sarah Patel",
-    authorRole: "Site Supervisor",
-    date: "2026-05-30",
-    pinned: true,
-    priority: "high",
-    audience: "project",
-    project: "HFT-21 · Harborfront Tower",
-    ackCount: 0,
-    readBy: 18,
-    totalRecipients: 22,
-  },
-  {
-    id: "ann-3",
-    title: "New expense policy effective July 1",
-    body: "The updated expense reimbursement policy is now available in Company Documents. Key changes: per diem increased to $85/day, mileage rate updated to $0.67/mile, and all receipts must be submitted within 14 days.",
-    author: "Jane Cho",
-    authorRole: "Project Executive",
-    date: "2026-05-28",
-    pinned: false,
-    priority: "normal",
-    audience: "company",
-    requireAck: true,
-    ackCount: 24,
-    attachments: [{ name: "Expense-Policy-July-2026.pdf", size: "560 KB" }],
-    readBy: 38,
-    totalRecipients: 56,
-  },
-  {
-    id: "ann-4",
-    title: "Midtown Medical — HVAC shutdown notice",
-    body: "The main HVAC system will be shut down for maintenance on June 5th from 6:00 PM to 10:00 PM. Please plan sensitive work around this window. The backup system will run in occupied zones only.",
-    author: "Mike Torres",
-    authorRole: "MEP Coordinator",
-    date: "2026-05-27",
-    pinned: false,
-    priority: "high",
-    audience: "project",
-    project: "MMC-14 · Midtown Medical",
-    ackCount: 0,
-    readBy: 14,
-    totalRecipients: 16,
-  },
-  {
-    id: "ann-5",
-    title: "Holiday schedule — Independence Day",
-    body: "The office and all active sites will be closed on July 4th. Time-and-a-half pay for any approved emergency work. Submit requests by June 20th.",
-    author: "HR",
-    authorRole: "Admin",
-    date: "2026-05-25",
-    pinned: false,
-    priority: "low",
-    audience: "company",
-    ackCount: 0,
-    readBy: 52,
-    totalRecipients: 56,
-  },
-];
-
 const PRIORITY_ICON: Record<string, any> = {
   urgent: AlertTriangle,
   high: Bell,
@@ -143,7 +65,7 @@ const PRIORITY_COLOR: Record<string, string> = {
 };
 
 export function Announcements() {
-  const [announcements, setAnnouncements] = useState<Announcement[]>(INITIAL);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [filter, setFilter] = useState<"all" | "pinned" | "urgent">("all");
   const [search, setSearch] = useState("");
   const [audienceFilter, setAudienceFilter] = useState<"all" | Audience>("all");
@@ -161,11 +83,11 @@ export function Announcements() {
   };
   const [draft, setDraft] = useState(emptyDraft);
 
-  // Load persisted announcements; keep INITIAL only if the backend is unreachable
+  // Load persisted announcements; the API response is authoritative (including empty)
   useEffect(() => {
     (async () => {
-      try { setAnnouncements((await api.getAnnouncements()).map(mapAnn)); }
-      catch { /* offline — keep INITIAL */ }
+      try { setAnnouncements(((await api.getAnnouncements()) ?? []).map(mapAnn)); }
+      catch { /* offline — leave list empty */ }
     })();
   }, []);
 
@@ -345,7 +267,13 @@ export function Announcements() {
       )}
 
       {filtered.length === 0 && (
-        <div className="text-center py-12 text-[12px] text-[#5B6675]">No announcements match your filter.</div>
+        <EmptyState
+          icon={Megaphone}
+          title="No announcements yet"
+          description="Post your first announcement to keep the team in the loop."
+          actionLabel="New Announcement"
+          onAction={() => setShowNew(true)}
+        />
       )}
 
       {showNew && (

@@ -13,6 +13,7 @@ import { ROLES, TRADE_COLOR } from "./roles";
 import { useTeam, resolveName } from "./useTeam";
 import api, { type ChecklistDto, type ChecklistTemplateDto, type ChecklistQuestionDto, type ProjectDto } from "../../services/api";
 import { STATUS_META, AssignModal, FillModal, DetailModal } from "./Checklists";
+import { EmptyState } from "./EmptyState";
 
 // Sort within a trade so the things needing attention float up.
 const STATUS_RANK: Record<string, number> = { submitted: 0, in_progress: 1, assigned: 2, draft: 3, rejected: 4, approved: 5 };
@@ -195,11 +196,7 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
       {loading ? (
         <div className="text-center py-16 text-[#5B6675] text-[13px]"><Loader2 className="w-4 h-4 animate-spin inline mr-1.5" /> Loading assignments…</div>
       ) : groups.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-[#222A35] p-8 text-center">
-          <ClipboardList className="w-7 h-7 text-[#5B6675] mx-auto mb-2" />
-          <div className="text-[13px] text-white">Nothing assigned yet</div>
-          <div className="text-[12px] text-[#8A95A5] mt-1">{canAssign ? "Click “Assign a form” to send a checklist to a trade or teammate." : "Forms assigned to you will show up here."}</div>
-        </div>
+        <EmptyState icon={ClipboardList} title="Nothing assigned yet" description={canAssign ? "Click “Assign a form” to send a checklist to a trade or teammate." : "Forms assigned to you will show up here."} actionLabel={canAssign ? "Assign a form" : undefined} onAction={canAssign ? () => setPickOpen(true) : undefined} />
       ) : (
         <div className="space-y-5">
           {groups.map(([trade, list]) => {

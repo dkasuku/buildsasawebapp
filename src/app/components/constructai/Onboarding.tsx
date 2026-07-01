@@ -9,7 +9,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { HardHat, FolderKanban, UserPlus, ClipboardList, Check, ArrowRight, X, Sparkles, Mail } from "lucide-react";
+import { FolderKanban, UserPlus, ClipboardList, Check, ArrowRight, X, Sparkles, Mail } from "lucide-react";
 import type { Role } from "./roles";
 import { ROLES, ROLE_DESCRIPTIONS } from "./roles";
 import type { View } from "./Sidebar";
@@ -110,11 +110,11 @@ export function Onboarding({ role, onNavigate, onClose }: Props) {
         {/* Header */}
         <div className="px-6 pt-6 pb-4 border-b border-[#222A35] flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#FF6B1A] to-[#FF8A4A] flex items-center justify-center">
-              <HardHat className="w-5 h-5 text-white" strokeWidth={2.4} />
+            <div className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center">
+              <img src="/Buildsasa.png" alt="Buildsasa" className="w-full h-full object-cover" />
             </div>
             <div>
-              <div className="text-[15px] text-white font-display">Welcome to Buildflex</div>
+              <div className="text-[15px] text-white font-display">Welcome to Buildsasa</div>
               <div className="text-[11px] text-[#8A95A5]">Let's get your workspace ready in a minute.</div>
             </div>
           </div>
@@ -135,7 +135,7 @@ export function Onboarding({ role, onNavigate, onClose }: Props) {
           {step === 0 && (
             <div>
               <p className="text-[13px] text-[#C2CAD6] leading-relaxed">
-                Buildflex keeps your sites, checklists, and AI assistant in one place. We'll walk through three quick steps — you can skip any of them and come back later.
+                Buildsasa keeps your sites, checklists, and AI assistant in one place. We'll walk through three quick steps — you can skip any of them and come back later.
               </p>
               <div className="mt-5 space-y-2.5">
                 <Row icon={FolderKanban} title="Create your first project" sub="The site you're managing." />

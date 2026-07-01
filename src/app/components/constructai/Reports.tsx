@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import api, { type ScheduledReportDto } from "../../services/api";
 import { jsPDF } from "jspdf";
 import * as XLSX from "xlsx";
-import { Download, Calendar, Filter, TrendingUp, ArrowUpRight, ArrowDownRight, Plus, GripVertical, X, MapPin, Building2, Clock, AlertTriangle, CheckCircle2, Bell, Mail, Repeat, Trash2, Play } from "lucide-react";
+import { Download, Calendar, Filter, TrendingUp, Plus, GripVertical, X, MapPin, Building2, Clock, AlertTriangle, CheckCircle2, Bell, Mail, Repeat, Trash2, Play } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, RadialBarChart, RadialBar, PieChart, Pie, Cell, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, AreaChart, Area } from "recharts";
 import { useCurrency } from "./CurrencyContext";
 import { formatCompactCurrency, formatCurrency } from "./currency";
@@ -12,17 +12,6 @@ const $toKES = (dollars: number) => Math.round(dollars * 130);
 
 const TABS = ["Financial", "Operational", "By Project", "By Region", "Custom", "Scheduled"] as const;
 type Tab = typeof TABS[number];
-
-const monthly = [
-  { m: "Oct", approved: 1.2, pending: 0.8, rejected: 0.1 },
-  { m: "Nov", approved: 1.6, pending: 0.6, rejected: 0.15 },
-  { m: "Dec", approved: 2.1, pending: 0.9, rejected: 0.2 },
-  { m: "Jan", approved: 1.8, pending: 1.1, rejected: 0.1 },
-  { m: "Feb", approved: 2.4, pending: 0.7, rejected: 0.18 },
-  { m: "Mar", approved: 2.9, pending: 1.3, rejected: 0.22 },
-  { m: "Apr", approved: 3.4, pending: 1.0, rejected: 0.14 },
-  { m: "May", approved: 4.1, pending: 1.4, rejected: 0.19 },
-];
 
 const triggers = [
   { name: "Design clarification", v: 38, c: "#FF6B1A" },
@@ -69,12 +58,6 @@ const toRow = (r: ScheduledReportDto): SchedRow => ({
   recipients: r.recipients, active: r.active, nextRun: fmtNextRun(r),
 });
 
-// Fallback shown only when the backend is unreachable
-const DEMO_SCHEDULED: SchedRow[] = [
-  { id: "sr-1", name: "Weekly Financial Summary", reportType: "Financial", frequency: "weekly", recipients: "pm@buildflex.com", active: true, nextRun: "Mon 08:00" },
-  { id: "sr-2", name: "Safety Inspection Digest", reportType: "Operational", frequency: "daily", recipients: "safety@buildflex.com", active: true, nextRun: "Tomorrow 07:00" },
-];
-
 export function Reports() {
   const { currency } = useCurrency();
   const [tab, setTab] = useState<Tab>("Financial");
@@ -86,10 +69,9 @@ export function Reports() {
   const loadScheduled = async () => {
     try {
       const rows = await api.getScheduledReports();
-      setScheduled(rows.map(toRow));
+      setScheduled(rows ? rows.map(toRow) : []);
     } catch {
-      // Backend unavailable — fall back to demo data so the panel isn't empty
-      setScheduled(DEMO_SCHEDULED);
+      // Backend unavailable — leave list empty (no demo data)
     }
   };
   useEffect(() => { loadScheduled(); }, []);
@@ -276,24 +258,58 @@ export function Reports() {
 }
 
 /* ────────── Financial ────────── */
+// Bar colors for the "CO Volume by Status" chart, keyed by change-order status.
+const CO_STATUS_BARS: { key: string; label: string; color: string }[] = [
+  { key: "drafted", label: "Drafted", color: "#5B6675" },
+  { key: "pm_review", label: "PM Review", color: "#3B82F6" },
+  { key: "owner_approval", label: "Owner Approval", color: "#FF6B1A" },
+  { key: "approved", label: "Approved", color: "#22C55E" },
+  { key: "rejected", label: "Rejected", color: "#EF4444" },
+  { key: "void", label: "Void", color: "#5B6675" },
+];
+
 function FinancialPanel({ range }: { range: string }) {
   const { currency } = useCurrency();
-  const radial = [{ name: "approval", value: 87, fill: "#FF6B1A" }];
+  // Real change orders drive every KPI & chart on this panel (empty for a fresh
+  // workspace).
+  const [cos, setCos] = useState<any[] | null>(null);
+  useEffect(() => {
+    api.listChangeOrders().then((rows) => setCos(Array.isArray(rows) ? rows : [])).catch(() => setCos([]));
+  }, []);
+
+  const list = cos ?? [];
+  const countByStatus = (status: string) => list.filter((c) => c.status === status).length;
+  const approvedCount = countByStatus("approved");
+  const rejectedCount = countByStatus("rejected");
+  const totalApprovedKES = list
+    .filter((c) => c.status === "approved")
+    .reduce((sum, c) => sum + (Number(c.costUSD) || 0) * 130, 0);
+  const approvalDenom = approvedCount + rejectedCount;
+  const approvalRate = approvalDenom > 0 ? Math.round((approvedCount / approvalDenom) * 100) : null;
+
+  const totalValueLabel = totalApprovedKES > 0 ? formatCompactCurrency(totalApprovedKES, currency) : "—";
+  const approvalRateLabel = approvalRate != null ? `${approvalRate}%` : "—";
+
+  const statusData = CO_STATUS_BARS
+    .map((s) => ({ name: s.label, count: countByStatus(s.key), color: s.color }))
+    .filter((s) => s.count > 0);
+  const hasData = list.length > 0;
+  const radial = [{ name: "approval", value: approvalRate ?? 0, fill: "#FF6B1A" }];
+
+  const kpis: { l: string; v: string }[] = [
+    { l: "Total CO Value", v: totalValueLabel },
+    { l: "Approval Rate", v: approvalRateLabel },
+    { l: "Median Cycle", v: "—" },
+    { l: "Rework Rate", v: "—" },
+  ];
+
   return (
     <>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {[
-          { l: "Total CO Value", vUSD: 12.4 * 1_000_000, d: "+18.2%", up: true },
-          { l: "Approval Rate", v: "87.4%", d: "+2.1pp", up: true },
-          { l: "Median Cycle", v: "3.4d", d: "-1.1d", up: false, good: true },
-          { l: "Rework Rate", v: "4.8%", d: "-0.7pp", up: false, good: true },
-        ].map((k) => (
+        {kpis.map((k) => (
           <div key={k.l} className="rounded-xl border border-[#222A35] bg-[#11161D] p-5">
             <div className="text-[11px] text-[#8A95A5]">{k.l} · {range}</div>
-            <div className="text-[24px] sm:text-[28px] text-white mt-1 font-display">{(k as any).vUSD ? formatCompactCurrency($toKES((k as any).vUSD), currency) : k.v}</div>
-            <div className={`text-[11px] mt-1 flex items-center gap-1 ${k.good || k.up ? "text-[#22C55E]" : "text-[#EF4444]"}`}>
-              {k.up ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />} {k.d}
-            </div>
+            <div className="text-[24px] sm:text-[28px] text-white mt-1 font-display">{k.v}</div>
           </div>
         ))}
       </div>
@@ -301,33 +317,48 @@ function FinancialPanel({ range }: { range: string }) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-5">
         <div className="lg:col-span-2 rounded-xl border border-[#222A35] bg-[#11161D] p-5">
           <div className="text-[13px] text-white font-display">CO Volume by Status</div>
-          <div className="text-[11px] text-[#8A95A5]">Millions · 8 months</div>
+          <div className="text-[11px] text-[#8A95A5]">Number of change orders</div>
           <div className="h-[240px] mt-3">
-            <ResponsiveContainer>
-              <BarChart data={monthly}>
-                <CartesianGrid stroke="#222A35" vertical={false} />
-                <XAxis dataKey="m" stroke="#5B6675" fontSize={10} axisLine={false} tickLine={false} />
-                <YAxis stroke="#5B6675" fontSize={10} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ background: "#0A0E14", border: "1px solid #222A35", borderRadius: 8, fontSize: 11 }} />
-                <Bar dataKey="approved" stackId="a" fill="#FF6B1A" />
-                <Bar dataKey="pending" stackId="a" fill="#F5A623" />
-                <Bar dataKey="rejected" stackId="a" fill="#EF4444" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {hasData ? (
+              <ResponsiveContainer>
+                <BarChart data={statusData}>
+                  <CartesianGrid stroke="#222A35" vertical={false} />
+                  <XAxis dataKey="name" stroke="#5B6675" fontSize={10} axisLine={false} tickLine={false} />
+                  <YAxis stroke="#5B6675" fontSize={10} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <Tooltip contentStyle={{ background: "#0A0E14", border: "1px solid #222A35", borderRadius: 8, fontSize: 11 }} />
+                  <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                    {statusData.map((s) => <Cell key={s.name} fill={s.color} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center">
+                <div className="text-[13px] text-white font-display">No data yet</div>
+                <div className="text-[11px] text-[#8A95A5] mt-1">Change orders will appear here once created.</div>
+              </div>
+            )}
           </div>
         </div>
         <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-5">
           <div className="text-[13px] text-white font-display">Approval Rate</div>
           <div className="h-[200px] mt-4 relative">
-            <ResponsiveContainer>
-              <RadialBarChart innerRadius="70%" outerRadius="100%" data={radial} startAngle={90} endAngle={-270}>
-                <RadialBar dataKey="value" cornerRadius={20} fill="#FF6B1A" background={{ fill: "#222A35" }} />
-              </RadialBarChart>
-            </ResponsiveContainer>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <div className="text-[32px] text-white font-display">87%</div>
-              <div className="text-[11px] text-[#FF6B1A]">+2.1pp</div>
-            </div>
+            {approvalRate != null ? (
+              <>
+                <ResponsiveContainer>
+                  <RadialBarChart innerRadius="70%" outerRadius="100%" data={radial} startAngle={90} endAngle={-270}>
+                    <RadialBar dataKey="value" cornerRadius={20} fill="#FF6B1A" background={{ fill: "#222A35" }} />
+                  </RadialBarChart>
+                </ResponsiveContainer>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <div className="text-[32px] text-white font-display">{approvalRate}%</div>
+                </div>
+              </>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center">
+                <div className="text-[13px] text-white font-display">No data yet</div>
+                <div className="text-[11px] text-[#8A95A5] mt-1">Approve or reject change orders to see this.</div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -336,23 +367,36 @@ function FinancialPanel({ range }: { range: string }) {
 }
 
 /* ────────── Operational ────────── */
+const SLA_STAGES = [
+  { stage: "Field draft → PM Review", target: "1d" },
+  { stage: "PM Review → Cost validation", target: "2d" },
+  { stage: "Cost validation → Exec", target: "1d" },
+  { stage: "Exec → Owner submission", target: "0.5d" },
+  { stage: "Owner decision", target: "3d" },
+];
+const TRIGGER_PALETTE = ["#FF6B1A", "#3B82F6", "#22C55E", "#F5A623", "#8B5CF6", "#EF4444"];
+
 function OperationalPanel() {
-  const slas = [
-    { stage: "Field draft → PM Review", target: "1d", actual: "0.8d", state: "ok" },
-    { stage: "PM Review → Cost validation", target: "2d", actual: "1.4d", state: "ok" },
-    { stage: "Cost validation → Exec", target: "1d", actual: "1.2d", state: "warn" },
-    { stage: "Exec → Owner submission", target: "0.5d", actual: "0.3d", state: "ok" },
-    { stage: "Owner decision", target: "3d", actual: "5.8d", state: "bad" },
+  const [cos, setCos] = useState<any[]>([]);
+  useEffect(() => { api.listChangeOrders().then((d) => setCos((d as any[]) ?? [])).catch(() => { /* offline */ }); }, []);
+  const total = cos.length;
+  const trigCounts: Record<string, number> = {};
+  cos.forEach((c) => { const t = (c.trigger && String(c.trigger).trim()) || "Other"; trigCounts[t] = (trigCounts[t] || 0) + 1; });
+  const trig = Object.entries(trigCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, n], i) => ({ name, count: n, v: total ? Math.round((n / total) * 100) : 0, c: TRIGGER_PALETTE[i % TRIGGER_PALETTE.length] }));
+  // Cycle-time / SLA actuals require approval-transition timestamps we don't track yet,
+  // so they read as "—" until that data exists, rather than showing invented numbers.
+  const kpis = [
+    { l: "Median cycle", v: "—", c: "#8A95A5" },
+    { l: "SLA breaches", v: "—", c: "#8A95A5" },
+    { l: "Auto-routed", v: "—", c: "#8A95A5" },
+    { l: "Hand-offs / CO", v: "—", c: "#8A95A5" },
   ];
   return (
     <>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {[
-          { l: "Median cycle", v: "3.4d", c: "#22C55E" },
-          { l: "SLA breaches", v: "12", c: "#EF4444" },
-          { l: "Auto-routed", v: "84%", c: "#FF6B1A" },
-          { l: "Hand-offs / CO", v: "2.7", c: "#8A95A5" },
-        ].map((k) => (
+        {kpis.map((k) => (
           <div key={k.l} className="rounded-xl border border-[#222A35] bg-[#11161D] p-5">
             <div className="text-[11px] text-[#8A95A5]">{k.l}</div>
             <div className="text-[24px] sm:text-[28px] mt-1 font-display" style={{ color: k.c }}>{k.v}</div>
@@ -363,10 +407,10 @@ function OperationalPanel() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5">
         <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-5">
           <div className="text-[13px] text-white font-display">Cycle Time Trend</div>
-          <div className="text-[11px] text-[#8A95A5]">Median days · 8 weeks</div>
-          <div className="h-[240px] mt-3">
+          <div className="text-[11px] text-[#8A95A5]">Median days over time</div>
+          <div className="h-[240px] mt-3 relative">
             <ResponsiveContainer>
-              <LineChart data={velocity}>
+              <LineChart data={[]}>
                 <CartesianGrid stroke="#222A35" vertical={false} />
                 <XAxis dataKey="d" stroke="#5B6675" fontSize={10} axisLine={false} tickLine={false} />
                 <YAxis stroke="#5B6675" fontSize={10} axisLine={false} tickLine={false} />
@@ -374,22 +418,21 @@ function OperationalPanel() {
                 <Line type="monotone" dataKey="v" stroke="#FF6B1A" strokeWidth={2.5} dot={{ fill: "#FF6B1A", r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
+            <div className="absolute inset-0 flex items-center justify-center text-center px-6 text-[12px] text-[#5B6675]">Cycle-time history appears here as change orders move through approvals.</div>
           </div>
         </div>
 
         <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-5">
-          <div className="text-[13px] text-white font-display">SLA Adherence by Stage</div>
-          <div className="text-[11px] text-[#8A95A5] mb-3">Target vs actual cycle time</div>
+          <div className="text-[13px] text-white font-display">SLA Targets by Stage</div>
+          <div className="text-[11px] text-[#8A95A5] mb-3">Your approval-cycle targets</div>
           <div className="space-y-3">
-            {slas.map((s) => (
+            {SLA_STAGES.map((s) => (
               <div key={s.stage}>
                 <div className="flex items-center justify-between text-[11px] mb-1">
                   <span className="text-white">{s.stage}</span>
-                  <span className={s.state === "ok" ? "text-[#22C55E]" : s.state === "warn" ? "text-[#F5A623]" : "text-[#EF4444]"}>{s.actual} / {s.target}</span>
+                  <span className="text-[#8A95A5]">— / {s.target}</span>
                 </div>
-                <div className="h-1.5 bg-[#222A35] rounded-full overflow-hidden">
-                  <div className="h-full" style={{ width: s.state === "ok" ? "60%" : s.state === "warn" ? "85%" : "100%", background: s.state === "ok" ? "#22C55E" : s.state === "warn" ? "#F5A623" : "#EF4444" }} />
-                </div>
+                <div className="h-1.5 bg-[#222A35] rounded-full overflow-hidden" />
               </div>
             ))}
           </div>
@@ -399,29 +442,33 @@ function OperationalPanel() {
       <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-5 mt-5">
         <div className="text-[13px] text-white font-display">Triggers Breakdown</div>
         <div className="text-[11px] text-[#8A95A5]">Why change orders happen</div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-          <div className="h-[200px] relative">
-            <ResponsiveContainer>
-              <PieChart>
-                <Pie data={triggers} dataKey="v" innerRadius={55} outerRadius={80} paddingAngle={2}>
-                  {triggers.map((t) => <Cell key={t.name} fill={t.c} />)}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Total</div>
-              <div className="text-[22px] text-white font-display">247</div>
+        {total === 0 ? (
+          <div className="h-[160px] flex items-center justify-center text-center px-6 text-[12px] text-[#5B6675]">No change orders yet — trigger breakdown appears here once you log some.</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+            <div className="h-[200px] relative">
+              <ResponsiveContainer>
+                <PieChart>
+                  <Pie data={trig} dataKey="count" innerRadius={55} outerRadius={80} paddingAngle={2}>
+                    {trig.map((t) => <Cell key={t.name} fill={t.c} />)}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Total</div>
+                <div className="text-[22px] text-white font-display">{total}</div>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              {trig.map((t) => (
+                <div key={t.name} className="flex items-center justify-between text-[12px] p-2 rounded hover:bg-[#161C24]">
+                  <span className="flex items-center gap-2 text-white"><span className="w-2 h-2 rounded-sm" style={{ background: t.c }} />{t.name}</span>
+                  <span className="text-[#8A95A5]">{t.v}%</span>
+                </div>
+              ))}
             </div>
           </div>
-          <div className="space-y-1.5">
-            {triggers.map((t) => (
-              <div key={t.name} className="flex items-center justify-between text-[12px] p-2 rounded hover:bg-[#161C24]">
-                <span className="flex items-center gap-2 text-white"><span className="w-2 h-2 rounded-sm" style={{ background: t.c }} />{t.name}</span>
-                <span className="text-[#8A95A5]">{t.v}%</span>
-              </div>
-            ))}
-          </div>
-        </div>
+        )}
       </div>
     </>
   );

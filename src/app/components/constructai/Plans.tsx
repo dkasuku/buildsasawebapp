@@ -5,6 +5,7 @@ import api from "../../services/api";
 import { DrawingViewer, toViewerRole } from "./drawing-viewer";
 import { FileStack, Search, Filter, Upload, Share2, Download, Eye, Clock, X, Check, MessageSquare, MapPin, Layers, Users as UsersIcon, ZoomIn, ZoomOut, Maximize2, PenTool, Circle, Type, Undo, History, Cloud, Box, ExternalLink } from "lucide-react";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
+import { EmptyState } from "./EmptyState";
 import type { Role } from "./roles";
 import { ROLES } from "./roles";
 
@@ -22,15 +23,6 @@ type Drawing = {
   fileUrl?: string;
   fileName?: string;
 };
-
-const INITIAL: Drawing[] = [
-  { id: "A-101", title: "Floor Plan · Level 14", project: "Harborfront Tower", rev: 4, discipline: "Architectural", updated: "2h ago", size: "4.2 MB", img: "https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=800&q=80", recipients: 12, status: "Current" },
-  { id: "M-401", title: "Mechanical Plan · East Wing", project: "Harborfront Tower", rev: 4, discipline: "Mechanical", updated: "12h ago", size: "6.8 MB", img: "https://images.unsplash.com/photo-1581094794329-c8112a89af12?w=800&q=80", recipients: 8, status: "Current" },
-  { id: "S-201", title: "Structural · Beam Schedule", project: "Midtown Medical", rev: 2, discipline: "Structural", updated: "1d ago", size: "2.1 MB", img: "https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=800&q=80", recipients: 6, status: "Current" },
-  { id: "E-301", title: "Electrical · Panel Schedule", project: "Riverside Plaza", rev: 7, discipline: "Electrical", updated: "3d ago", size: "1.4 MB", img: "https://images.unsplash.com/photo-1486325212027-8081e485255e?w=800&q=80", recipients: 4, status: "Superseded" },
-  { id: "C-110", title: "Civil · Site Drainage", project: "Sunset Logistics", rev: 3, discipline: "Civil", updated: "5d ago", size: "8.9 MB", img: "https://images.unsplash.com/photo-1531834685032-c34bf0d84c77?w=800&q=80", recipients: 9, status: "Current" },
-  { id: "A-204", title: "Sections · Building Envelope", project: "Cedar Heights", rev: 1, discipline: "Architectural", updated: "1w ago", size: "5.5 MB", img: "https://images.unsplash.com/photo-1448630360428-65456885c650?w=800&q=80", recipients: 3, status: "Draft" },
-];
 
 const workers = [
   { n: "Sarah Patel", r: "Superintendent · General", c: "#F5A623", on: true },
@@ -62,7 +54,7 @@ const inferDiscipline = (name: string): string => {
 };
 
 export function Plans({ role }: { role: Role }) {
-  const [drawings, setDrawings] = useState<Drawing[]>(INITIAL);
+  const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [q, setQ] = useState("");
   const [discipline, setDiscipline] = useState("All");
   const [shareOpen, setShareOpen] = useState<null | Drawing>(null);
@@ -107,6 +99,8 @@ export function Plans({ role }: { role: Role }) {
     })();
   }, []);
   const resolvePid = (d: Drawing): string | null => projectIds[d.project] ?? null;
+  // Real number of projects loaded from the backend (0 for a fresh workspace).
+  const projectCount = Object.keys(projectIds).length;
 
   const filtered = drawings.filter((d) => {
     if (discipline !== "All" && d.discipline !== discipline) return false;
@@ -309,10 +303,10 @@ export function Plans({ role }: { role: Role }) {
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {[
-          { i: FileStack, l: "Active drawings", v: String(drawings.length), s: "across 12 projects" },
-          { i: Layers, l: "Disciplines", v: "6", s: "Arch · Mech · Struct · Elec · Civ · FP" },
-          { i: UsersIcon, l: "Field recipients", v: "47", s: "synced in last 24h" },
-          { i: Clock, l: "Avg. distribution", v: "1.2m", s: "from publish → field" },
+          { i: FileStack, l: "Active drawings", v: String(drawings.length), s: `across ${projectCount} project${projectCount === 1 ? "" : "s"}` },
+          { i: Layers, l: "Disciplines", v: String(DISCIPLINES.length - 1), s: "Arch · Mech · Struct · Elec · Civ" },
+          { i: UsersIcon, l: "Field recipients", v: "0", s: "synced in last 24h" },
+          { i: Clock, l: "Avg. distribution", v: "—", s: "from publish → field" },
         ].map((k) => (
           <div key={k.l} className="rounded-xl border border-[#222A35] bg-[#11161D] p-3 sm:p-4">
             <div className="w-8 h-8 rounded-md bg-[#FF6B1A]/15 text-[#FF6B1A] flex items-center justify-center"><k.i className="w-4 h-4" /></div>
@@ -412,11 +406,11 @@ export function Plans({ role }: { role: Role }) {
       </div>
 
       {filtered.length === 0 && (
-        <div className="rounded-xl border border-[#222A35] bg-[#11161D] py-16 text-center">
-          <FileStack className="w-8 h-8 text-[#5B6675] mx-auto" />
-          <div className="text-[14px] text-white mt-3 font-display">No drawings match</div>
-          <div className="text-[12px] text-[#8A95A5] mt-1">Try clearing filters or search</div>
-        </div>
+        <EmptyState
+          icon={FileStack}
+          title="No drawings match"
+          description="Try clearing filters or search"
+        />
       )}
 
       {/* New full-featured drawing viewer (Procore-style, original implementation) */}

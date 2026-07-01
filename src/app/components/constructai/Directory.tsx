@@ -15,15 +15,6 @@ type Contact = {
   projects: string[];
 };
 
-const SEED: Contact[] = [
-  { id: "c1", name: "Lena Hassan", company: "Hassan & Partners Architects", role: "Lead Architect", category: "Consultant", phone: "+254 712 345 678", email: "lena@hassanpartners.co.ke", projects: ["Westside Tower"] },
-  { id: "c2", name: "David Kim", company: "StructEng Consulting", role: "Structural Engineer", category: "Consultant", phone: "+254 723 456 789", email: "dkim@structeng.co.ke", projects: ["Westside Tower", "Riverside Mall"] },
-  { id: "c3", name: "Sarah Wairimu", company: "Westside Developments Ltd", role: "Development Manager", category: "Client", phone: "+254 734 567 890", email: "s.wairimu@westside.co.ke", projects: ["Westside Tower"] },
-  { id: "c4", name: "Patrick Odhiambo", company: "PowerVolt Electrical Ltd", role: "Director", category: "Subcontractor", phone: "+254 745 678 901", email: "patrick@powervolt.co.ke", projects: ["Westside Tower", "Riverside Mall"] },
-  { id: "c5", name: "Janet Muthoni", company: "Bamburi Cement", role: "Account Manager", category: "Supplier", phone: "+254 756 789 012", email: "j.muthoni@bamburi.co.ke", projects: ["Riverside Mall"] },
-  { id: "c6", name: "Eng. Joseph Karanja", company: "Nairobi County — Building Dept", role: "Inspection Officer", category: "Authority", phone: "+254 767 890 123", email: "jkaranja@nairobi.go.ke", projects: ["Westside Tower"] },
-];
-
 const CAT_CLS: Record<Contact["category"], string> = {
   Client: "bg-[#3B82F6]/15 text-[#3B82F6]",
   Consultant: "bg-[#A855F7]/15 text-[#A855F7]",
@@ -39,16 +30,16 @@ const mapContact = (r: any): Contact => ({
 });
 
 export default function Directory({ role }: { role: Role }) {
-  const [contacts, setContacts] = useState<Contact[]>(SEED);
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [q, setQ] = useState("");
   const [catFilter, setCatFilter] = useState<string>("all");
   const [showNew, setShowNew] = useState(false);
 
-  // Load persisted contacts; keep SEED only if the backend is unreachable
+  // Load persisted contacts; the API response is authoritative (including empty)
   useEffect(() => {
     (async () => {
-      try { setContacts((await api.getDirectoryContacts()).map(mapContact)); }
-      catch { /* offline — keep SEED */ }
+      try { setContacts(((await api.getDirectoryContacts()) ?? []).map(mapContact)); }
+      catch { /* offline — leave list empty */ }
     })();
   }, []);
 

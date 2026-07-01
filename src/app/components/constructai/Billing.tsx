@@ -5,10 +5,11 @@
 
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, Sparkles, ShieldCheck, Loader2, CreditCard, FileText } from "lucide-react";
+import { CheckCircle2, Sparkles, ShieldCheck, Loader2, CreditCard, FileText, Download } from "lucide-react";
+import { jsPDF } from "jspdf";
 import type { Role } from "./roles";
 import { ROLES } from "./roles";
-import api, { type BillingInvoiceDto } from "../../services/api";
+import api, { type BillingInvoiceDto, type UserProfile } from "../../services/api";
 
 type Plan = { id: string; name: string; cycle: string; usd: number; kes: number; note?: string };
 
@@ -16,7 +17,7 @@ const FEATURES = [
   "Unlimited projects & drawings",
   "Checklists, punch list & inspections",
   "Change orders & financial tracking",
-  "Buildflex AI assistant & reports",
+  "Buildsasa AI assistant & reports",
   "Multi-assignee tasks & approvals",
   "Document storage & sharing",
 ];
@@ -29,12 +30,18 @@ export default function Billing({ role }: { role: Role }) {
   const [currency, setCurrency] = useState<"KES" | "USD">("KES");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const isOwner = !!ROLES[role]?.isWorkspaceOwner;
 
   const load = async () => {
     try {
-      const [p, s, inv] = await Promise.all([api.getBillingPlans(), api.getSubscription().catch(() => null), api.getBillingInvoices().catch(() => [])]);
-      setPlans(p.plans); setConfigured(p.configured); setSub(s); setInvoices(Array.isArray(inv) ? inv : []);
+      const [p, s, inv, prof] = await Promise.all([
+        api.getBillingPlans(),
+        api.getSubscription().catch(() => null),
+        api.getBillingInvoices().catch(() => []),
+        api.me().catch(() => null),
+      ]);
+      setPlans(p.plans); setConfigured(p.configured); setSub(s); setInvoices(Array.isArray(inv) ? inv : []); setProfile(prof);
     } catch { /* offline */ }
     setLoading(false);
   };
@@ -59,9 +66,102 @@ export default function Billing({ role }: { role: Role }) {
   };
   const markPaid = async (id: string) => {
     setBusy("inv-" + id);
-    try { await api.markBillingInvoicePaid(id); toast.success("Invoice marked paid"); await load(); }
+    try { await api.markBillingInvoicePaid(id); toast.success("Invoice marked paid"); await load(); window.dispatchEvent(new Event("buildsasa:billing-updated")); }
     catch (e: any) { toast.error(e.message || "Could not update invoice"); }
     setBusy(null);
+  };
+
+  const downloadInvoicePdf = (i: BillingInvoiceDto) => {
+    try {
+      const paid = i.status === "paid";
+      const money = (n: number) => i.currency === "USD" ? `$${Math.round(n).toLocaleString()}` : `KSh ${Math.round(n).toLocaleString()}`;
+      const total = i.currency === "USD" ? i.amountUSD : i.amountKES;
+      const doc = new jsPDF();
+      const W = doc.internal.pageSize.getWidth();
+      const left = 16;
+
+      // Header — brand (left) + INVOICE/status (right)
+      doc.setTextColor(255, 107, 26);
+      doc.setFontSize(22);
+      doc.setFont("helvetica", "bold");
+      doc.text("Buildsasa", left, 24);
+      doc.setTextColor(17, 22, 29);
+      doc.setFontSize(16);
+      doc.text("INVOICE", W - left, 22, { align: "right" });
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(paid ? 34 : 245, paid ? 197 : 158, paid ? 94 : 11);
+      doc.text(paid ? "PAID" : "UNPAID", W - left, 29, { align: "right" });
+
+      // Divider
+      doc.setDrawColor(220, 224, 230);
+      doc.line(left, 34, W - left, 34);
+
+      // Invoice meta
+      doc.setTextColor(17, 22, 29);
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.text(`Invoice ${i.number}`, left, 46);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(90, 102, 117);
+      let y = 53;
+      doc.text(`Issued: ${new Date(i.issuedAt).toLocaleDateString()}`, left, y); y += 6;
+      doc.text(`Due: ${new Date(i.dueDate).toLocaleDateString()}`, left, y); y += 6;
+      if (i.paidAt) { doc.text(`Paid: ${new Date(i.paidAt).toLocaleDateString()}`, left, y); y += 6; }
+
+      // Billed to
+      const billedName = profile?.name || "";
+      const billedEmail = profile?.email || "";
+      if (billedName || billedEmail) {
+        doc.setTextColor(17, 22, 29);
+        doc.setFont("helvetica", "bold");
+        doc.text("Billed to", W - left, 46, { align: "right" });
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(90, 102, 117);
+        let yr = 53;
+        if (billedName) { doc.text(billedName, W - left, yr, { align: "right" }); yr += 6; }
+        if (billedEmail) { doc.text(billedEmail, W - left, yr, { align: "right" }); }
+      }
+
+      // Line item table
+      const tableTop = Math.max(y, 70) + 4;
+      doc.setFillColor(255, 107, 26);
+      doc.rect(left, tableTop, W - left * 2, 9, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text("Description", left + 4, tableTop + 6);
+      doc.text("Amount", W - left - 4, tableTop + 6, { align: "right" });
+
+      doc.setTextColor(17, 22, 29);
+      doc.setFont("helvetica", "normal");
+      const rowY = tableTop + 17;
+      doc.text(i.description || "Subscription", left + 4, rowY);
+      doc.text(money(total), W - left - 4, rowY, { align: "right" });
+      doc.setDrawColor(220, 224, 230);
+      doc.line(left, rowY + 4, W - left, rowY + 4);
+
+      // Total
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.text("Total", left + 4, rowY + 14);
+      doc.text(money(total), W - left - 4, rowY + 14, { align: "right" });
+
+      // Footer
+      const H = doc.internal.pageSize.getHeight();
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(90, 102, 117);
+      doc.text("Thank you for your business", left, H - 20);
+      doc.setTextColor(255, 107, 26);
+      doc.setFont("helvetica", "bold");
+      doc.text("Buildsasa", left, H - 14);
+
+      doc.save(`Invoice_${i.number}.pdf`);
+    } catch (e: any) {
+      toast.error("Could not generate PDF");
+    }
   };
 
   useEffect(() => {
@@ -69,7 +169,7 @@ export default function Billing({ role }: { role: Role }) {
     // Handle Paystack redirect back (?reference=...)
     const ref = new URLSearchParams(window.location.search).get("reference") || new URLSearchParams(window.location.search).get("trxref");
     if (ref) {
-      api.billingVerify(ref).then((r) => { if (r.ok) { toast.success("Subscription activated 🎉"); load(); } else toast.error("Payment not completed"); }).catch(() => {});
+      api.billingVerify(ref).then((r) => { if (r.ok) { toast.success("Subscription activated 🎉"); load(); window.dispatchEvent(new Event("buildsasa:billing-updated")); } else toast.error("Payment not completed"); }).catch(() => {});
       window.history.replaceState({}, "", window.location.pathname);
     }
     // eslint-disable-next-line
@@ -126,10 +226,10 @@ export default function Billing({ role }: { role: Role }) {
             return (
               <div key={p.id} className={`rounded-xl border p-5 flex flex-col ${isYearly ? "border-[#FF6B1A]/50 bg-[#FF6B1A]/5" : "border-[#222A35] bg-[#11161D]"}`}>
                 <div className="flex items-center justify-between">
-                  <div className="text-[13px] text-white font-display flex items-center gap-1.5">{isYearly && <Sparkles className="w-4 h-4 text-[#FF6B1A]" />}{p.name.replace("Buildflex Pro — ", "")}</div>
+                  <div className="text-[13px] text-white font-display flex items-center gap-1.5">{isYearly && <Sparkles className="w-4 h-4 text-[#FF6B1A]" />}{p.name.replace("Buildsasa Pro — ", "")}</div>
                   {isYearly && <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#FF6B1A]/15 text-[#FF6B1A]">Best value</span>}
                 </div>
-                <div className="mt-3"><span className="text-[28px] text-white font-display">{fmt(p)}</span><span className="text-[12px] text-[#8A95A5]"> / {isYearly ? "year" : "month"}</span></div>
+                <div className="mt-3"><span className="text-[28px] text-white font-display">{fmt(p)}</span><span className="text-[12px] text-[#8A95A5]"> / {p.cycle === "yearly" ? "year" : p.cycle === "weekly" ? "week" : "month"}</span></div>
                 {p.note && <div className="text-[11px] text-[#22C55E] mt-1">{p.note}</div>}
                 <ul className="mt-4 space-y-1.5 flex-1">
                   {FEATURES.map((f) => <li key={f} className="text-[12px] text-[#C2CAD6] flex items-start gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-[#22C55E] mt-0.5 shrink-0" />{f}</li>)}
@@ -163,6 +263,7 @@ export default function Billing({ role }: { role: Role }) {
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
                     <div className="text-[14px] text-white tabular-nums">{invAmount(i)}</div>
+                    <button onClick={() => downloadInvoicePdf(i)} title="Download PDF" className="h-9 px-3 rounded-md border border-[#222A35] bg-[#11161D] text-[11px] text-[#8A95A5] hover:text-white hover:bg-[#161C24] flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> Download</button>
                     {i.status !== "paid" && <button disabled={paying} onClick={() => payInvoice(i.id)} className={`h-9 px-3 rounded-md text-[12px] text-white flex items-center gap-1.5 disabled:opacity-50 ${overdue ? "bg-[#EF4444] hover:bg-[#EF4444]/90" : "bg-[#FF6B1A] hover:bg-[#FF7E33]"}`}>{paying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />} Pay invoice</button>}
                     {i.status !== "paid" && isOwner && <button disabled={paying} onClick={() => markPaid(i.id)} className="h-9 px-3 rounded-md border border-[#222A35] text-[11px] text-[#8A95A5] hover:text-white disabled:opacity-50">Mark paid</button>}
                   </div>

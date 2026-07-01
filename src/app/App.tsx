@@ -6,6 +6,7 @@ import { Topbar } from "./components/constructai/Topbar";
 import { Login } from "./components/constructai/Login";
 import { ResetPassword } from "./components/constructai/ResetPassword";
 import { PublicFormFill } from "./components/constructai/PublicFormFill";
+import { PublicBidSubmit } from "./components/constructai/PublicBidSubmit";
 import { ErrorBoundary } from "./components/constructai/ErrorBoundary";
 import { Dashboard } from "./components/constructai/Dashboard";
 import { Projects } from "./components/constructai/Projects";
@@ -35,6 +36,7 @@ import Invoicing from "./components/constructai/Invoicing";
 import Inspections from "./components/constructai/Inspections";
 import SafetyIncidents from "./components/constructai/SafetyIncidents";
 import Equipment from "./components/constructai/Equipment";
+import Inventory from "./components/constructai/Inventory";
 import Attendance from "./components/constructai/Attendance";
 import BuildflexAI from "./components/constructai/BuildflexAI";
 import Checklists from "./components/constructai/Checklists";
@@ -51,14 +53,14 @@ import { ROLES } from "./components/constructai/roles";
 import { CurrencyProvider } from "./components/constructai/CurrencyContext";
 import { visibleViewsFor } from "./config/features";
 import { Onboarding } from "./components/constructai/Onboarding";
-import { FeatureTour } from "./components/constructai/FeatureTour";
 import { ProfileSettings } from "./components/constructai/ProfileSettings";
 import { CreditCard } from "lucide-react";
 import { AiAssistantPanel, AI_GREETING, type Msg as AiMsg, type AiFormDraft } from "./components/constructai/AiAssistantPanel";
+import ShemmySupport from "./components/constructai/ShemmySupport";
 
 const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Executive overview" },
-  projects: { title: "Projects", subtitle: "Portfolio · 12 active sites" },
+  projects: { title: "Projects", subtitle: "Your sites and jobs" },
   "change-order": { title: "Change Order", subtitle: "Detailed review & approvals" },
   "change-orders": { title: "Change Orders", subtitle: "Cost & schedule impact · approvals" },
   billing: { title: "Billing & Plan", subtitle: "Subscription & payments" },
@@ -89,9 +91,9 @@ const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }
   inspections: { title: "Inspections", subtitle: "Quality, safety, and compliance inspections" },
   checklists: { title: "Checklists", subtitle: "Templates, assignments, and digital submissions" },
   "safety-incidents": { title: "Safety Incidents", subtitle: "OSHA-style incident reporting and tracking" },
-  equipment: { title: "Equipment Inventory", subtitle: "Machinery, tools, and maintenance schedules" },
+  equipment: { title: "Inventory", subtitle: "Materials, equipment, tools & stock levels" },
   attendance: { title: "Attendance", subtitle: "Check in/out, breaks, leaves & time tracking" },
-  "buildflex-ai": { title: "Buildflex AI", subtitle: "AI assistant for reports & building expertise" },
+  "buildflex-ai": { title: "Buildsasa AI", subtitle: "AI assistant for reports & building expertise" },
   forms: { title: "Digitized Forms", subtitle: "Uploaded forms, daily reports, timesheets, and RFIs" },
 };
 
@@ -109,6 +111,10 @@ export default function App() {
         window.history.replaceState({}, "", window.location.pathname);
         return "dashboard";
       }
+      // Returning from Paystack checkout (?reference=…): land on Billing so the
+      // payment is verified there (Billing reads the query param).
+      const payRef = params.get("reference") || params.get("trxref");
+      if (payRef && localStorage.getItem("constructai-token")) return "billing";
       // Login is required: start on the login screen unless a session token exists.
       return localStorage.getItem("constructai-token") ? "dashboard" : "login";
     } catch { return "login"; }
@@ -150,17 +156,6 @@ export default function App() {
     setAiPanelOpen(false);
     setView("checklists");
   };
-  // Feature tour — shown once after first-run setup; re-launchable from the sidebar.
-  const [tourOpen, setTourOpen] = useState(false);
-  const closeTour = () => {
-    try { localStorage.setItem("constructai-tour-done", "1"); } catch { /* noop */ }
-    setTourOpen(false);
-  };
-  useEffect(() => {
-    const start = () => setTourOpen(true);
-    window.addEventListener("buildflex:start-tour", start);
-    return () => window.removeEventListener("buildflex:start-tour", start);
-  }, []);
   // Profile settings modal (opened from the sidebar profile menu).
   const [settingsOpen, setSettingsOpen] = useState(false);
   useEffect(() => {
@@ -168,19 +163,6 @@ export default function App() {
     window.addEventListener("buildflex:open-settings", open);
     return () => window.removeEventListener("buildflex:open-settings", open);
   }, []);
-  useEffect(() => {
-    // The tour only auto-launches when it was just queued by a signup/sign-in
-    // (see Login). Plain reloads or returning sessions never trigger it.
-    let queued = false;
-    try { queued = localStorage.getItem("constructai-show-tour") === "1"; } catch { /* noop */ }
-    if (!queued) return;
-    // Owners/managers see the setup wizard first; defer until it's done (this
-    // effect re-runs when `onboarded` flips, then the tour opens).
-    const setupWizardUp = !onboarded && (ROLES[role].isWorkspaceOwner || ROLES[role].manageTeam);
-    if (setupWizardUp) return;
-    try { localStorage.removeItem("constructai-show-tour"); } catch { /* noop */ }
-    setTourOpen(true);
-  }, [onboarded, role]);
   const [activeChangeOrderId, setActiveChangeOrderId] = useState("CO-1258");
   const [activeChangeOrderStatus, setActiveChangeOrderStatus] = useState<string | null>(null);
   const [returnView, setReturnView] = useState<View>("dashboard");
@@ -228,6 +210,7 @@ export default function App() {
   // Subscription gate — stays dormant until Paystack is configured, so local
   // testing is never blocked. Once a key is set, non-subscribers see a paywall.
   const [gate, setGate] = useState<{ configured: boolean; active: boolean; overdue: boolean; unpaidDue: string | null }>({ configured: false, active: true, overdue: false, unpaidDue: null });
+  const [gateNonce, setGateNonce] = useState(0);
   useEffect(() => {
     if (view === "login") return;
     let alive = true;
@@ -246,7 +229,15 @@ export default function App() {
       } catch { /* ignore */ }
     })();
     return () => { alive = false; };
-  }, [view]);
+  }, [view, gateNonce]);
+
+  // Re-check the subscription gate when billing changes (e.g. after a successful
+  // Paystack payment) so the paywall lifts immediately, without a manual reload.
+  useEffect(() => {
+    const bump = () => setGateNonce((n) => n + 1);
+    window.addEventListener("buildsasa:billing-updated", bump);
+    return () => window.removeEventListener("buildsasa:billing-updated", bump);
+  }, []);
 
   const openChangeOrder = (id: string, status?: string) => {
     setActiveChangeOrderId(id);
@@ -279,10 +270,22 @@ export default function App() {
     );
   }
 
+  // Public tender bid deep link: /?bid=TOKEN (no auth required)
+  const bidToken = (() => { try { return new URLSearchParams(window.location.search).get("bid"); } catch { return null; } })();
+  if (bidToken) {
+    return (
+      <div className={theme === "light" ? "theme-light" : ""}>
+        <PublicBidSubmit token={bidToken} theme={theme} />
+        <Toaster theme={theme} position="top-right" />
+      </div>
+    );
+  }
+
   if (view === "login") {
     return (
       <div className={`h-screen w-full ${theme === "light" ? "theme-light" : ""}`}>
         <Login onContinue={(user) => { if (user && user.role && ROLES[user.role as Role]) setRole(user.role as Role); setView("dashboard"); }} theme={theme} setTheme={setTheme} />
+        <ShemmySupport />
         <Toaster theme={theme} position="top-right" />
       </div>
     );
@@ -298,8 +301,12 @@ export default function App() {
   // Block (after due date) on an overdue invoice, or when a configured workspace
   // has no active plan. Stays dormant until Paystack is configured so local
   // testing is never blocked. A not-yet-due unpaid invoice shows a soft banner.
-  const paywalled = gate.configured && (gate.overdue || !gate.active);
-  const invoiceBanner = gate.configured && !paywalled && !!gate.unpaidDue;
+  // A workspace needs an active subscription to use the platform. New companies
+  // start without one, so they land on a blurred dashboard behind a payment
+  // prompt; paid companies get full access. (In demo mode without Paystack,
+  // choosing a plan activates instantly so it stays testable.)
+  const paywalled = gate.overdue || !gate.active;
+  const invoiceBanner = !paywalled && !!gate.unpaidDue;
   // The first-run setup wizard only applies to workspace owners/managers.
   const onboardingShowing = !onboarded && (ROLES[role].isWorkspaceOwner || ROLES[role].manageTeam);
 
@@ -315,6 +322,7 @@ export default function App() {
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
           role={role}
+          locked={paywalled}
         />
         <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
           <Topbar
@@ -338,13 +346,16 @@ export default function App() {
           )}
           <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
             {paywalled && effectiveView !== "billing" && (
-              <div className="absolute inset-0 z-50 bg-[#0A0E14]/96 flex items-center justify-center p-6 text-center">
-                <div className="max-w-sm">
-                  <div className="text-[18px] text-white font-display">{gate.overdue ? "Payment required" : "Subscription required"}</div>
-                  <p className="text-[12px] text-[#8A95A5] mt-2">{gate.overdue ? "You have an overdue invoice. Pay it to continue using your workspace." : "Your workspace needs an active plan to continue. Choose a plan to unlock everything."}</p>
-                  <div className="flex gap-2 justify-center mt-4">
-                    <button onClick={() => setView("billing")} className="h-10 px-5 rounded-md bg-[#FF6B1A] text-white text-[12px]">{gate.overdue ? "Pay invoice" : "View plans"}</button>
-                    <button onClick={() => { try { localStorage.removeItem("constructai-token"); localStorage.removeItem("constructai-user"); } catch { /* noop */ } setView("login"); }} className="h-10 px-4 rounded-md border border-[#222A35] text-[#8A95A5] text-[12px]">Sign out</button>
+              <div className="fixed inset-0 z-[70] backdrop-blur-lg bg-[#0A0E14]/70 flex items-center justify-center p-6 text-center">
+                <div className="max-w-sm w-full rounded-2xl border border-[#222A35] bg-[#11161D] shadow-2xl p-7">
+                  <div className="w-12 h-12 rounded-xl bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 flex items-center justify-center mx-auto">
+                    <CreditCard className="w-6 h-6 text-[#FF6B1A]" />
+                  </div>
+                  <div className="text-[18px] text-white font-display mt-4">{gate.overdue ? "Payment required" : "Activate your workspace"}</div>
+                  <p className="text-[12.5px] text-[#8A95A5] mt-2 leading-relaxed">{gate.overdue ? "You have an overdue invoice. Pay it to continue using your workspace." : "Choose a plan to unlock Buildsasa for your company. You can manage or cancel anytime from Billing."}</p>
+                  <div className="flex gap-2 justify-center mt-5">
+                    <button onClick={() => setView("billing")} className="h-10 px-5 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[12.5px]">{gate.overdue ? "Pay invoice" : "Choose a plan"}</button>
+                    <button onClick={() => { try { localStorage.removeItem("constructai-token"); localStorage.removeItem("constructai-user"); } catch { /* noop */ } setView("login"); }} className="h-10 px-4 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white text-[12.5px]">Sign out</button>
                   </div>
                 </div>
               </div>
@@ -405,7 +416,7 @@ export default function App() {
             {effectiveView === "inspections" && <Inspections role={role} />}
             {effectiveView === "checklists" && <Checklists role={role} aiDraft={aiFormDraft} onConsumeAiDraft={() => setAiFormDraft(null)} />}
             {effectiveView === "safety-incidents" && <SafetyIncidents role={role} />}
-            {effectiveView === "equipment" && <Equipment role={role} />}
+            {effectiveView === "equipment" && <Inventory role={role} />}
             {effectiveView === "attendance" && <Attendance role={role} />}
             {effectiveView === "buildflex-ai" && <BuildflexAI role={role} messages={aiMessages} setMessages={setAiMessages} onOpenForm={openAiForm} />}
             {effectiveView === "forms" && <DigitizedForms role={role} />}
@@ -420,11 +431,9 @@ export default function App() {
             onClose={dismissOnboarding}
           />
         )}
-        {tourOpen && !paywalled && !onboardingShowing && (
-          <FeatureTour onClose={closeTour} onNavigate={(v: View) => setView(v)} role={role} />
-        )}
         {settingsOpen && <ProfileSettings onClose={() => setSettingsOpen(false)} />}
         <AiAssistantPanel open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} onExpand={() => { setAiPanelOpen(false); setView("buildflex-ai"); }} messages={aiMessages} setMessages={setAiMessages} onOpenForm={openAiForm} />
+        <ShemmySupport />
       </div>
     </CurrencyProvider>
   );
