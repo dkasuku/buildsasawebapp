@@ -3564,8 +3564,11 @@ crudRoutes('announcements', 'announcement',
 // ===== BILLING / SUBSCRIPTIONS (Paystack) =====
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || '';
 const USD_TO_KES = Number(process.env.USD_TO_KES || 130);
+// Live pricing. KES amounts are derived from USD via USD_TO_KES so there is a
+// single source of truth; pin the rate with the USD_TO_KES env var.
 const PLANS = [
-  { id: 'weekly', name: 'Buildsasa Pro — Weekly (test)', cycle: 'weekly', usd: 0.1, kes: 10, days: 7, note: 'Test plan — KSh 10 per week' },
+  { id: 'standard-monthly', name: 'Buildsasa Standard — Monthly', cycle: 'monthly', usd: 250, kes: Math.round(250 * USD_TO_KES), days: 30, note: 'Billed every month. Cancel anytime.' },
+  { id: 'standard-yearly', name: 'Buildsasa Standard — Yearly', cycle: 'yearly', usd: 2500, kes: Math.round(2500 * USD_TO_KES), days: 365, note: 'Billed once a year — save $500 (2 months free).' },
 ];
 const planById = (id) => PLANS.find((p) => p.id === id);
 const planDays = (id) => { const p = planById(id); return (p && p.days) || 30; };
@@ -3733,7 +3736,7 @@ app.post('/api/billing/invoices/:id/mark-paid', auth, async (req, res) => {
     const end = new Date(Date.now() + (planDays(inv.plan) * 864e5));
     const sub = await prisma.subscription.findFirst({ where: {}, orderBy: { createdAt: 'desc' } });
     if (sub) await prisma.subscription.update({ where: { id: sub.id }, data: { status: 'active', currentPeriodEnd: end } });
-    else await prisma.subscription.create({ data: { userId: req.user.sub, plan: inv.plan || 'weekly', status: 'active', amountUSD: inv.amountUSD, currency: inv.currency, currentPeriodEnd: end } });
+    else await prisma.subscription.create({ data: { userId: req.user.sub, plan: inv.plan || 'standard-monthly', status: 'active', amountUSD: inv.amountUSD, currency: inv.currency, currentPeriodEnd: end } });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3765,7 +3768,7 @@ app.post('/api/billing/verify', auth, async (req, res) => {
     if (!PAYSTACK_SECRET) return res.status(400).json({ error: 'Paystack not configured' });
     const v = await paystackRequest(`/transaction/verify/${encodeURIComponent(reference)}`, 'GET');
     if (v.status && v.data && v.data.status === 'success') {
-      const planId = v.data.metadata?.planId || 'monthly';
+      const planId = v.data.metadata?.planId || 'standard-monthly';
       const end = new Date(Date.now() + planDays(planId) * 864e5);
       await prisma.subscription.updateMany({ where: { paystackRef: reference }, data: { status: 'active', currentPeriodEnd: end } });
       // Capture which invoices we're about to mark paid so we can email receipts.
