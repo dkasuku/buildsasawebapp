@@ -1,6 +1,6 @@
 // ============================================================================
-// Billing & Subscription — Paystack-ready (add PAYSTACK_SECRET_KEY in backend
-// /.env to go live; until then it runs in demo mode). Monthly + Yearly plans.
+// Billing & Subscription — live via Paystack (M-Pesa, card, bank).
+// Standard plans: Monthly and Yearly.
 // ============================================================================
 
 import { useState, useEffect } from "react";
@@ -23,7 +23,6 @@ const FEATURES = [
 
 export default function Billing({ role }: { role: Role }) {
   const [plans, setPlans] = useState<Plan[]>([]);
-  const [configured, setConfigured] = useState(false);
   const [sub, setSub] = useState<any>(null);
   const [invoices, setInvoices] = useState<BillingInvoiceDto[]>([]);
   const [currency, setCurrency] = useState<"KES" | "USD">("KES");
@@ -46,7 +45,7 @@ export default function Billing({ role }: { role: Role }) {
         api.getBillingInvoices().catch(() => []),
         api.me().catch(() => null),
       ]);
-      setPlans(p.plans); setConfigured(p.configured); setSub(s); setInvoices(Array.isArray(inv) ? inv : []); setProfile(prof);
+      setPlans(p.plans); setSub(s); setInvoices(Array.isArray(inv) ? inv : []); setProfile(prof);
     } catch { /* offline */ }
     setLoading(false);
   };
@@ -64,7 +63,7 @@ export default function Billing({ role }: { role: Role }) {
       const r = await api.payBillingInvoice(id);
       if (r.authorizationUrl) { window.location.href = r.authorizationUrl; return; }
       if (r.alreadyPaid) toast("Invoice already paid");
-      else if (r.demo) toast(r.message || "Demo mode — connect Paystack to charge.", { duration: 6000 });
+      else if (r.demo) toast.error("Payments are temporarily unavailable. Please try again shortly, or contact support.", { duration: 6000 });
       await load();
     } catch (e: any) { toast.error(e.message || "Could not start payment"); }
     setBusy(null);
@@ -196,7 +195,7 @@ export default function Billing({ role }: { role: Role }) {
     try {
       const r = await api.billingCheckout(planId, undefined, currency);
       if (r.authorizationUrl) { window.location.href = r.authorizationUrl; return; }
-      if (r.demo) toast(r.message || "Demo mode — connect Paystack to charge.", { duration: 6000 });
+      if (r.demo) toast.error("Payments are temporarily unavailable. Please try again shortly, or contact support.", { duration: 6000 });
       await load();
     } catch (e: any) { toast.error(e.message || "Checkout failed"); }
     setBusy(null);
@@ -219,19 +218,25 @@ export default function Billing({ role }: { role: Role }) {
 
   return (
     <div className="px-4 sm:px-7 py-6 max-w-4xl">
-      {/* current status */}
-      <div className={`rounded-xl border p-5 mb-5 ${active ? "border-[#22C55E]/40 bg-[#22C55E]/5" : "border-[#222A35] bg-[#11161D]"}`}>
-        <div className="flex items-center gap-2 text-[13px] text-white font-display">
-          <ShieldCheck className={`w-4 h-4 ${active ? "text-[#22C55E]" : "text-[#8A95A5]"}`} />
-          {active ? "Your subscription is active" : "No active subscription"}
+      {/* Current status. Rendered only once the real subscription state is known —
+          otherwise it briefly flashes "No active subscription" at paying customers. */}
+      {loading ? (
+        <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-5 mb-5 flex items-center gap-2 text-[12.5px] text-[#8A95A5]">
+          <Loader2 className="w-4 h-4 animate-spin" /> Checking your subscription…
         </div>
-        <div className="text-[12px] text-[#8A95A5] mt-1">
-          {active
-            ? `${sub.plan === "yearly" ? "Yearly" : "Monthly"} plan · renews ${sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd).toLocaleDateString() : "—"}`
-            : "Choose a plan below to unlock the full workspace."}
+      ) : (
+        <div className={`rounded-xl border p-5 mb-5 ${active ? "border-[#22C55E]/40 bg-[#22C55E]/5" : "border-[#222A35] bg-[#11161D]"}`}>
+          <div className="flex items-center gap-2 text-[13px] text-white font-display">
+            <ShieldCheck className={`w-4 h-4 ${active ? "text-[#22C55E]" : "text-[#8A95A5]"}`} />
+            {active ? "Your subscription is active" : "No active subscription"}
+          </div>
+          <div className="text-[12px] text-[#8A95A5] mt-1">
+            {active
+              ? `${sub.plan === "standard-yearly" || sub.plan === "yearly" ? "Yearly" : "Monthly"} plan · renews ${sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd).toLocaleDateString() : "—"}`
+              : "Choose a plan below to unlock the full workspace."}
+          </div>
         </div>
-        {!configured && <div className="mt-2 text-[11px] text-[#F5A623] flex items-center gap-1.5"><CreditCard className="w-3.5 h-3.5" /> Demo mode — add your Paystack key in <span className="font-mono">backend/.env</span> to take real payments.</div>}
-      </div>
+      )}
 
       {/* currency toggle */}
       <div className="flex items-center justify-between mb-4">
