@@ -25,7 +25,7 @@ export default function Billing({ role }: { role: Role }) {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [sub, setSub] = useState<any>(null);
   const [invoices, setInvoices] = useState<BillingInvoiceDto[]>([]);
-  const [currency, setCurrency] = useState<"KES" | "USD">("KES");
+  const [currency, setCurrency] = useState<"USD" | "KES">("USD");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
@@ -242,7 +242,7 @@ export default function Billing({ role }: { role: Role }) {
       <div className="flex items-center justify-between mb-4">
         <div className="text-[14px] text-white font-display">Choose your plan</div>
         <div className="flex border border-[#222A35] rounded-md overflow-hidden text-[11px]">
-          {(["KES", "USD"] as const).map((c) => (
+          {(["USD", "KES"] as const).map((c) => (
             <button key={c} onClick={() => setCurrency(c)} className={`h-8 px-3 ${currency === c ? "bg-[#FF6B1A] text-white" : "bg-[#11161D] text-[#8A95A5]"}`}>{c}</button>
           ))}
         </div>
