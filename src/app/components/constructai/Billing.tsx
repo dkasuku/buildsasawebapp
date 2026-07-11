@@ -8,7 +8,6 @@ import { toast } from "sonner";
 import { CheckCircle2, Sparkles, ShieldCheck, Loader2, CreditCard, FileText, Download } from "lucide-react";
 import { jsPDF } from "jspdf";
 import type { Role } from "./roles";
-import { ROLES } from "./roles";
 import api, { type BillingInvoiceDto, type UserProfile } from "../../services/api";
 
 type Plan = { id: string; name: string; cycle: string; usd: number; kes: number; note?: string };
@@ -30,8 +29,14 @@ export default function Billing({ role }: { role: Role }) {
   const [currency, setCurrency] = useState<"KES" | "USD">("KES");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const isOwner = !!ROLES[role]?.isWorkspaceOwner;
+  // "Mark paid" is a Buildsasa-staff override for offline payments, NOT a customer
+  // action — being the owner of your own workspace must not unlock free access.
+  // The backend enforces this too (403); this only hides the button.
+  const isPlatformAdmin = (() => {
+    try { return !!JSON.parse(localStorage.getItem("constructai-user") || "{}")?.platformAdmin; } catch { return false; }
+  })();
 
   const load = async () => {
     try {
@@ -165,13 +170,22 @@ export default function Billing({ role }: { role: Role }) {
   };
 
   useEffect(() => {
-    load();
-    // Handle Paystack redirect back (?reference=...)
-    const ref = new URLSearchParams(window.location.search).get("reference") || new URLSearchParams(window.location.search).get("trxref");
-    if (ref) {
-      api.billingVerify(ref).then((r) => { if (r.ok) { toast.success("Subscription activated 🎉"); load(); window.dispatchEvent(new Event("buildsasa:billing-updated")); } else toast.error("Payment not completed"); }).catch(() => {});
-      window.history.replaceState({}, "", window.location.pathname);
-    }
+    // Returning from Paystack (?reference=… / ?trxref=…)? Verify once, THEN load once.
+    // Previously we fired load() on mount *and* again after verify, which meant ~8
+    // backend round-trips on return — that's what made this feel so slow.
+    const q = new URLSearchParams(window.location.search);
+    const ref = q.get("reference") || q.get("trxref");
+    if (!ref) { load(); return; }
+
+    window.history.replaceState({}, "", window.location.pathname); // clean URL immediately
+    setVerifying(true);
+    api.billingVerify(ref)
+      .then((r) => {
+        if (r.ok) { toast.success("Subscription activated 🎉"); window.dispatchEvent(new Event("buildsasa:billing-updated")); }
+        else toast("Payment wasn't completed — you haven't been charged.", { duration: 5000 });
+      })
+      .catch(() => toast.error("We couldn't confirm that payment. If you were charged, contact support."))
+      .finally(() => { setVerifying(false); load(); });
     // eslint-disable-next-line
   }, []);
 
@@ -189,6 +203,19 @@ export default function Billing({ role }: { role: Role }) {
   };
 
   const active = sub && sub.status === "active";
+
+  // Coming back from Paystack: say what's happening instead of a bare spinner.
+  if (verifying) {
+    return (
+      <div className="px-4 sm:px-7 py-20 max-w-4xl flex flex-col items-center text-center">
+        <Loader2 className="w-8 h-8 animate-spin text-[#FF6B1A]" />
+        <div className="text-[15px] text-white font-display mt-4">Confirming your payment…</div>
+        <p className="text-[12.5px] text-[#8A95A5] mt-2 max-w-sm leading-relaxed">
+          We're checking this with Paystack. This takes a few seconds — please don't close or refresh the page.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="px-4 sm:px-7 py-6 max-w-4xl">
@@ -239,7 +266,9 @@ export default function Billing({ role }: { role: Role }) {
                   onClick={() => subscribe(p.id)}
                   className={`mt-5 h-10 rounded-md text-[12px] font-medium flex items-center justify-center gap-2 disabled:opacity-60 ${isYearly ? "bg-[#FF6B1A] text-white hover:bg-[#FF7E33]" : "border border-[#222A35] text-white hover:bg-[#161C24]"}`}
                 >
-                  {busy === p.id ? <Loader2 className="w-4 h-4 animate-spin" /> : mine ? <><CheckCircle2 className="w-4 h-4" /> Current plan</> : <><CreditCard className="w-4 h-4" /> Subscribe</>}
+                  {busy === p.id
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Taking you to Paystack…</>
+                    : mine ? <><CheckCircle2 className="w-4 h-4" /> Current plan</> : <><CreditCard className="w-4 h-4" /> Subscribe</>}
                 </button>
               </div>
             );
@@ -265,7 +294,7 @@ export default function Billing({ role }: { role: Role }) {
                     <div className="text-[14px] text-white tabular-nums">{invAmount(i)}</div>
                     <button onClick={() => downloadInvoicePdf(i)} title="Download PDF" className="h-9 px-3 rounded-md border border-[#222A35] bg-[#11161D] text-[11px] text-[#8A95A5] hover:text-white hover:bg-[#161C24] flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> Download</button>
                     {i.status !== "paid" && <button disabled={paying} onClick={() => payInvoice(i.id)} className={`h-9 px-3 rounded-md text-[12px] text-white flex items-center gap-1.5 disabled:opacity-50 ${overdue ? "bg-[#EF4444] hover:bg-[#EF4444]/90" : "bg-[#FF6B1A] hover:bg-[#FF7E33]"}`}>{paying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />} Pay invoice</button>}
-                    {i.status !== "paid" && isOwner && <button disabled={paying} onClick={() => markPaid(i.id)} className="h-9 px-3 rounded-md border border-[#222A35] text-[11px] text-[#8A95A5] hover:text-white disabled:opacity-50">Mark paid</button>}
+                    {i.status !== "paid" && isPlatformAdmin && <button disabled={paying} onClick={() => markPaid(i.id)} className="h-9 px-3 rounded-md border border-[#222A35] text-[11px] text-[#8A95A5] hover:text-white disabled:opacity-50">Mark paid</button>}
                   </div>
                 </div>
               );

@@ -152,7 +152,16 @@ const REFRESH_TTL = process.env.REFRESH_TTL || '30d';
 const issueToken = (u) => jwt.sign({ sub: u.id, role: u.role, name: u.name, email: u.email, ws: u.workspaceId || null }, JWT_SECRET, { expiresIn: ACCESS_TTL });
 const issueRefreshToken = (u) => jwt.sign({ sub: u.id, type: 'refresh' }, JWT_SECRET, { expiresIn: REFRESH_TTL });
 const authTokens = (u) => ({ token: issueToken(u), refreshToken: issueRefreshToken(u) });
-const publicUser = (u) => ({ id: u.id, name: u.name, role: u.role, email: u.email });
+// ===== PLATFORM STAFF (Buildsasa side, not customer workspace roles) =====
+// Only these emails may perform billing overrides such as manually marking a
+// subscription invoice as paid (e.g. for an offline bank transfer). Set via the
+// PLATFORM_ADMIN_EMAILS env var, comma-separated. A customer being the "owner"
+// of their own workspace does NOT make them platform staff.
+const PLATFORM_ADMIN_EMAILS = String(process.env.PLATFORM_ADMIN_EMAILS || '')
+  .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+const isPlatformAdmin = (email) => !!email && PLATFORM_ADMIN_EMAILS.includes(String(email).toLowerCase());
+
+const publicUser = (u) => ({ id: u.id, name: u.name, role: u.role, email: u.email, platformAdmin: isPlatformAdmin(u.email) });
 
 // ===== GOOGLE OAUTH (Sign in with Google) =====
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
@@ -3721,8 +3730,14 @@ app.post('/api/billing/invoices/:id/pay', auth, async (req, res) => {
 });
 
 // Manual fallback: mark an invoice paid (owner), which (re)activates the subscription.
+// Manual override for offline payments (bank transfer, cash). BUILDSASA STAFF ONLY.
+// Never open this to customers: a workspace owner marking their own invoice paid
+// would activate their subscription without paying.
 app.post('/api/billing/invoices/:id/mark-paid', auth, async (req, res) => {
   try {
+    if (!isPlatformAdmin(req.user.email)) {
+      return res.status(403).json({ error: 'Not allowed. Pay the invoice to activate your workspace.' });
+    }
     const inv = await prisma.billingInvoice.findUnique({ where: { id: req.params.id } });
     if (!inv || inv.userId !== req.user.sub) return res.status(404).json({ error: 'Invoice not found' });
     const paidInv = await prisma.billingInvoice.update({ where: { id: inv.id }, data: { status: 'paid', paidAt: new Date() } });
@@ -3799,7 +3814,7 @@ app.post('/api/billing/webhook', async (req, res) => {
     }
     const evt = req.body;
     if (evt.event === 'charge.success' && evt.data && evt.data.reference) {
-      const planId = (evt.data.metadata && evt.data.metadata.planId) || 'monthly';
+      const planId = (evt.data.metadata && evt.data.metadata.planId) || 'standard-monthly';
       const end = new Date(Date.now() + planDays(planId) * 864e5);
       await prisma.subscription.updateMany({ where: { paystackRef: evt.data.reference }, data: { status: 'active', currentPeriodEnd: end } });
       // Capture invoices being paid so we can email receipts (no auth context here).
