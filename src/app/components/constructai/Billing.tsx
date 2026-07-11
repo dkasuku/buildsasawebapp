@@ -188,6 +188,21 @@ export default function Billing({ role }: { role: Role }) {
     // eslint-disable-next-line
   }, []);
 
+  // Cancelling on Paystack sends the user *back* to this page, which the browser
+  // may restore from its back/forward cache — React never remounts, so `busy` is
+  // still set and the Subscribe button spins forever (and disables the others).
+  // Clear it whenever this page is shown again.
+  useEffect(() => {
+    const onPageShow = (e: PageTransitionEvent) => { if (e.persisted) { setBusy(null); setVerifying(false); } };
+    const onVisible = () => { if (document.visibilityState === "visible") setBusy(null); };
+    window.addEventListener("pageshow", onPageShow);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("pageshow", onPageShow);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+
   const fmt = (p: Plan) => currency === "USD" ? `$${p.usd}` : `KES ${p.kes.toLocaleString()}`;
 
   const subscribe = async (planId: string) => {
