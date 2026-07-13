@@ -91,7 +91,22 @@ const s3 = process.env.S3_BUCKET
     })
   : null;
 
-app.use(cors());
+// CORS — comma-separated ALLOWED_ORIGINS env var restricts browser access to
+// the listed frontends. When unset, all origins are allowed (dev fallback).
+const ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGINS || '')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+if (ALLOWED_ORIGINS.length) {
+  app.use(cors({
+    origin: (origin, cb) => {
+      // No Origin header = non-browser client (curl, server-to-server) — allow.
+      if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+      return cb(null, false);
+    },
+  }));
+} else {
+  console.warn('[cors] ALLOWED_ORIGINS not set — allowing all origins (fine for dev, set it in production)');
+  app.use(cors());
+}
 app.use(express.json());
 // Serve locally-uploaded files (used when S3/R2 is not configured).
 app.use('/uploads', express.static('uploads'));
@@ -159,7 +174,31 @@ const authTokens = (u) => ({ token: issueToken(u), refreshToken: issueRefreshTok
 // of their own workspace does NOT make them platform staff.
 const PLATFORM_ADMIN_EMAILS = String(process.env.PLATFORM_ADMIN_EMAILS || '')
   .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-const isPlatformAdmin = (email) => !!email && PLATFORM_ADMIN_EMAILS.includes(String(email).toLowerCase());
+
+// DB-managed admins (added from the panel) are cached in memory so
+// isPlatformAdmin can stay synchronous — it runs on every login and admin
+// request. Loaded at startup, refreshed whenever an admin is added/removed, and
+// re-synced on a timer so a change on one instance reaches the others.
+const dbAdminEmails = new Set();
+async function refreshDbAdmins() {
+  try {
+    const rows = await prismaBase.platformAdmin.findMany({ select: { email: true } });
+    dbAdminEmails.clear();
+    for (const r of rows) dbAdminEmails.add(String(r.email).toLowerCase());
+  } catch (e) {
+    console.error('[ADMIN] refresh DB admins failed:', e && e.message);
+  }
+}
+refreshDbAdmins();
+setInterval(refreshDbAdmins, 60 * 1000).unref();
+
+// Env-var admins are the immutable "root" set — they cannot be removed from the
+// panel, which guarantees there is always a way back in.
+const isRootAdmin = (email) => !!email && PLATFORM_ADMIN_EMAILS.includes(String(email).toLowerCase());
+const isPlatformAdmin = (email) => {
+  const e = String(email || '').toLowerCase();
+  return !!e && (PLATFORM_ADMIN_EMAILS.includes(e) || dbAdminEmails.has(e));
+};
 
 const publicUser = (u) => ({ id: u.id, name: u.name, role: u.role, email: u.email, platformAdmin: isPlatformAdmin(u.email) });
 
@@ -257,6 +296,12 @@ function emailShell(title, bodyHtml) {
 function button(href, label) {
   return `<a href="${href}" style="display:inline-block;background:#FF6B1A;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-size:14px;margin:12px 0">${label}</a>`;
 }
+
+// Platform admin panel + public marketing-site endpoints. Mounted here (rather
+// than defined inline) to keep this file from growing further. It is handed
+// prismaBase deliberately: admins work across every workspace, so they must not
+// go through the tenant-scoping extension. See src/admin-routes.js.
+require('./admin-routes')(app, { prismaBase, auth, isPlatformAdmin, isRootAdmin, refreshDbAdmins, platformAdminEnv: PLATFORM_ADMIN_EMAILS, bcrypt, sendEmail, emailShell });
 
 // Email each assignee that work was assigned to them. Fire-and-forget so it
 // never blocks the request; uses real user emails (assignment now uses real
@@ -366,6 +411,11 @@ app.post('/api/login', async (req, res) => {
     const user = await prisma.user.findUnique({ where: { email: em } });
     if (!user || !user.passwordHash || !bcrypt.compareSync(password || '', user.passwordHash)) {
       return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    // Suspended by a platform admin. Checked here (and not only in the panel) so
+    // that suspension actually locks the account out of the product.
+    if (user.status === 'suspended') {
+      return res.status(403).json({ error: 'This account has been suspended. Please contact support.' });
     }
     recordAccess(req, user); res.json({ ...authTokens(user), user: publicUser(user) });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -3575,12 +3625,38 @@ const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || '';
 const USD_TO_KES = Number(process.env.USD_TO_KES || 130);
 // Live pricing. KES amounts are derived from USD via USD_TO_KES so there is a
 // single source of truth; pin the rate with the USD_TO_KES env var.
-const PLANS = [
+// Fallback catalogue — used only when the SubscriptionPackage table is empty or
+// unreachable, so billing keeps working through a bad deploy or an empty
+// catalogue. The live catalogue is admin-editable and lives in the DB.
+const PLANS_FALLBACK = [
   { id: 'standard-monthly', name: 'Buildsasa Standard — Monthly', cycle: 'monthly', usd: 250, kes: Math.round(250 * USD_TO_KES), days: 30, note: 'Billed every month. Cancel anytime.' },
   { id: 'standard-yearly', name: 'Buildsasa Standard — Yearly', cycle: 'yearly', usd: 2500, kes: Math.round(2500 * USD_TO_KES), days: 365, note: 'Billed once a year — save $500 (2 months free).' },
 ];
-const planById = (id) => PLANS.find((p) => p.id === id);
-const planDays = (id) => { const p = planById(id); return (p && p.days) || 30; };
+
+// Map a SubscriptionPackage row to the plan shape the SaaS pricing screen and
+// checkout expect. `kes` is derived here so it always tracks the current rate.
+function planShape(row) {
+  let features;
+  if (row.features) { try { features = JSON.parse(row.features); } catch { /* ignore bad JSON */ } }
+  return { id: row.id, name: row.name, cycle: row.cycle, usd: row.usd, kes: Math.round((row.usd || 0) * USD_TO_KES), days: row.days, note: row.note || undefined, features };
+}
+
+// Load the plan catalogue from the DB (admin-managed), newest-ordered. Falls
+// back to the hardcoded list on empty/error so billing never breaks.
+async function loadPlans({ includeInactive = false } = {}) {
+  try {
+    const rows = await prisma.subscriptionPackage.findMany({
+      where: includeInactive ? {} : { active: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+    if (rows.length) return rows.map(planShape);
+  } catch (e) {
+    console.error('[PLANS] DB load failed, using fallback:', e && e.message);
+  }
+  return PLANS_FALLBACK;
+}
+async function planById(id) { const plans = await loadPlans({ includeInactive: true }); return plans.find((p) => p.id === id); }
+async function planDays(id) { const p = await planById(id); return (p && p.days) || 30; }
 
 function paystackRequest(path, method, body) {
   return new Promise((resolve, reject) => {
@@ -3592,7 +3668,12 @@ function paystackRequest(path, method, body) {
   });
 }
 
-app.get('/api/billing/plans', (_req, res) => res.json({ plans: PLANS, usdToKes: USD_TO_KES, configured: !!PAYSTACK_SECRET }));
+app.get('/api/billing/plans', async (_req, res) => {
+  try {
+    const plans = await loadPlans();
+    res.json({ plans, usdToKes: USD_TO_KES, configured: !!PAYSTACK_SECRET });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 app.get('/api/billing/subscription', auth, async (req, res) => {
   try {
@@ -3604,7 +3685,7 @@ app.get('/api/billing/subscription', auth, async (req, res) => {
 // ---- Service invoices (auto-issued from the plan; paid via Paystack or marked manually) ----
 function nextInvoiceNumber() { return 'INV-' + Date.now().toString(36).toUpperCase() + Math.floor(Math.random() * 900 + 100); }
 async function issueInvoice(userId, planId, ref, opts = {}) {
-  const p = PLANS.find((x) => x.id === planId) || PLANS[0] || { id: planId, usd: 0, kes: 0, name: 'Subscription' };
+  const p = (await planById(planId)) || (await loadPlans())[0] || { id: planId, usd: 0, kes: 0, name: 'Subscription' };
   const dueDays = opts.dueDays == null ? 7 : opts.dueDays;
   return prisma.billingInvoice.create({ data: {
     userId,
@@ -3748,7 +3829,7 @@ app.post('/api/billing/invoices/:id/mark-paid', auth, async (req, res) => {
       receiptEmail = owner && owner.email;
     }
     if (receiptEmail) await emailInvoiceReceipt(paidInv, receiptEmail);
-    const end = new Date(Date.now() + (planDays(inv.plan) * 864e5));
+    const end = new Date(Date.now() + ((await planDays(inv.plan)) * 864e5));
     const sub = await prisma.subscription.findFirst({ where: {}, orderBy: { createdAt: 'desc' } });
     if (sub) await prisma.subscription.update({ where: { id: sub.id }, data: { status: 'active', currentPeriodEnd: end } });
     else await prisma.subscription.create({ data: { userId: req.user.sub, plan: inv.plan || 'standard-monthly', status: 'active', amountUSD: inv.amountUSD, currency: inv.currency, currentPeriodEnd: end } });
@@ -3761,7 +3842,7 @@ app.post('/api/billing/checkout', auth, async (req, res) => {
   try {
     const userId = req.user.sub;
     const { planId, email, currency } = req.body;
-    const plan = planById(planId);
+    const plan = await planById(planId);
     if (!plan) return res.status(400).json({ error: 'Unknown plan' });
     const cur = currency === 'USD' ? 'USD' : 'KES';
     if (!PAYSTACK_SECRET) {
@@ -3784,7 +3865,7 @@ app.post('/api/billing/verify', auth, async (req, res) => {
     const v = await paystackRequest(`/transaction/verify/${encodeURIComponent(reference)}`, 'GET');
     if (v.status && v.data && v.data.status === 'success') {
       const planId = v.data.metadata?.planId || 'standard-monthly';
-      const end = new Date(Date.now() + planDays(planId) * 864e5);
+      const end = new Date(Date.now() + (await planDays(planId)) * 864e5);
       await prisma.subscription.updateMany({ where: { paystackRef: reference }, data: { status: 'active', currentPeriodEnd: end } });
       // Capture which invoices we're about to mark paid so we can email receipts.
       const toPay = await prisma.billingInvoice.findMany({ where: { paystackRef: reference, status: 'unpaid' } });
@@ -3815,7 +3896,7 @@ app.post('/api/billing/webhook', async (req, res) => {
     const evt = req.body;
     if (evt.event === 'charge.success' && evt.data && evt.data.reference) {
       const planId = (evt.data.metadata && evt.data.metadata.planId) || 'standard-monthly';
-      const end = new Date(Date.now() + planDays(planId) * 864e5);
+      const end = new Date(Date.now() + (await planDays(planId)) * 864e5);
       await prisma.subscription.updateMany({ where: { paystackRef: evt.data.reference }, data: { status: 'active', currentPeriodEnd: end } });
       // Capture invoices being paid so we can email receipts (no auth context here).
       const toPay = await prisma.billingInvoice.findMany({ where: { paystackRef: evt.data.reference, status: 'unpaid' } });

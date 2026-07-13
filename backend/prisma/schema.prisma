@@ -12,6 +12,7 @@ model User {
   email     String   @unique
   name      String
   role      String
+  status    String   @default("active") // active | suspended — set by platform admins
   passwordHash String?
   emailVerified Boolean @default(false)
   phone     String?
@@ -992,4 +993,125 @@ model Announcement {
   totalRecipients Int      @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+// ===========================================================================
+// PLATFORM MODELS (Buildsasa side — NOT tenant-scoped)
+//
+// These belong to the platform itself, not to any customer workspace, so they
+// are deliberately absent from TENANT_MODELS in server.js. They are only ever
+// read/written by the public marketing site or by platform admins through
+// /api/admin/*, which uses the unscoped prismaBase client.
+// ===========================================================================
+
+// A lead captured from the marketing site: either a contact form submission or
+// a demo request. One table with a `kind` discriminator keeps the admin inbox
+// simple; demo-specific columns are nullable and unused for contact leads.
+model Lead {
+  id        String   @id @default(cuid())
+  kind      String   @default("contact") // contact | demo
+
+  name      String
+  email     String
+  phone     String?
+  company   String?
+
+  // Contact-form fields
+  interest  String?
+  message   String?
+
+  // Demo-request fields
+  companySize   String?
+  role          String?
+  preferredDate DateTime?
+  useCase       String?
+
+  // Pipeline
+  status      String    @default("new") // new | contacted | qualified | won | lost
+  assignedTo  String?
+  contactedAt DateTime?
+
+  // Provenance
+  source    String   @default("website") // website | landing_demo | api
+  pageUrl   String?
+  referrer  String?
+  ip        String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  notes     LeadNote[]
+
+  @@index([kind, status])
+  @@index([createdAt])
+}
+
+// An internal note left on a lead by a platform admin. Never visible publicly.
+model LeadNote {
+  id        String   @id @default(cuid())
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId    String
+  author    String   // admin email
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([leadId])
+}
+
+// Editable marketing-site content, addressed by key (e.g. "home.hero").
+// `value` is a JSON blob so the shape can evolve without a migration; the
+// landing page reads it from /api/public/content/:key.
+model SiteContent {
+  key       String   @id
+  value     String   // JSON
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+// Append-only trail of every state-changing action a platform admin takes.
+model AdminAudit {
+  id         String   @id @default(cuid())
+  actorEmail String
+  action     String   // e.g. lead.status, invoice.paid, user.suspend
+  targetType String?
+  targetId   String?
+  meta       String?  // JSON
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorEmail])
+}
+
+// The subscription plan catalogue shown on the SaaS pricing/billing screen and
+// used at checkout. Editable by platform admins so pricing can change without a
+// deploy. `kes` is derived from `usd` at read time (never stored) so it always
+// tracks the current USD→KES rate.
+model SubscriptionPackage {
+  id        String   @id                    // slug, e.g. "standard-monthly"
+  name      String
+  cycle     String   @default("monthly")    // monthly | yearly | weekly
+  usd       Int      @default(0)            // price in whole USD
+  days      Int      @default(30)           // length of one billing period
+  note      String?                         // short line under the price
+  features  String?                         // optional JSON array of feature strings
+  active    Boolean  @default(true)         // hidden from the SaaS when false
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, sortOrder])
+}
+
+// DB-managed platform admins, editable from the admin panel. These are layered
+// ON TOP of the PLATFORM_ADMIN_EMAILS env var: env admins are immutable "root"
+// admins (bootstrap + lockout protection) and are never stored here. Anyone
+// whose email is here (or in the env list) can access /api/admin/* — provided
+// they also have a Buildsasa user account to log in with.
+model PlatformAdmin {
+  email     String   @id                       // always stored lowercase
+  addedBy   String?                             // email of the admin who added them
+  createdAt DateTime @default(now())
 }
