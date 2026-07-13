@@ -152,7 +152,10 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
   const [tab, setTab] = useState("All");
   const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [query, setQuery] = useState("");
-  const [projects, setProjects] = useState<Project[]>(initialProjects);
+  // Start empty and show a loading state until the backend responds, so a fresh
+  // workspace never flashes the seed/demo projects before the empty state. The
+  // seed list is only used as an offline fallback (see the fetch's .catch).
+  const [projects, setProjects] = useState<Project[]>([]);
   const [showNew, setShowNew] = useState(false);
   const [codeTouched, setCodeTouched] = useState(false);
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
@@ -190,7 +193,9 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
         qs: p.assignments?.find((a) => a.role === "QS")?.userId || "None",
       })));
     }).catch(() => {
-      // Keep seed data
+      // Backend unreachable — fall back to the seed demo so the screen isn't blank.
+      setProjects(initialProjects);
+      setApiLoaded(true);
     });
   }, []);
   // Recent change orders for the "Recent Activity" panel (real data; empty for a
@@ -545,7 +550,13 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
         </div>
       </div>
 
-      {projects.length === 0 && apiLoaded ? (
+      {!apiLoaded ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-64 rounded-xl border border-[#222A35] bg-[#11161D] animate-pulse" />
+          ))}
+        </div>
+      ) : projects.length === 0 ? (
         <div className="rounded-xl border border-[#222A35] bg-[#11161D]">
           <EmptyState
             icon={FolderKanban}
