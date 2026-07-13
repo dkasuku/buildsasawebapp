@@ -10,7 +10,7 @@ import { jsPDF } from "jspdf";
 import type { Role } from "./roles";
 import api, { type BillingInvoiceDto, type UserProfile } from "../../services/api";
 
-type Plan = { id: string; name: string; cycle: string; usd: number; kes: number; note?: string };
+type Plan = { id: string; name: string; cycle: string; usd: number; kes: number; note?: string; features?: string[] };
 
 const FEATURES = [
   "Unlimited projects & drawings",
@@ -279,7 +279,9 @@ export default function Billing({ role }: { role: Role }) {
                 <div className="mt-3"><span className="text-[28px] text-white font-display">{fmt(p)}</span><span className="text-[12px] text-[#8A95A5]"> / {p.cycle === "yearly" ? "year" : p.cycle === "weekly" ? "week" : "month"}</span></div>
                 {p.note && <div className="text-[11px] text-[#22C55E] mt-1">{p.note}</div>}
                 <ul className="mt-4 space-y-1.5 flex-1">
-                  {FEATURES.map((f) => <li key={f} className="text-[12px] text-[#C2CAD6] flex items-start gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-[#22C55E] mt-0.5 shrink-0" />{f}</li>)}
+                  {/* Per-plan features come from the admin-managed catalogue; fall
+                      back to the shared list when a plan has none set. */}
+                  {(p.features && p.features.length ? p.features : FEATURES).map((f) => <li key={f} className="text-[12px] text-[#C2CAD6] flex items-start gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-[#22C55E] mt-0.5 shrink-0" />{f}</li>)}
                 </ul>
                 <button
                   disabled={!!busy || mine}
