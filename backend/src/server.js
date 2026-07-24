@@ -175,6 +175,14 @@ const authTokens = (u) => ({ token: issueToken(u), refreshToken: issueRefreshTok
 const PLATFORM_ADMIN_EMAILS = String(process.env.PLATFORM_ADMIN_EMAILS || '')
   .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
 
+// ===== FREE / COMPED ACCESS =====
+// Emails listed here always bypass the subscription paywall — they use the
+// product for free, without ever paying or subscribing. Set via the
+// FREE_ACCESS_EMAILS env var, comma-separated (e.g. "vip@acme.com,dev@x.io").
+const FREE_ACCESS_EMAILS = String(process.env.FREE_ACCESS_EMAILS || '')
+  .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+const hasFreeAccess = (email) => !!email && FREE_ACCESS_EMAILS.includes(String(email).toLowerCase());
+
 // DB-managed admins (added from the panel) are cached in memory so
 // isPlatformAdmin can stay synchronous — it runs on every login and admin
 // request. Loaded at startup, refreshed whenever an admin is added/removed, and
@@ -3677,6 +3685,11 @@ app.get('/api/billing/plans', async (_req, res) => {
 
 app.get('/api/billing/subscription', auth, async (req, res) => {
   try {
+    // Comped accounts (FREE_ACCESS_EMAILS) always report an active subscription
+    // so the paywall never engages — they use the product for free.
+    if (hasFreeAccess(req.user?.email)) {
+      return res.json({ status: 'active', plan: 'comp', comp: true, currentPeriodEnd: new Date(Date.now() + 3650 * 864e5) });
+    }
     const sub = await prisma.subscription.findFirst({ where: {}, orderBy: { createdAt: 'desc' } });
     res.json(sub || { status: 'inactive' });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -3782,6 +3795,9 @@ async function emailInvoiceReceipt(invoice, toEmail) {
 
 app.get('/api/billing/invoices', auth, async (req, res) => {
   try {
+    // Comped accounts never owe anything — report no invoices so the overdue
+    // paywall can never engage for them.
+    if (hasFreeAccess(req.user?.email)) return res.json([]);
     // Lazy renewal: if the active subscription has lapsed and there's no open
     // invoice, auto-issue one due now so the user is prompted to pay & continue.
     const sub = await prisma.subscription.findFirst({ where: {}, orderBy: { createdAt: 'desc' } });
