@@ -172,16 +172,27 @@ const authTokens = (u) => ({ token: issueToken(u), refreshToken: issueRefreshTok
 // subscription invoice as paid (e.g. for an offline bank transfer). Set via the
 // PLATFORM_ADMIN_EMAILS env var, comma-separated. A customer being the "owner"
 // of their own workspace does NOT make them platform staff.
-const PLATFORM_ADMIN_EMAILS = String(process.env.PLATFORM_ADMIN_EMAILS || '')
-  .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+// The founding staff accounts are baked in so a deploy can never lock us out of
+// the admin panel — or start charging us — because an env var was missed on the
+// host. PLATFORM_ADMIN_EMAILS adds to this list, it does not replace it.
+const BUILTIN_PLATFORM_ADMINS = [
+  'samuelnjugunanyagikuyu2021@gmail.com',
+  'denniskasuku@gmail.com',
+  'williamkeisy39@gmail.com',
+];
+const PLATFORM_ADMIN_EMAILS = [...new Set([
+  ...BUILTIN_PLATFORM_ADMINS,
+  ...String(process.env.PLATFORM_ADMIN_EMAILS || '')
+    .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
+])];
 
 // ===== FREE / COMPED ACCESS =====
 // Emails listed here always bypass the subscription paywall — they use the
 // product for free, without ever paying or subscribing. Set via the
 // FREE_ACCESS_EMAILS env var, comma-separated (e.g. "vip@acme.com,dev@x.io").
+// Platform admins are comped automatically; see hasFreeAccess below.
 const FREE_ACCESS_EMAILS = String(process.env.FREE_ACCESS_EMAILS || '')
   .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-const hasFreeAccess = (email) => !!email && FREE_ACCESS_EMAILS.includes(String(email).toLowerCase());
 
 // DB-managed admins (added from the panel) are cached in memory so
 // isPlatformAdmin can stay synchronous — it runs on every login and admin
@@ -200,15 +211,24 @@ async function refreshDbAdmins() {
 refreshDbAdmins();
 setInterval(refreshDbAdmins, 60 * 1000).unref();
 
-// Env-var admins are the immutable "root" set — they cannot be removed from the
-// panel, which guarantees there is always a way back in.
+// Built-in and env-var admins are the immutable "root" set — they cannot be
+// removed from the panel, which guarantees there is always a way back in.
 const isRootAdmin = (email) => !!email && PLATFORM_ADMIN_EMAILS.includes(String(email).toLowerCase());
 const isPlatformAdmin = (email) => {
   const e = String(email || '').toLowerCase();
   return !!e && (PLATFORM_ADMIN_EMAILS.includes(e) || dbAdminEmails.has(e));
 };
 
-const publicUser = (u) => ({ id: u.id, name: u.name, role: u.role, email: u.email, platformAdmin: isPlatformAdmin(u.email) });
+// Platform staff never pay for the product they run: every admin — built-in,
+// env-listed, or added later from the admin panel — is comped, on top of anyone
+// explicitly listed in FREE_ACCESS_EMAILS. Defined after isPlatformAdmin so the
+// dependency reads in order; both are only ever called per-request.
+const hasFreeAccess = (email) => {
+  const e = String(email || '').toLowerCase();
+  return !!e && (FREE_ACCESS_EMAILS.includes(e) || isPlatformAdmin(e));
+};
+
+const publicUser = (u) => ({ id: u.id, name: u.name, role: u.role, email: u.email, platformAdmin: isPlatformAdmin(u.email), freeAccess: hasFreeAccess(u.email) });
 
 // ===== GOOGLE OAUTH (Sign in with Google) =====
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
@@ -3813,6 +3833,11 @@ app.get('/api/billing/invoices', auth, async (req, res) => {
 // Begin paying a specific invoice via Paystack (demo response when not configured).
 app.post('/api/billing/invoices/:id/pay', auth, async (req, res) => {
   try {
+    // Comped accounts owe nothing — never send one to Paystack, even if an old
+    // invoice from before they were comped is still sitting in the table.
+    if (hasFreeAccess(req.user?.email)) {
+      return res.json({ comp: true, message: 'This account has free access — no payment is required.' });
+    }
     const inv = await prisma.billingInvoice.findUnique({ where: { id: req.params.id } });
     if (!inv || inv.userId !== req.user.sub) return res.status(404).json({ error: 'Invoice not found' });
     if (inv.status === 'paid') return res.json({ ok: true, alreadyPaid: true });
@@ -3857,6 +3882,11 @@ app.post('/api/billing/invoices/:id/mark-paid', auth, async (req, res) => {
 app.post('/api/billing/checkout', auth, async (req, res) => {
   try {
     const userId = req.user.sub;
+    // Comped accounts must never be able to start a charge — not even by hitting
+    // this endpoint directly. Report it as already covered instead of erroring.
+    if (hasFreeAccess(req.user?.email)) {
+      return res.json({ comp: true, message: 'This account has free access — no payment is required.' });
+    }
     const { planId, email, currency } = req.body;
     const plan = await planById(planId);
     if (!plan) return res.status(400).json({ error: 'Unknown plan' });

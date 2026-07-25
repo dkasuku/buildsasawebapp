@@ -62,7 +62,8 @@ export default function Billing({ role }: { role: Role }) {
     try {
       const r = await api.payBillingInvoice(id);
       if (r.authorizationUrl) { window.location.href = r.authorizationUrl; return; }
-      if (r.alreadyPaid) toast("Invoice already paid");
+      if (r.comp) toast.success("This account has free access — nothing to pay.");
+      else if (r.alreadyPaid) toast("Invoice already paid");
       else if (r.demo) toast.error("Payments are temporarily unavailable. Please try again shortly, or contact support.", { duration: 6000 });
       await load();
     } catch (e: any) { toast.error(e.message || "Could not start payment"); }
@@ -210,13 +211,18 @@ export default function Billing({ role }: { role: Role }) {
     try {
       const r = await api.billingCheckout(planId, undefined, currency);
       if (r.authorizationUrl) { window.location.href = r.authorizationUrl; return; }
-      if (r.demo) toast.error("Payments are temporarily unavailable. Please try again shortly, or contact support.", { duration: 6000 });
+      if (r.comp) toast.success("This account has free access — nothing to pay.");
+      else if (r.demo) toast.error("Payments are temporarily unavailable. Please try again shortly, or contact support.", { duration: 6000 });
       await load();
     } catch (e: any) { toast.error(e.message || "Checkout failed"); }
     setBusy(null);
   };
 
   const active = sub && sub.status === "active";
+  // Comped account (platform staff / FREE_ACCESS_EMAILS): the backend reports an
+  // always-active "comp" subscription and returns no invoices. Show that plainly
+  // instead of a plan picker they must never be charged through.
+  const comped = !!(sub && sub.comp);
 
   // Coming back from Paystack: say what's happening instead of a bare spinner.
   if (verifying) {
@@ -243,27 +249,31 @@ export default function Billing({ role }: { role: Role }) {
         <div className={`rounded-xl border p-5 mb-5 ${active ? "border-[#22C55E]/40 bg-[#22C55E]/5" : "border-[#222A35] bg-[#11161D]"}`}>
           <div className="flex items-center gap-2 text-[13px] text-white font-display">
             <ShieldCheck className={`w-4 h-4 ${active ? "text-[#22C55E]" : "text-[#8A95A5]"}`} />
-            {active ? "Your subscription is active" : "No active subscription"}
+            {comped ? "Free access — no payment required" : active ? "Your subscription is active" : "No active subscription"}
           </div>
           <div className="text-[12px] text-[#8A95A5] mt-1">
-            {active
-              ? `${sub.plan === "standard-yearly" || sub.plan === "yearly" ? "Yearly" : "Monthly"} plan · renews ${sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd).toLocaleDateString() : "—"}`
-              : "Choose a plan below to unlock the full workspace."}
+            {comped
+              ? "This account is comped: the full workspace is unlocked, you're never billed, and no invoices are issued."
+              : active
+                ? `${sub.plan === "standard-yearly" || sub.plan === "yearly" ? "Yearly" : "Monthly"} plan · renews ${sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd).toLocaleDateString() : "—"}`
+                : "Choose a plan below to unlock the full workspace."}
           </div>
         </div>
       )}
 
-      {/* currency toggle */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="text-[14px] text-white font-display">Choose your plan</div>
-        <div className="flex border border-[#222A35] rounded-md overflow-hidden text-[11px]">
-          {(["USD", "KES"] as const).map((c) => (
-            <button key={c} onClick={() => setCurrency(c)} className={`h-8 px-3 ${currency === c ? "bg-[#FF6B1A] text-white" : "bg-[#11161D] text-[#8A95A5]"}`}>{c}</button>
-          ))}
+      {/* currency toggle — comped accounts have nothing to price, so no picker */}
+      {!comped && (
+        <div className="flex items-center justify-between mb-4">
+          <div className="text-[14px] text-white font-display">Choose your plan</div>
+          <div className="flex border border-[#222A35] rounded-md overflow-hidden text-[11px]">
+            {(["USD", "KES"] as const).map((c) => (
+              <button key={c} onClick={() => setCurrency(c)} className={`h-8 px-3 ${currency === c ? "bg-[#FF6B1A] text-white" : "bg-[#11161D] text-[#8A95A5]"}`}>{c}</button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      {loading ? (
+      {comped ? null : loading ? (
         <div className="text-[13px] text-[#8A95A5] flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading plans…</div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -325,7 +335,7 @@ export default function Billing({ role }: { role: Role }) {
         </div>
       )}
 
-      <div className="text-[11px] text-[#5B6675] mt-5">Secure payments via Paystack · M-Pesa, card & bank · cancel anytime. Prices billed in {currency}.</div>
+      {!comped && <div className="text-[11px] text-[#5B6675] mt-5">Secure payments via Paystack · M-Pesa, card & bank · cancel anytime. Prices billed in {currency}.</div>}
     </div>
   );
 }
