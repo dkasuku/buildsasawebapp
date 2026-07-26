@@ -67,6 +67,7 @@ export function Plans({ role }: { role: Role }) {
   const [uploadProject, setUploadProject] = useState(PROJECT_OPTIONS[0]);
   const [uploadDiscipline, setUploadDiscipline] = useState("Auto-detect");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [dragOver, setDragOver] = useState(false);
 
   // Markups & versions
   const [markups, setMarkups] = useState<{ id: string; drawingId: string; x: number; y: number; w?: number; h?: number; text: string; color: string; type: string }[]>([]);
@@ -615,12 +616,18 @@ export function Plans({ role }: { role: Role }) {
                 </div>
               </div>
 
+              {/* The dashed border reads as a drop target, so it has to behave
+                  like one — dropping files here previously did nothing at all. */}
               <button
                 onClick={() => fileRef.current?.click()}
-                className="w-full rounded-xl border border-dashed border-[#2C3744] bg-[#0A0E14] hover:border-[#FF6B1A]/50 hover:bg-[#FF6B1A]/5 transition p-6 flex flex-col items-center justify-center gap-2 text-center"
+                onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => { e.preventDefault(); setDragOver(false); onPickFiles(e.dataTransfer.files); }}
+                className={`w-full rounded-xl border border-dashed transition p-6 flex flex-col items-center justify-center gap-2 text-center ${dragOver ? "border-[#FF6B1A] bg-[#FF6B1A]/10" : "border-[#2C3744] bg-[#0A0E14] hover:border-[#FF6B1A]/50 hover:bg-[#FF6B1A]/5"}`}
               >
                 <Upload className="w-5 h-5 text-[#FF6B1A]" />
-                <div className="text-[13px] text-white">Click to add files</div>
+                <div className="text-[13px] text-white">{dragOver ? "Drop to add" : "Click to add files, or drag them here"}</div>
                 <div className="text-[11px] text-[#5B6675]">PDF · DWG · DXF · RVT · images — upload as many as you want</div>
               </button>
 
@@ -644,10 +651,12 @@ export function Plans({ role }: { role: Role }) {
             </div>
             <div className="p-5 border-t border-[#222A35] flex gap-2">
               <button onClick={() => setUploadOpen(false)} className="flex-1 h-10 rounded-md border border-[#222A35] text-[12px] text-white hover:bg-[#161C24]">Cancel</button>
+              {/* Deliberately not `disabled`: a dead button explains nothing, and
+                  someone who clicks it reads that as "uploading is broken".
+                  commitUpload already says what is missing. */}
               <button
                 onClick={commitUpload}
-                disabled={!pendingFiles.length}
-                className={`flex-1 h-10 rounded-md text-[12px] flex items-center justify-center gap-2 ${pendingFiles.length ? "bg-[#FF6B1A] text-white shadow-[0_4px_14px_rgba(255,107,26,0.35)] hover:bg-[#FF7E33]" : "bg-[#222A35] text-[#5B6675] cursor-not-allowed"}`}
+                className={`flex-1 h-10 rounded-md text-[12px] flex items-center justify-center gap-2 ${pendingFiles.length ? "bg-[#FF6B1A] text-white shadow-[0_4px_14px_rgba(255,107,26,0.35)] hover:bg-[#FF7E33]" : "bg-[#222A35] text-[#8A95A5] hover:bg-[#2A3441]"}`}
               >
                 <Upload className="w-4 h-4" /> Upload {pendingFiles.length || ""} to {uploadProject.split(" ")[0]}
               </button>
