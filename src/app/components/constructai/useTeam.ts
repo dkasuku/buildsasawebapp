@@ -8,9 +8,8 @@
 
 import { useState, useEffect } from "react";
 import api from "../../services/api";
-import { TEAM_MEMBERS } from "./team-data";
 
-export type TeamMemberLite = { id: string; name: string; role: string; email?: string; initials?: string };
+export type TeamMemberLite = { id: string; name: string; role: string; email?: string; phone?: string; initials?: string };
 
 function initialsOf(name: string) {
   return (name || "")
@@ -37,6 +36,7 @@ async function fetchTeam(force = false): Promise<TeamMemberLite[]> {
         name: u.name,
         role: u.role,
         email: u.email,
+        phone: u.phone || undefined,
         initials: initialsOf(u.name),
       }));
       _cache = list;
@@ -69,13 +69,16 @@ export function useTeam(): TeamMemberLite[] {
 // Force a refresh (e.g. after inviting/removing a teammate).
 export function refreshTeam() { return fetchTeam(true); }
 
-// Resolve an id → display name. Checks real users first, then the static demo
-// roster (for legacy/seed ids), then returns the id as a last resort.
+// Resolve an id → display name from the REAL invited users.
+//
+// This used to fall back to the static demo roster, so a record referencing a
+// seed id like "u-pm" rendered as "Sarah Patel" — confidently naming someone who
+// does not exist in the workspace. An unresolved id is now shown as such, which
+// is less tidy but never misleading.
 export function resolveName(id: string): string {
   if (!id) return "";
-  return (
-    (_cache || []).find((m) => m.id === id)?.name ||
-    TEAM_MEMBERS.find((m) => m.id === id)?.name ||
-    id
-  );
+  const hit = (_cache || []).find((m) => m.id === id);
+  if (hit) return hit.name;
+  // Looks like a real user id we simply have not loaded yet.
+  return _cache === null ? id : `Unknown (${id})`;
 }

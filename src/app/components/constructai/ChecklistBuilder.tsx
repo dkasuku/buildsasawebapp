@@ -3,7 +3,7 @@ import { Plus, Trash2, UploadCloud, FileSpreadsheet, Check, Clock, Users, Chevro
 import { toast } from "sonner";
 import { ROLE_COLORS } from "./roles";
 import type { Role } from "./roles";
-import { TEAM_MEMBERS, getMember, getMemberColor, getMemberInitials } from "./team-data";
+import { getMember, getMemberColor, getMemberInitials } from "./team-data";
 import { useTeam, resolveName } from "./useTeam";
 
 export type ChecklistItemStatus = "open" | "in-progress" | "done" | "blocked";
@@ -46,7 +46,10 @@ const STATUS_STYLES: Record<ChecklistItemStatus, { bg: string; text: string; bor
   blocked: { bg: "bg-[#EF4444]/15", text: "text-[#EF4444]", border: "border-[#EF4444]/30", label: "Blocked" },
 };
 
-function parseCSV(text: string): ChecklistItem[] {
+// `roster` is the workspace's real invited team. CSV assignee names were matched
+// against the static demo roster, so an import could only ever assign work to
+// people who do not exist — and silently assigned nobody otherwise.
+function parseCSV(text: string, roster: { id: string; name: string }[]): ChecklistItem[] {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
   const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
@@ -87,7 +90,7 @@ function parseCSV(text: string): ChecklistItem[] {
     if (assignStr) {
       const names = assignStr.split(/[;|]/).map((n) => n.trim().toLowerCase());
       for (const name of names) {
-        const member = TEAM_MEMBERS.find(
+        const member = roster.find(
           (m) => m.name.toLowerCase().includes(name) || m.id.toLowerCase() === name
         );
         if (member) assignedTo.push(member.id);
@@ -160,7 +163,7 @@ export function ChecklistBuilder({
     if (!file) return;
     try {
       const text = await file.text();
-      const parsed = parseCSV(text);
+      const parsed = parseCSV(text, people);
       if (parsed.length === 0) {
         toast.error("Could not parse checklist from CSV. Expected columns: title, description, assignedTo, interval, dueTime, status, answer");
         return;

@@ -3,7 +3,10 @@ import { Send, Paperclip, Search, Plus, Users, Phone, Hash, X, UserPlus, Check, 
 import { toast } from "sonner";
 import type { Role } from "./roles";
 import { ROLE_COLORS } from "./roles";
-import { TEAM_MEMBERS } from "./team-data";
+// Members come from the real invited team (useTeam). This screen used the static
+// TEAM_MEMBERS demo roster for member lookup, @-mentions, the online count and
+// the add-member picker, so the Inbox showed colleagues who do not exist.
+import { useTeam } from "./useTeam";
 import api from "../../services/api";
 
 type Attachment = {
@@ -58,6 +61,7 @@ function parseMentions(text: string): { parts: { text: string; isMention: boolea
 // used to stand in on failure, which meant an outage displayed a fake inbox.
 
 export function Inbox({ role = "Contractor" }: { role?: Role }) {
+  const team = useTeam();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -352,7 +356,7 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
     }));
   };
 
-  const getMember = (id: string) => TEAM_MEMBERS.find((m) => m.id === id);
+  const getMember = (id: string) => team.find((m) => m.id === id);
   const myId = "u-contractor";
   const getMessage = (id?: string) => selected?.messages.find((m) => m.id === id);
 
@@ -385,7 +389,7 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
   };
 
   const mentionCandidates = selected
-    ? TEAM_MEMBERS.filter((m) => selected.members.includes(m.id) && m.name.toLowerCase().includes(mentionQuery.toLowerCase()))
+    ? team.filter((m) => selected.members.includes(m.id) && m.name.toLowerCase().includes(mentionQuery.toLowerCase()))
     : [];
 
   const blobUrlsRef = useRef<string[]>([]);
@@ -445,7 +449,7 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0 mb-4">
         <div>
           <div className="text-[15px] text-white font-display flex items-center gap-2">Team Inbox <span className={`w-2 h-2 rounded-full ${connected ? "bg-[#22C55E]" : "bg-[#EF4444]"}`} title={connected ? "Connected" : "Disconnected"} /></div>
-          <div className="text-[11px] text-[#8A95A5]">{TEAM_MEMBERS.filter((m) => m.online).length} online · {conversations.length} conversations</div>
+          <div className="text-[11px] text-[#8A95A5]">{team.length} teammate{team.length === 1 ? "" : "s"} · {conversations.length} conversation{conversations.length === 1 ? "" : "s"}</div>
         </div>
         <div className="flex items-center gap-2">
           <div className="relative">
@@ -540,12 +544,11 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
                 return (
                   <div key={memberId} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-[#161C24] transition">
                     <div className="relative">
-                      <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-[10px] font-medium" style={{ background: ROLE_COLORS[m.role] }}>
+                      <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-[10px] font-medium" style={{ background: ROLE_COLORS[m.role as Role] }}>
                         {m.initials}
                       </div>
-                      {m.online && (
-                        <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#22C55E] border-2 border-[#11161D]" />
-                      )}
+                      {/* Presence isn't tracked, so no online dot is shown. It used
+                          to come from a static flag on the demo roster. */}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-[12px] text-white truncate flex items-center gap-1">
@@ -554,7 +557,7 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
                         {isMe && <span className="text-[9px] text-[#5B6675]">You</span>}
                       </div>
                       <div className="text-[10px] text-[#8A95A5] flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: ROLE_COLORS[m.role] }} />
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: ROLE_COLORS[m.role as Role] }} />
                         {m.role}
                       </div>
                     </div>
@@ -587,12 +590,11 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
                   return (
                     <div className="flex items-center gap-3 p-2 rounded-lg">
                       <div className="relative">
-                        <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-[11px] font-medium" style={{ background: ROLE_COLORS[m.role] }}>{m.initials}</div>
-                        {m.online && <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#22C55E] border-2 border-[#11161D]" />}
+                        <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-[11px] font-medium" style={{ background: ROLE_COLORS[m.role as Role] }}>{m.initials}</div>
                       </div>
                       <div>
                         <div className="text-[13px] text-white">{m.name}</div>
-                        <div className="text-[10px] text-[#8A95A5] flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full" style={{ background: ROLE_COLORS[m.role] }} />{m.role}</div>
+                        <div className="text-[10px] text-[#8A95A5] flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full" style={{ background: ROLE_COLORS[m.role as Role] }} />{m.role}</div>
                         {m.phone && <div className="text-[10px] text-[#5B6675] mt-0.5">{m.phone}</div>}
                       </div>
                       {m.phone && (
@@ -637,10 +639,8 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
                   </div>
                   <div className="text-[10px] text-[#8A95A5]">
                     {selected.type === "group"
-                      ? `${selected.members.length} members · ${selected.members.filter((id) => getMember(id)?.online).length} online${selected.admins?.includes(myId) ? " · Admin" : ""}`
-                      : getMember(selected.members.find((id) => id !== myId) || "")?.online
-                        ? "Online"
-                        : `Last seen ${getMember(selected.members.find((id) => id !== myId) || "")?.lastSeen || ""}`}
+                      ? `${selected.members.length} member${selected.members.length === 1 ? "" : "s"}${selected.admins?.includes(myId) ? " · Admin" : ""}`
+                      : getMember(selected.members.find((id) => id !== myId) || "")?.role || ""}
                     {Array.from(typingUsers).filter((id) => id !== myId && selected.members.includes(id)).length > 0 && (
                       <span className="ml-2 text-[#3B82F6]">typing...</span>
                     )}
@@ -672,7 +672,7 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
                 const { parts } = parseMentions(msg.text);
                 return (
                   <div key={msg.id} className={`flex gap-3 ${isMe ? "flex-row-reverse" : ""}`}>
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[9px] font-medium shrink-0" style={{ background: ROLE_COLORS[sender?.role || "Contractor"] }}>{sender?.initials || "?"}</div>
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[9px] font-medium shrink-0" style={{ background: ROLE_COLORS[(sender?.role || "Contractor") as Role] }}>{sender?.initials || "?"}</div>
                     <div className={`max-w-[70%] ${isMe ? "items-end" : "items-start"} flex flex-col`}>
                       <div className={`text-[10px] text-[#5B6675] mb-0.5 ${isMe ? "text-right" : ""}`}>{sender?.name} · {msg.time}</div>
                       {replyTo && (
@@ -766,7 +766,7 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
                     <div className="absolute bottom-full left-0 mb-1 w-56 max-h-48 overflow-y-auto rounded-lg border border-[#222A35] bg-[#11161D] shadow-lg z-20">
                       {mentionCandidates.map((m) => (
                         <button key={m.id} onClick={() => insertMention(m.name)} className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-[#161C24]">
-                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[9px]" style={{ background: ROLE_COLORS[m.role] }}>{m.initials}</div>
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[9px]" style={{ background: ROLE_COLORS[m.role as Role] }}>{m.initials}</div>
                           <div className="text-[12px] text-white">{m.name}</div>
                           <div className="text-[10px] text-[#5B6675] ml-auto">{m.role}</div>
                         </button>
@@ -810,7 +810,8 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
               <div>
                 <label className="text-[11px] text-[#8A95A5] block mb-2">Select Members ({newGroup.memberIds.length} selected)</label>
                 <div className="max-h-[280px] overflow-y-auto space-y-1 rounded-lg border border-[#222A35] bg-[#0A0E14] p-2">
-                  {TEAM_MEMBERS.map((m) => {
+                  {team.length === 0 && <div className="text-[11px] text-[#5B6675] p-2 text-center">No teammates yet — invite people on the Team page.</div>}
+                  {team.map((m) => {
                     const selected = newGroup.memberIds.includes(m.id);
                     return (
                       <button
@@ -818,7 +819,7 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
                         onClick={() => toggleMember(m.id)}
                         className={`w-full flex items-center gap-3 p-2 rounded-md text-left transition ${selected ? "bg-[#FF6B1A]/10 border border-[#FF6B1A]/30" : "hover:bg-[#161C24]"}`}
                       >
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-medium" style={{ background: ROLE_COLORS[m.role] }}>
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-medium" style={{ background: ROLE_COLORS[m.role as Role] }}>
                           {m.initials}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -955,10 +956,10 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
                 {/* Add member list */}
                 {showAddMember && (
                   <div className="mb-3 max-h-[200px] overflow-y-auto rounded-lg border border-[#222A35] bg-[#0A0E14] p-2 space-y-1">
-                    {TEAM_MEMBERS.filter((m) => !selected.members.includes(m.id)).length === 0 && <div className="text-[11px] text-[#5B6675] p-2 text-center">All team members are already in this group.</div>}
-                    {TEAM_MEMBERS.filter((m) => !selected.members.includes(m.id)).map((m) => (
+                    {team.filter((m) => !selected.members.includes(m.id)).length === 0 && <div className="text-[11px] text-[#5B6675] p-2 text-center">{team.length === 0 ? "No teammates yet — invite people on the Team page." : "All team members are already in this group."}</div>}
+                    {team.filter((m) => !selected.members.includes(m.id)).map((m) => (
                       <button key={m.id} onClick={() => addMemberToGroup(m.id)} className="w-full flex items-center gap-3 p-2 rounded-md text-left hover:bg-[#161C24] transition">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-medium" style={{ background: ROLE_COLORS[m.role] }}>{m.initials}</div>
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-medium" style={{ background: ROLE_COLORS[m.role as Role] }}>{m.initials}</div>
                         <div className="flex-1 min-w-0">
                           <div className="text-[12px] text-white">{m.name}</div>
                           <div className="text-[10px] text-[#8A95A5]">{m.role}</div>
@@ -978,7 +979,7 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
                     const isMe = memberId === myId;
                     return (
                       <div key={memberId} className="flex items-center gap-3 p-2 rounded-md bg-[#0A0E14] border border-[#222A35]">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-medium" style={{ background: ROLE_COLORS[m.role] }}>{m.initials}</div>
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-medium" style={{ background: ROLE_COLORS[m.role as Role] }}>{m.initials}</div>
                         <div className="flex-1 min-w-0">
                           <div className="text-[12px] text-white flex items-center gap-1">
                             {m.name}

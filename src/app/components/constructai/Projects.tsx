@@ -68,19 +68,9 @@ const PM_OPTIONS = ["None", "Site Manager (You)", "Project Manager", "Assistant 
 const ARCH_OPTIONS = ["None", "Lead Architect", "Consulting Architect", "Design Coordinator"];
 const QS_OPTIONS = ["None", "Lead QS", "Assistant QS", "Cost Controller"];
 
-const initialProjects: Project[] = [
-  { name: "Harborfront Tower", code: "HFT-21", city: "Seattle, WA", value: "$184M", valueKES: 23_920_000_000, progress: 64, status: "On Track", changeOrders: 42, exposure: "+$2.4M", exposureKES: 312_000_000, img: "https://images.unsplash.com/photo-1486325212027-8081e485255e?w=800&q=80", images: ["https://images.unsplash.com/photo-1486325212027-8081e485255e?w=800&q=80"], pm: "Site Manager (You)", architect: "Lead Architect", qs: "Lead QS", checklist: { items: [
-    { id: "chk-1", title: "Morning safety walk", description: "Inspect PPE, scaffolding tags, and site access gates", assignedTo: ["u-worker-1", "u-worker-2"], interval: "daily", dueTime: "08:00", status: "done", completedBy: "u-worker-1", completedAt: "Jun 2, 2026, 08:15 AM", answer: "All gates secure. 2 harnesses need replacement — flagged to super." },
-    { id: "chk-2", title: "Concrete pour inspection", description: "Check slump test results and rebar placement before pour", assignedTo: ["u-trade-e", "u-super"], interval: "once", dueTime: "10:00", status: "in-progress", answer: "Slump test passed at 120mm. Rebar spacing verified." },
-    { id: "chk-3", title: "Progress photo upload", description: "Upload photos of west wing facade progress", assignedTo: ["u-worker-1"], interval: "daily", dueTime: "16:00", status: "open" },
-    { id: "chk-4", title: "Material delivery sign-off", description: "Verify cement and steel delivery quantities against BOQ", assignedTo: ["u-qs", "u-trade-e"], interval: "weekly", dueTime: "14:00", status: "blocked", answer: "Delivery truck delayed — expected tomorrow 9AM." },
-  ]}},
-  { name: "Midtown Medical Center", code: "MMC-14", city: "Portland, OR", value: "$92M", valueKES: 11_960_000_000, progress: 38, status: "At Risk", changeOrders: 28, exposure: "+$1.1M", exposureKES: 143_000_000, img: "https://images.unsplash.com/photo-1587582423116-ec07293f0395?w=800&q=80", images: ["https://images.unsplash.com/photo-1587582423116-ec07293f0395?w=800&q=80"], pm: "Project Manager", architect: "Consulting Architect", qs: "Cost Controller" },
-  { name: "Riverside Plaza", code: "RSP-08", city: "Sacramento, CA", value: "$56M", valueKES: 7_280_000_000, progress: 82, status: "On Track", changeOrders: 19, exposure: "+$640k", exposureKES: 83_200_000, img: "https://images.unsplash.com/photo-1565008447742-97f6f38c985c?w=800&q=80", images: ["https://images.unsplash.com/photo-1565008447742-97f6f38c985c?w=800&q=80"], pm: "Assistant PM", architect: "Lead Architect", qs: "Assistant QS" },
-  { name: "Cedar Heights Residences", code: "CHR-32", city: "Denver, CO", value: "$74M", valueKES: 9_620_000_000, progress: 22, status: "Planning", changeOrders: 6, exposure: "+$92k", exposureKES: 11_960_000, img: "https://images.unsplash.com/photo-1448630360428-65456885c650?w=800&q=80", images: ["https://images.unsplash.com/photo-1448630360428-65456885c650?w=800&q=80"], pm: "Site Manager (You)", architect: "Design Coordinator", qs: "Lead QS" },
-  { name: "Sunset Logistics Hub", code: "SLH-19", city: "Phoenix, AZ", value: "$118M", valueKES: 15_340_000_000, progress: 51, status: "On Track", changeOrders: 24, exposure: "+$1.8M", exposureKES: 234_000_000, img: "https://images.unsplash.com/photo-1565793298595-6a879b1d9492?w=800&q=80", images: ["https://images.unsplash.com/photo-1565793298595-6a879b1d9492?w=800&q=80"], pm: "Project Manager", architect: "Lead Architect", qs: "Cost Controller" },
-  { name: "Crescent Bay Marina", code: "CBM-04", city: "San Diego, CA", value: "$38M", valueKES: 4_940_000_000, progress: 91, status: "Closing", changeOrders: 11, exposure: "+$320k", exposureKES: 41_600_000, img: "https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=800&q=80", images: ["https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=800&q=80"], pm: "Assistant PM", architect: "Consulting Architect", qs: "Assistant QS" },
-];
+// Projects come from the API only. A six-project demo seed used to stand in when
+// the backend was unreachable, which meant an outage showed a convincing but
+// fictional workspace.
 
 const TABS = ["All", "Active", "At Risk", "Planning", "Closing", "Archived"];
 const STATUS_FILTERS = ["On Track", "At Risk", "Planning", "Closing", "Archived"];
@@ -197,6 +187,8 @@ export function Projects({
   // Tracks whether the backend has responded — lets us tell a genuinely empty
   // workspace (show empty state) apart from "backend offline" (keep seed demo).
   const [apiLoaded, setApiLoaded] = useState(false);
+  // Why the list is empty, when it is empty because the load failed.
+  const [loadError, setLoadError] = useState<string | null>(null);
   // Map a backend row to the card model. `id` is carried through — it was
   // dropped before, which left every loaded project without one, so edit and
   // delete fell back to matching on `code` and any code change silently created
@@ -237,13 +229,18 @@ export function Projects({
       const data = await api.getProjects();
       setProjects((data ?? []).map(fromDto));
       setApiLoaded(true);
+      setLoadError(null);
       // Keep the shared project dropdowns (Daily Log, Action Plans, Crews, …) in
       // step, so a project created here is immediately selectable there.
       refreshProjects();
-    } catch {
-      // Backend unreachable — fall back to the seed demo so the screen isn't blank.
-      setProjects(initialProjects);
+    } catch (e: any) {
+      // Show nothing and say why. This used to substitute six invented demo
+      // projects ("Harborfront Tower", "Midtown Medical", …) whenever the backend
+      // was unreachable, so an outage looked like a populated — but entirely
+      // fictional — workspace, and any edit to those rows went nowhere.
+      setProjects([]);
       setApiLoaded(true);
+      setLoadError(e?.message || "the server is unreachable");
     }
   };
   useEffect(() => { reloadProjects(); }, []);
@@ -627,13 +624,23 @@ export function Projects({
         </div>
       ) : projects.length === 0 ? (
         <div className="rounded-xl border border-[#222A35] bg-[#11161D]">
-          <EmptyState
-            icon={FolderKanban}
-            title="No projects yet"
-            description="A project is a single site or job. Create your first one to start tracking checklists, drawings, and progress."
-            actionLabel="Create your first project"
-            onAction={() => setShowNew(true)}
-          />
+          {loadError ? (
+            <EmptyState
+              icon={SearchX}
+              title="Your projects could not be loaded"
+              description={`${loadError}. Nothing has been lost — reload once the connection is back.`}
+              actionLabel="Try again"
+              onAction={reloadProjects}
+            />
+          ) : (
+            <EmptyState
+              icon={FolderKanban}
+              title="No projects yet"
+              description="A project is a single site or job. Create your first one to start tracking checklists, drawings, and progress."
+              actionLabel="Create your first project"
+              onAction={() => setShowNew(true)}
+            />
+          )}
         </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-xl border border-[#222A35] bg-[#11161D]">

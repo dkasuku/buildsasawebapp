@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Megaphone, Pin, Calendar, Eye, X, Send, Plus, Bell, AlertTriangle, Info, CheckCircle2, Users, Building2, UserCheck, Globe, Search, Paperclip, Download, Trash2, Check, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
-import { TEAM_MEMBERS, getMemberColor } from "./team-data";
+import { getMemberColor } from "./team-data";
 import { ROLES, ROLE_COLORS } from "./roles";
 import type { Role } from "./roles";
 import api from "../../services/api";
