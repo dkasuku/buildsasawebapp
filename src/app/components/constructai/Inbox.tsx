@@ -54,72 +54,8 @@ function parseMentions(text: string): { parts: { text: string; isMention: boolea
   return { parts };
 }
 
-const INITIAL_CONVERSATIONS: Conversation[] = [
-  {
-    id: "c-general",
-    type: "group",
-    name: "General · Harborfront Tower",
-    members: ["u-contractor", "u-pm", "u-architect", "u-qs", "u-super", "u-trade-e", "u-trade-p"],
-    lastActivity: "9:42 AM",
-    pinned: true,
-    creatorId: "u-contractor",
-    admins: ["u-contractor"],
-    messages: [
-      { id: "m1", senderId: "u-super", text: "Concrete pour for Level 3 slab is confirmed for tomorrow 6 AM. Pump truck booked.", time: "9:42 AM", read: false },
-      { id: "m2", senderId: "u-pm", text: "Great. @Amina Osei can you confirm the rebar quantities are within budget before pour?", time: "9:38 AM", read: true },
-      { id: "m3", senderId: "u-qs", text: "Yes, rebar take-off is 4.2T vs budgeted 4.5T. Within 7% variance. Approved for pour.", time: "9:35 AM", read: true },
-      { id: "m4", senderId: "u-trade-e", text: "Electrical conduits on east wing passed inspection. Photos uploaded via mobile.", time: "9:15 AM", read: true },
-    ],
-  },
-  {
-    id: "c-safety",
-    type: "group",
-    name: "Safety & Quality",
-    members: ["u-contractor", "u-super", "u-trade-e", "u-trade-p", "u-worker-1", "u-worker-2"],
-    lastActivity: "Yesterday",
-    pinned: true,
-    creatorId: "u-contractor",
-    admins: ["u-contractor", "u-super"],
-    messages: [
-      { id: "m5", senderId: "u-contractor", text: "Mandatory safety stand-down June 2nd, 7 AM. All crews must attend.", time: "Yesterday", read: true },
-      { id: "m6", senderId: "u-worker-1", text: "Understood. Will bring the new fall protection harnesses.", time: "Yesterday", read: true },
-    ],
-  },
-  {
-    id: "c-direct-pm",
-    type: "direct",
-    name: "Sarah Patel",
-    members: ["u-contractor", "u-pm"],
-    lastActivity: "8:30 AM",
-    messages: [
-      { id: "m7", senderId: "u-pm", text: "Owner approved the CO-1284 budget adjustment. We can proceed with curtain wall reinforcement.", time: "8:30 AM", read: false },
-      { id: "m8", senderId: "u-contractor", text: "Excellent. Please update the schedule and notify the glazing sub.", time: "8:15 AM", read: true },
-    ],
-  },
-  {
-    id: "c-direct-arch",
-    type: "direct",
-    name: "James Chen",
-    members: ["u-contractor", "u-architect"],
-    lastActivity: "Yesterday",
-    messages: [
-      { id: "m9", senderId: "u-architect", text: "M-401 Rev 4 is published. Please distribute to all trades.", time: "Yesterday", read: true, attachments: [{ id: "a1", name: "M-401_Rev4.pdf", size: "4.2 MB", type: "doc" }] },
-    ],
-  },
-  {
-    id: "c-mobile",
-    type: "group",
-    name: "Field Uploads · Mobile",
-    members: ["u-contractor", "u-super", "u-trade-e", "u-trade-p", "u-worker-1", "u-worker-2"],
-    lastActivity: "8:15 AM",
-    creatorId: "u-contractor",
-    admins: ["u-contractor"],
-    messages: [
-      { id: "m10", senderId: "u-trade-e", text: "Daily log submitted — Riverside Plaza. 24 workers, weather clear.", time: "8:15 AM", read: false },
-      { id: "m11", senderId: "u-worker-2", text: "Uploaded progress photos for Level 2 drywall. 12 images attached.", time: "Yesterday", read: true, attachments: [{ id: "a2", name: "drywall-l2.zip", size: "18.4 MB", type: "file" }] },
-    ],
-  },
-];
+// Conversations come from the API only. A hardcoded INITIAL_CONVERSATIONS seed
+// used to stand in on failure, which meant an outage displayed a fake inbox.
 
 export function Inbox({ role = "Contractor" }: { role?: Role }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -187,10 +123,12 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
       }));
       setConversations(mapped);
       if (mapped.length > 0 && !selectedId) setSelectedId(mapped[0].id);
-    }).catch(() => {
-      // fallback to seed data if API fails
-      setConversations(INITIAL_CONVERSATIONS);
-      if (!selectedId) setSelectedId(INITIAL_CONVERSATIONS[0]?.id || null);
+    }).catch((e) => {
+      // Show nothing and say why. This used to fall back to a seeded demo
+      // conversation full of invented people and messages, so a backend outage
+      // looked like a real (but wrong) inbox.
+      setConversations([]);
+      toast.error(`Could not load your conversations — ${e?.message || "the server is unreachable"}`, { duration: 8000 });
     });
   }, []);
 
@@ -631,10 +569,11 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
                           </button>
                         </>
                       )}
+                      {/* Real tel: links below — these were "Calling …" toasts that placed no call. */}
                       {(!amAdmin || isMe) && m.phone && (
-                        <button onClick={() => toast(`Calling ${m.phone}`)} className="w-7 h-7 rounded-md text-[#5B6675] hover:text-[#22C55E] hover:bg-[#161C24] flex items-center justify-center">
+                        <a href={`tel:${m.phone}`} title={`Call ${m.phone}`} className="w-7 h-7 rounded-md text-[#5B6675] hover:text-[#22C55E] hover:bg-[#161C24] flex items-center justify-center">
                           <Phone className="w-3.5 h-3.5" />
-                        </button>
+                        </a>
                       )}
                     </div>
                   </div>
@@ -657,9 +596,9 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
                         {m.phone && <div className="text-[10px] text-[#5B6675] mt-0.5">{m.phone}</div>}
                       </div>
                       {m.phone && (
-                        <button onClick={() => toast(`Calling ${m.phone}`)} className="ml-auto w-8 h-8 rounded-md bg-[#22C55E]/10 text-[#22C55E] hover:bg-[#22C55E]/20 flex items-center justify-center">
+                        <a href={`tel:${m.phone}`} title={`Call ${m.phone}`} className="ml-auto w-8 h-8 rounded-md bg-[#22C55E]/10 text-[#22C55E] hover:bg-[#22C55E]/20 flex items-center justify-center">
                           <Phone className="w-4 h-4" />
-                        </button>
+                        </a>
                       )}
                     </div>
                   );
@@ -746,9 +685,9 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
                         {parts.map((p, i) => p.isMention ? <span key={i} className="text-[#FF6B1A] font-medium bg-[#FF6B1A]/10 px-1 rounded">{p.text}</span> : <span key={i}>{p.text}</span>)}
                       </div>
                       {msg.taskId && msg.taskTitle && (
-                        <button onClick={() => toast(`Opening task: ${msg.taskTitle}`)} className="mt-1.5 flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-md bg-[#3B82F6]/10 text-[#3B82F6] border border-[#3B82F6]/30 self-start hover:bg-[#3B82F6]/20">
+                        <span  className="mt-1.5 flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-md bg-[#3B82F6]/10 text-[#3B82F6] border border-[#3B82F6]/30 self-start ">
                           <ListChecks className="w-3 h-3" /> Linked: {msg.taskTitle}
-                        </button>
+                        </span>
                       )}
                       {msg.attachments && (
                         <div className="mt-1.5 space-y-1">

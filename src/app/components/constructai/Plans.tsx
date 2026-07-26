@@ -9,6 +9,8 @@ import { ImageWithFallback } from "../figma/ImageWithFallback";
 import { EmptyState } from "./EmptyState";
 import type { Role } from "./roles";
 import { ROLES } from "./roles";
+import { useTeam } from "./useTeam";
+import { warnSaveFailed } from "./saveFeedback";
 
 type Drawing = {
   /** The sheet NUMBER (e.g. "A-101"). Markups and versions are correlated by
@@ -31,14 +33,12 @@ type Drawing = {
   fileName?: string;
 };
 
-const workers = [
-  { n: "Sarah Patel", r: "Superintendent · General", c: "#F5A623", on: true },
-  { n: "Liam Park", r: "Worker · Painting", c: "#8B5CF6", on: true },
-  { n: "Carlos Mendez", r: "Trade Lead · Plumbing", c: "#3B82F6", on: false },
-  { n: "Jin Kowalski", r: "Trade Lead · Carpentry", c: "#A16207", on: false },
-  { n: "Yuki Tanaka", r: "Trade Lead · HVAC", c: "#06B6D4", on: false },
-  { n: "Adaora Eze", r: "Trade Lead · Electrical", c: "#F5A623", on: false },
-];
+// Recipients come from the real invited team (useTeam below). This was a
+// hardcoded roster of six invented people — Sarah Patel, Carlos Mendez and the
+// rest — so "sharing" a drawing listed colleagues who do not exist and sent it
+// nowhere. A stable colour per person keeps the avatars readable.
+const AVATAR_COLORS = ["#F5A623", "#8B5CF6", "#3B82F6", "#A16207", "#06B6D4", "#22C55E", "#EF4444"];
+const colorFor = (key: string) => AVATAR_COLORS[Array.from(key).reduce((a, c) => a + c.charCodeAt(0), 0) % AVATAR_COLORS.length];
 
 const DISCIPLINES = ["All", "Architectural", "Mechanical", "Structural", "Electrical", "Civil"];
 const UPLOAD_DISCIPLINES = ["Auto-detect", "Architectural", "Mechanical", "Structural", "Electrical", "Civil"];
@@ -73,6 +73,8 @@ const inferDiscipline = (name: string): string => {
 };
 
 export function Plans({ role }: { role: Role }) {
+  // The workspace's real invited teammates, for the share dialog.
+  const team = useTeam();
   const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [q, setQ] = useState("");
   const [discipline, setDiscipline] = useState("All");
@@ -178,15 +180,37 @@ export function Plans({ role }: { role: Role }) {
       toast.error(`${role} role can't share drawings — ask a PM or Contractor`);
       return;
     }
-    setSelected(workers.filter((w) => w.on).map((w) => w.n));
+    setSelected([]);
     setNote("");
     setShareOpen(d);
   };
 
-  const submitShare = () => {
+  // Share a sheet by posting it to the project's message thread, with the note
+  // and the recipients named. Previously this only raised a toast claiming the
+  // drawing had been "sent" and a "push notification queued" — nothing was sent,
+  // stored, or queued, so the recipients never heard about it.
+  const [sharing, setSharing] = useState(false);
+  const submitShare = async () => {
+    if (!shareOpen) return;
     if (!selected.length) return toast.error("Pick at least one recipient");
-    toast.success(`${shareOpen!.id} sent to ${selected.length} recipient(s) · push notification queued`);
-    setShareOpen(null);
+    const pid = resolvePid(shareOpen);
+    if (!pid) return toast.error("This drawing isn't linked to a project yet, so it can't be shared.");
+    setSharing(true);
+    try {
+      const who = selected.join(", ");
+      const body = [
+        `📐 ${shareOpen.id} · ${shareOpen.title} (Rev ${shareOpen.rev}) shared with ${who}.`,
+        note.trim(),
+      ].filter(Boolean).join("\n\n");
+      await api.createMessage(pid, body, shareOpen.fileUrl || undefined);
+      toast.success(`${shareOpen.id} posted to ${shareOpen.project} for ${selected.length} recipient${selected.length === 1 ? "" : "s"}`);
+      setShareOpen(null);
+      setNote("");
+    } catch (e: any) {
+      toast.error(`Could not share ${shareOpen.id} — ${e?.message || "unknown error"}`, { duration: 8000 });
+    } finally {
+      setSharing(false);
+    }
   };
 
   const openViewer = async (d: Drawing) => {
@@ -233,7 +257,7 @@ export function Plans({ role }: { role: Role }) {
     if (pid) {
       api.createMarkup(pid, { drawingId: viewing.id, type, x, y, text, color: "#FF6B1A", createdBy: "demo-user" })
         .then((saved: any) => setMarkups((prev) => prev.map((m) => m.id === localId ? { ...m, id: saved.id } : m)))
-        .catch(() => { /* backend offline — keep local markup */ });
+        .catch(warnSaveFailed("markup creation"));
     }
   };
 
@@ -259,7 +283,7 @@ export function Plans({ role }: { role: Role }) {
     const d = dragRef.current; dragRef.current = null;
     if (d && d.moved && viewing) {
       const pid = resolvePid(viewing);
-      if (pid) api.updateMarkup(pid, d.id, { x: d.curX, y: d.curY }).catch(() => {});
+      if (pid) api.updateMarkup(pid, d.id, { x: d.curX, y: d.curY }).catch(warnSaveFailed("markup update"));
     }
   };
 
@@ -269,13 +293,13 @@ export function Plans({ role }: { role: Role }) {
     if (!viewing) return;
     const m = markups.find((x) => x.id === id);
     const pid = resolvePid(viewing);
-    if (pid && m) api.updateMarkup(pid, id, { text: m.text }).catch(() => {});
+    if (pid && m) api.updateMarkup(pid, id, { text: m.text }).catch(warnSaveFailed("markup update"));
   };
   const removeMarkup = (id: string) => {
     setMarkups((prev) => prev.filter((m) => m.id !== id));
     if (!viewing) return;
     const pid = resolvePid(viewing);
-    if (pid) api.deleteMarkup(pid, id).catch(() => {});
+    if (pid) api.deleteMarkup(pid, id).catch(warnSaveFailed("markup deletion"));
   };
 
   const clearMarkups = () => {
@@ -283,7 +307,7 @@ export function Plans({ role }: { role: Role }) {
     const pid = resolvePid(viewing);
     const toRemove = markups.filter((m) => m.drawingId === viewing.id);
     setMarkups((prev) => prev.filter((m) => m.drawingId !== viewing.id));
-    if (pid) toRemove.forEach((m) => { api.deleteMarkup(pid, m.id).catch(() => {}); });
+    if (pid) toRemove.forEach((m) => { api.deleteMarkup(pid, m.id).catch(warnSaveFailed("markup deletion")); });
   };
 
   const downloadDrawing = (d: Drawing) => {
@@ -686,20 +710,25 @@ export function Plans({ role }: { role: Role }) {
               <button onClick={() => setShareOpen(null)} className="text-[#8A95A5] hover:text-white shrink-0"><X className="w-4 h-4" /></button>
             </div>
             <div className="p-5 overflow-y-auto flex-1">
-              <div className="text-[10px] text-[#5B6675] uppercase tracking-wider mb-2">Recipients · field workers &amp; subs</div>
+              <div className="text-[10px] text-[#5B6675] uppercase tracking-wider mb-2">Recipients · your team</div>
+              {team.length === 0 && (
+                <div className="text-[11.5px] text-[#5B6675] rounded-md border border-[#222A35] bg-[#0A0E14] p-3">
+                  No teammates yet — invite people on the Team page and they will appear here.
+                </div>
+              )}
               <div className="space-y-1.5">
-                {workers.map((w) => {
-                  const on = selected.includes(w.n);
+                {team.map((w) => {
+                  const on = selected.includes(w.name);
                   return (
                     <button
-                      key={w.n}
-                      onClick={() => setSelected(on ? selected.filter((n) => n !== w.n) : [...selected, w.n])}
+                      key={w.id}
+                      onClick={() => setSelected(on ? selected.filter((n) => n !== w.name) : [...selected, w.name])}
                       className={`w-full flex items-center gap-3 p-2.5 rounded-md border transition ${on ? "bg-[#FF6B1A]/8 border-[#FF6B1A]/40" : "bg-[#0A0E14] border-[#222A35] hover:border-[#2C3744]"}`}
                     >
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[11px]" style={{ background: w.c }}>{w.n.split(" ").map(x => x[0]).join("")}</div>
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[11px]" style={{ background: colorFor(w.id) }}>{w.initials || w.name.split(" ").map((x) => x[0]).join("")}</div>
                       <div className="flex-1 text-left min-w-0">
-                        <div className="text-[12px] text-white truncate">{w.n}</div>
-                        <div className="text-[10px] text-[#5B6675] truncate">{w.r}</div>
+                        <div className="text-[12px] text-white truncate">{w.name}</div>
+                        <div className="text-[10px] text-[#5B6675] truncate">{w.role}</div>
                       </div>
                       <div className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 ${on ? "bg-[#FF6B1A] border-[#FF6B1A]" : "border-[#222A35]"}`}>
                         {on && <Check className="w-3 h-3 text-white" />}
@@ -718,13 +747,13 @@ export function Plans({ role }: { role: Role }) {
                 />
               </div>
               <div className="mt-3 flex items-center gap-2 text-[11px] text-[#8A95A5]">
-                <MessageSquare className="w-3.5 h-3.5" /> Recipients get push + offline-cached PDF in the mobile app
+                <MessageSquare className="w-3.5 h-3.5" /> Posts the sheet to this project's message thread, where the named recipients can open it
               </div>
             </div>
             <div className="p-5 border-t border-[#222A35] flex gap-2">
               <button onClick={() => setShareOpen(null)} className="flex-1 h-10 rounded-md border border-[#222A35] text-[12px] text-white hover:bg-[#161C24]">Cancel</button>
-              <button onClick={submitShare} className="flex-1 h-10 rounded-md bg-[#FF6B1A] text-white text-[12px] flex items-center justify-center gap-2 shadow-[0_4px_14px_rgba(255,107,26,0.35)]">
-                <Share2 className="w-4 h-4" /> Send to {selected.length}
+              <button onClick={submitShare} disabled={sharing} className="flex-1 h-10 rounded-md bg-[#FF6B1A] disabled:opacity-60 text-white text-[12px] flex items-center justify-center gap-2 shadow-[0_4px_14px_rgba(255,107,26,0.35)]">
+                <Share2 className="w-4 h-4" /> {sharing ? "Sharing…" : `Send to ${selected.length}`}
               </button>
             </div>
           </div>

@@ -15,6 +15,7 @@ import { ROLES } from "./roles";
 import type { Checklist } from "./ChecklistBuilder";
 import { useCurrency } from "./CurrencyContext";
 import { formatCompactCurrency, formatCurrency } from "./currency";
+import { warnSaveFailed } from "./saveFeedback";
 
 const $toKES = (dollars: number) => Math.round(dollars * 130);
 
@@ -431,7 +432,7 @@ export function Projects({
     setActionMenu(null);
     const target = projects.find((p) => p.code === code);
     if (target?.id) {
-      api.updateProject(target.id as any, { status }).catch(() => {});
+      api.updateProject(target.id as any, { status }).catch(warnSaveFailed("project update"));
     }
   };
 

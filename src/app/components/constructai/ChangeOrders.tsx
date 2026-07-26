@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import type { Role } from "./roles";
 import { ROLES } from "./roles";
-import { TEAM_MEMBERS } from "./team-data";
 import { useTeam, resolveName } from "./useTeam";
 import api, { type ChangeOrderActivityDto } from "../../services/api";
 
@@ -40,7 +39,7 @@ const fmt = (n?: number) => "$" + Math.round(n || 0).toLocaleString("en-US");
 function MultiAssign({ value, onChange, label = "Assignees" }: { value: string[]; onChange: (v: string[]) => void; label?: string }) {
   const [open, setOpen] = useState(false);
   const team = useTeam();
-  const people = team.length ? team : TEAM_MEMBERS;
+  const people = team;
   const toggle = (id: string) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
   return (
     <div className="relative">

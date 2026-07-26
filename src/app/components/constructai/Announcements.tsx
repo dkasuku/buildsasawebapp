@@ -8,6 +8,19 @@ import api from "../../services/api";
 import { ExpandableText } from "./ExpandableText";
 import { EmptyState } from "./EmptyState";
 import { useProjects } from "./useProjects";
+import { useTeam } from "./useTeam";
+import { warnSaveFailed } from "./saveFeedback";
+
+// The signed-in user, for attributing what they post. Announcements were being
+// stored with a hardcoded author of "Marcus Rivera · Contractor" regardless of
+// who actually published them.
+const currentUser = (): { name: string; role: string } => {
+  try {
+    const u = JSON.parse(localStorage.getItem("constructai-user") || "null");
+    if (u?.name) return { name: u.name, role: u.role || "" };
+  } catch { /* fall through */ }
+  return { name: "You", role: "" };
+};
 
 const parseJSON = (s: any) => { try { return s ? JSON.parse(s) : undefined; } catch { return undefined; } };
 const mapAnn = (r: any): Announcement => ({
@@ -64,6 +77,10 @@ const PRIORITY_COLOR: Record<string, string> = {
 export function Announcements() {
   // The workspace's real projects, for targeting an announcement at one.
   const { projects: projectOptions } = useProjects();
+  // Real invited teammates — recipient counts and the people picker were both
+  // computed from the static demo roster, so a company-wide announcement
+  // reported a headcount unrelated to the actual workspace.
+  const team = useTeam();
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [filter, setFilter] = useState<"all" | "pinned" | "urgent">("all");
   const [search, setSearch] = useState("");
@@ -107,7 +124,7 @@ export function Announcements() {
   const togglePin = (id: string) => {
     const next = !announcements.find((a) => a.id === id)?.pinned;
     setAnnouncements((prev) => prev.map((a) => (a.id === id ? { ...a, pinned: next } : a)));
-    api.updateAnnouncement(id, { pinned: next }).catch(() => { /* offline */ });
+    api.updateAnnouncement(id, { pinned: next }).catch(warnSaveFailed("announcement update"));
   };
 
   const acknowledge = (id: string) => {
@@ -116,13 +133,13 @@ export function Announcements() {
     const nextCount = cur.ackCount + 1;
     setAnnouncements((prev) => prev.map((a) => (a.id === id && !a.acked ? { ...a, acked: true, ackCount: nextCount } : a)));
     toast.success("Acknowledged");
-    api.updateAnnouncement(id, { ackCount: nextCount }).catch(() => { /* offline */ });
+    api.updateAnnouncement(id, { ackCount: nextCount }).catch(warnSaveFailed("announcement update"));
   };
 
   const removeAnnouncement = (id: string) => {
     setAnnouncements((prev) => prev.filter((a) => a.id !== id));
     toast.success("Announcement deleted");
-    api.deleteAnnouncement(id).catch(() => { /* offline */ });
+    api.deleteAnnouncement(id).catch(warnSaveFailed("announcement deletion"));
   };
 
   const addDraftAttachment = (files: FileList | null) => {
@@ -143,10 +160,12 @@ export function Announcements() {
 
   // Estimate how many people will receive the announcement based on targeting
   const estimateRecipients = (d: typeof draft): number => {
-    if (d.audience === "company") return TEAM_MEMBERS.length;
+    if (d.audience === "company") return team.length;
     if (d.audience === "people") return d.recipients.length;
-    if (d.audience === "role") return TEAM_MEMBERS.filter((m) => d.roles.includes(m.role)).length;
-    if (d.audience === "project") return Math.max(1, Math.round(TEAM_MEMBERS.length * 0.4));
+    if (d.audience === "role") return team.filter((m) => d.roles.includes(m.role as Role)).length;
+    // Project-scoped delivery isn't modelled yet, so report the whole team rather
+    // than the invented "40% of the roster" this used to guess at.
+    if (d.audience === "project") return team.length;
     return 0;
   };
 
@@ -162,8 +181,8 @@ export function Announcements() {
       id: `ann-${Date.now()}`,
       title: draft.title.trim(),
       body: draft.body.trim(),
-      author: "Marcus Rivera",
-      authorRole: "Contractor",
+      author: currentUser().name,
+      authorRole: currentUser().role,
       date: new Date().toISOString().split("T")[0],
       pinned: false,
       priority: draft.priority,
@@ -373,7 +392,8 @@ export function Announcements() {
                 <div>
                   <label className="text-[11px] text-[#8A95A5] block mb-1.5">Select people</label>
                   <div className="max-h-[180px] overflow-y-auto rounded-md border border-[#222A35] bg-[#0A0E14] divide-y divide-[#222A35]/60">
-                    {TEAM_MEMBERS.map((m) => {
+                    {team.length === 0 && <div className="text-[11.5px] text-[#5B6675] px-1 py-2">No teammates yet — invite people on the Team page.</div>}
+                    {team.map((m) => {
                       const on = draft.recipients.includes(m.id);
                       return (
                         <button

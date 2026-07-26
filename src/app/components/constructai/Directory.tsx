@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Plus, Search, X, Users, Phone, Mail, Building2, Copy, Trash2 } from "lucide-react";
 import type { Role } from "./roles";
 import api from "../../services/api";
+import { warnSaveFailed } from "./saveFeedback";
 
 type Contact = {
   id: string;
@@ -56,7 +57,7 @@ export default function Directory({ role }: { role: Role }) {
   const remove = (id: string) => {
     setContacts((prev) => prev.filter((c) => c.id !== id));
     toast.success("Contact removed");
-    api.deleteDirectoryContact(id).catch(() => { /* offline */ });
+    api.deleteDirectoryContact(id).catch(warnSaveFailed("directory contact deletion"));
   };
 
   return (

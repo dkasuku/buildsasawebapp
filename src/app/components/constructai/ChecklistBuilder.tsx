@@ -121,7 +121,7 @@ export function ChecklistBuilder({
 }) {
   const [showAssignPicker, setShowAssignPicker] = useState<string | null>(null);
   const team = useTeam();
-  const people = team.length ? team : TEAM_MEMBERS;
+  const people = team;
   const fileRef = useRef<HTMLInputElement>(null);
   const assignRef = useRef<HTMLDivElement>(null);
 

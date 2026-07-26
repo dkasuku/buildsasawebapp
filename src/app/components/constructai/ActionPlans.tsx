@@ -5,6 +5,7 @@ import type { Role } from "./roles";
 import api from "../../services/api";
 import { EmptyState } from "./EmptyState";
 import { ProjectSelect } from "./ProjectSelect";
+import { warnSaveFailed } from "./saveFeedback";
 
 const mapPlan = (r: any): ActionPlan => ({
   id: r.id, title: r.title, source: r.source || "", owner: r.owner || "", due: r.due || "",
@@ -65,13 +66,13 @@ export default function ActionPlans({ role }: { role: Role }) {
       persist = { items, status };
       return { ...p, items, status };
     }));
-    if (persist) api.updateActionPlan(planId, persist).catch(() => { /* offline */ });
+    if (persist) api.updateActionPlan(planId, persist).catch(warnSaveFailed("action plan update"));
   };
 
   const removePlan = (id: string) => {
     setPlans((prev) => prev.filter((p) => p.id !== id));
     toast.success(`Action plan ${id} deleted`);
-    api.deleteActionPlan(id).catch(() => { /* offline */ });
+    api.deleteActionPlan(id).catch(warnSaveFailed("action plan deletion"));
   };
 
   return (

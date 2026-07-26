@@ -5,6 +5,7 @@ import type { Role } from "./roles";
 import api from "../../services/api";
 import { EmptyState } from "./EmptyState";
 import { ProjectSelect } from "./ProjectSelect";
+import { warnSaveFailed } from "./saveFeedback";
 
 const mapCorr = (r: any): Correspondence => ({
   id: r.id, subject: r.subject, type: r.type, direction: r.direction, status: r.status,
@@ -68,14 +69,14 @@ export default function CorrespondenceModule({ role }: { role: Role }) {
     setItems((prev) => prev.map((c) => (c.id === id ? { ...c, status: "responded" } : c)));
     setDetail((d) => (d && d.id === id ? { ...d, status: "responded" } : d));
     toast.success(`${id} marked as responded`);
-    api.updateCorrespondence(id, { status: "responded" }).catch(() => { /* offline */ });
+    api.updateCorrespondence(id, { status: "responded" }).catch(warnSaveFailed("correspondence update"));
   };
 
   const sendDraft = (id: string) => {
     setItems((prev) => prev.map((c) => (c.id === id ? { ...c, status: "sent" } : c)));
     setDetail((d) => (d && d.id === id ? { ...d, status: "sent" } : d));
     toast.success(`${id} sent`);
-    api.updateCorrespondence(id, { status: "sent" }).catch(() => { /* offline */ });
+    api.updateCorrespondence(id, { status: "sent" }).catch(warnSaveFailed("correspondence update"));
   };
 
   return (

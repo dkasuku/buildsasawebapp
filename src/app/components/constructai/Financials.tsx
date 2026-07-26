@@ -19,6 +19,7 @@ import api, {
   type RetentionRecordDto,
   type CostCodeDto,
 } from "../../services/api";
+import { warnSaveFailed } from "./saveFeedback";
 
 type LedgerRow = { date: string; desc: string; type: "in" | "out"; category: string; amountUSD: number };
 type LedgerEntryWithId = LedgerRow & { id?: string };
@@ -558,9 +559,9 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
         <div className="lg:col-span-2 rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden">
           <div className="px-5 py-4 border-b border-[#222A35] flex items-center justify-between">
             <div className="text-[13px] text-white font-display">Ledger</div>
-            <button onClick={() => toast("Sharing ledger to team chat")} className="text-[11px] text-[#FF6B1A] hover:underline flex items-center gap-1">
-              <Share2 className="w-3.5 h-3.5" /> Share
-            </button>
+            {/* A "Share" button used to sit here that only raised
+                "Sharing ledger to team chat" and shared nothing. Removed until
+                ledger sharing actually exists; Export below is real. */}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-[12px]">
@@ -665,7 +666,7 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
                       <input
                         value={e.amountUSD}
                         onChange={(ev) => setExpenseRows((prev) => prev.map((row, i) => i === idx ? { ...row, amountUSD: Number(ev.target.value) || 0 } : row))}
-                        onBlur={() => e.id && projectId && api.updateExpense(projectId, e.id, { actualUSD: e.amountUSD }).catch(() => {})}
+                        onBlur={() => e.id && projectId && api.updateExpense(projectId, e.id, { actualUSD: e.amountUSD }).catch(warnSaveFailed("expense update"))}
                         type="number"
                         className="w-20 bg-transparent border border-[#222A35] rounded px-2 py-1 text-white text-right"
                       />
@@ -673,7 +674,7 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
                       <input
                         value={e.budgetUSD}
                         onChange={(ev) => setExpenseRows((prev) => prev.map((row, i) => i === idx ? { ...row, budgetUSD: Number(ev.target.value) || 0 } : row))}
-                        onBlur={() => e.id && projectId && api.updateExpense(projectId, e.id, { budgetUSD: e.budgetUSD }).catch(() => {})}
+                        onBlur={() => e.id && projectId && api.updateExpense(projectId, e.id, { budgetUSD: e.budgetUSD }).catch(warnSaveFailed("expense update"))}
                         type="number"
                         className="w-20 bg-transparent border border-[#222A35] rounded px-2 py-1 text-white text-right"
                       />
@@ -969,7 +970,7 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
                         <input
                           value={e.amountUSD}
                           onChange={(ev) => setExpenseRows((prev) => prev.map((row, i) => i === idx ? { ...row, amountUSD: Number(ev.target.value) || 0 } : row))}
-                          onBlur={() => e.id && projectId && api.updateExpense(projectId, e.id, { actualUSD: e.amountUSD }).catch(() => {})}
+                          onBlur={() => e.id && projectId && api.updateExpense(projectId, e.id, { actualUSD: e.amountUSD }).catch(warnSaveFailed("expense update"))}
                           type="number"
                           className="w-20 bg-transparent border border-[#222A35] rounded px-2 py-1 text-white text-right"
                         />
@@ -977,7 +978,7 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
                         <input
                           value={e.budgetUSD}
                           onChange={(ev) => setExpenseRows((prev) => prev.map((row, i) => i === idx ? { ...row, budgetUSD: Number(ev.target.value) || 0 } : row))}
-                          onBlur={() => e.id && projectId && api.updateExpense(projectId, e.id, { budgetUSD: e.budgetUSD }).catch(() => {})}
+                          onBlur={() => e.id && projectId && api.updateExpense(projectId, e.id, { budgetUSD: e.budgetUSD }).catch(warnSaveFailed("expense update"))}
                           type="number"
                           className="w-20 bg-transparent border border-[#222A35] rounded px-2 py-1 text-white text-right"
                         />

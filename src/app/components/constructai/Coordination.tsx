@@ -5,6 +5,7 @@ import type { Role } from "./roles";
 import api from "../../services/api";
 import { EmptyState } from "./EmptyState";
 import { ProjectSelect } from "./ProjectSelect";
+import { warnSaveFailed } from "./saveFeedback";
 
 type Comment = { author: string; text: string; date: string };
 type Issue = {
@@ -69,7 +70,7 @@ export default function Coordination({ role }: { role: Role }) {
     setIssues((prev) => prev.map((i) => (i.id === id ? { ...i, status } : i)));
     setDetail((d) => (d && d.id === id ? { ...d, status } : d));
     toast.success(`${id} marked ${STATUS_META[status].label}`);
-    api.updateCoordinationIssue(id, { status }).catch(() => { /* offline */ });
+    api.updateCoordinationIssue(id, { status }).catch(warnSaveFailed("coordination issue update"));
   };
 
   const addComment = (id: string) => {
@@ -81,7 +82,7 @@ export default function Coordination({ role }: { role: Role }) {
     setDetail((d) => (d && d.id === id ? { ...d, comments: nextComments } : d));
     setNewComment("");
     toast.success("Comment added");
-    api.updateCoordinationIssue(id, { comments: nextComments }).catch(() => { /* offline */ });
+    api.updateCoordinationIssue(id, { comments: nextComments }).catch(warnSaveFailed("coordination issue update"));
   };
 
   return (

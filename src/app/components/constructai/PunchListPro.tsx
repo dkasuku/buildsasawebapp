@@ -14,10 +14,10 @@ import {
 } from "lucide-react";
 import type { Role } from "./roles";
 import { ROLES } from "./roles";
-import { TEAM_MEMBERS } from "./team-data";
 import { useTeam, resolveName } from "./useTeam";
 import api from "../../services/api";
 import { ImageLightbox } from "./ImageLightbox";
+import { warnSaveFailed } from "./saveFeedback";
 
 /* ─────────────────────────── Types ─────────────────────────── */
 export type PunchStatus = "open" | "in_progress" | "ready_for_review" | "resolved" | "closed" | "rejected";
@@ -109,7 +109,7 @@ function exportItemPDF(p: PunchItem, comments: any[], activity: any[]) {
 function MultiAssign({ value, onChange, label = "Assignees" }: { value: string[]; onChange: (v: string[]) => void; label?: string }) {
   const [open, setOpen] = useState(false);
   const team = useTeam();
-  const people = team.length ? team : TEAM_MEMBERS;
+  const people = team;
   const toggle = (id: string) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
   return (
     <div className="relative">
@@ -143,7 +143,7 @@ function MultiAssign({ value, onChange, label = "Assignees" }: { value: string[]
 export default function PunchListPro({ role }: { role: Role }) {
   const perms = ROLES[role];
   const team = useTeam();
-  const people = team.length ? team : TEAM_MEMBERS;
+  const people = team;
   const [items, setItems] = useState<PunchItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
@@ -178,11 +178,11 @@ export default function PunchListPro({ role }: { role: Role }) {
   const toggleSel = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const bulkStatus = async (status: PunchStatus) => {
     const pr = punchRoleFor(role);
-    await Promise.all([...selected].map((id) => api.setPunchStatus(id, status, pr).catch(() => {})));
+    await Promise.all([...selected].map((id) => api.setPunchStatus(id, status, pr).catch(warnSaveFailed("punch status change"))));
     toast.success(`Updated ${selected.size} item(s)`); setSelected(new Set()); load();
   };
   const bulkAssign = async (ids: string[]) => {
-    await Promise.all([...selected].map((id) => api.updatePunchItem(id, { assignees: ids }).catch(() => {})));
+    await Promise.all([...selected].map((id) => api.updatePunchItem(id, { assignees: ids }).catch(warnSaveFailed("punch item update"))));
     toast.success(`Reassigned ${selected.size} item(s)`); setSelected(new Set()); load();
   };
 
@@ -304,7 +304,7 @@ export default function PunchListPro({ role }: { role: Role }) {
 function MiniAssignBulk({ onApply }: { onApply: (ids: string[]) => void }) {
   const [ids, setIds] = useState<string[]>([]);
   const team = useTeam();
-  const people = team.length ? team : TEAM_MEMBERS;
+  const people = team;
   return (
     <div className="flex items-center gap-1">
       <select onChange={(e) => { if (e.target.value && !ids.includes(e.target.value)) setIds([...ids, e.target.value]); }} defaultValue="" className="h-8 bg-[#0A0E14] border border-[#222A35] rounded px-2 text-[11px] text-white"><option value="" disabled>Reassign to…</option>{people.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
@@ -327,7 +327,7 @@ export function PunchForm({ role, projects, initial, onClose, onSaved }: { role:
   const set = (k: string, v: any) => setF((p: any) => ({ ...p, [k]: v }));
   const [saving, setSaving] = useState(false);
   const team = useTeam();
-  const people = team.length ? team : TEAM_MEMBERS;
+  const people = team;
 
   const save = async (again: boolean) => {
     if (!f.title.trim()) return toast.error("Title is required");
@@ -449,7 +449,9 @@ export function PunchDetail({ id, role, onClose, onChange }: { id: string; role:
             ))}
           </div>
           <div><div className="text-[10px] uppercase text-[#5B6675] mb-1">Assignees</div><div className="flex flex-wrap gap-1">{asg.length ? asg.map((a) => <span key={a} className="text-[11px] px-1.5 py-0.5 rounded bg-[#FF6B1A]/15 text-[#FF6B1A]">{nameOf(a)}</span>) : <span className="text-[#5B6675] text-[12px]">Unassigned</span>}</div></div>
-          {item.linkedDrawingId && <button onClick={() => toast("Opening drawing at pin…")} className="w-full h-9 rounded-md border border-[#3B82F6]/30 bg-[#3B82F6]/10 text-[#3B82F6] text-[12px] flex items-center justify-center gap-1.5"><MapPin className="w-3.5 h-3.5" /> Open on drawing</button>}
+          {/* States the fact rather than offering an action it cannot perform: this
+              was an "Open on drawing" button whose only effect was a toast. */}
+          {item.linkedDrawingId && <div className="w-full h-9 rounded-md border border-[#3B82F6]/30 bg-[#3B82F6]/10 text-[#3B82F6] text-[12px] flex items-center justify-center gap-1.5"><MapPin className="w-3.5 h-3.5" /> Pinned on a drawing — open it from Plans</div>}
 
           {/* attachments */}
           <div>

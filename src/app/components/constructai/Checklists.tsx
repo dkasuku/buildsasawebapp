@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import type { Role } from "./roles";
 import { ROLES } from "./roles";
-import { TEAM_MEMBERS, getMember } from "./team-data";
+import {getMember } from "./team-data";
 import { useTeam, resolveName } from "./useTeam";
 import { EmptyState } from "./EmptyState";
 import ChecklistFormBuilder from "./ChecklistFormBuilder";
@@ -588,7 +588,7 @@ function NewTemplateModal({ onClose, onCreate }: { onClose: () => void; onCreate
 export function AssignModal({ checklist, onClose, onAssign }: { checklist: ChecklistDto; onClose: () => void; onAssign: (id: string, userIds: string[]) => void }) {
   const [sel, setSel] = useState<string[]>([]);
   const team = useTeam();
-  const people = team.length ? team : TEAM_MEMBERS; // real invited users; demo fallback if none yet
+  const people = team;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"><div className="bg-[#11161D] border border-[#222A35] rounded-xl w-full max-w-md p-5">
       <div className="flex items-center justify-between mb-4"><h3 className="text-[15px] font-semibold text-white flex items-center gap-2"><UserCheck className="w-4 h-4 text-[#FF6B1A]" /> Assign Checklist</h3><button onClick={onClose} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button></div>

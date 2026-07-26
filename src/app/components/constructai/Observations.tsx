@@ -2,17 +2,17 @@ import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import { Plus, Search, X, Eye, MapPin, Camera, AlertTriangle, CheckCircle2, Clock, Trash2, Filter, ChevronDown, CheckSquare, Square } from "lucide-react";
 import type { Role } from "./roles";
-import { TEAM_MEMBERS } from "./team-data";
 import { useTeam } from "./useTeam";
 import api from "../../services/api";
 import { EmptyState } from "./EmptyState";
 import { ProjectSelect } from "./ProjectSelect";
+import { warnSaveFailed } from "./saveFeedback";
 
 // Reusable multi-assignee dropdown (light/dark safe). Stores selected member names.
 function AssigneeSelect({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
   const [open, setOpen] = useState(false);
   const team = useTeam();
-  const members = team.length ? team : TEAM_MEMBERS; // real users, demo fallback if none invited yet
+  const members = team;
   const toggle = (n: string) => onChange(value.includes(n) ? value.filter((x) => x !== n) : [...value, n]);
   return (
     <div className="relative">
@@ -107,14 +107,14 @@ export default function Observations({ role }: { role: Role }) {
     setItems((prev) => prev.map((o) => (o.id === id ? { ...o, status } : o)));
     setDetail((d) => (d && d.id === id ? { ...d, status } : d));
     toast.success(`Observation ${id} marked ${STATUS_META[status].label}`);
-    api.updateObservation(id, { status }).catch(() => { /* offline */ });
+    api.updateObservation(id, { status }).catch(warnSaveFailed("observation update"));
   };
 
   const remove = (id: string) => {
     setItems((prev) => prev.filter((o) => o.id !== id));
     setDetail(null);
     toast.success(`Observation ${id} deleted`);
-    api.deleteObservation(id).catch(() => { /* offline */ });
+    api.deleteObservation(id).catch(warnSaveFailed("observation deletion"));
   };
 
   return (

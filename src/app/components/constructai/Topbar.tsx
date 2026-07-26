@@ -3,6 +3,9 @@ import { Search, Bell, Plus, Menu, ChevronDown, Check, Eye, Sun, Moon, Coins, Sp
 import { toast } from "sonner";
 import type { Role } from "./roles";
 import { ROLES, ROLE_COLORS } from "./roles";
+import { useProjects } from "./useProjects";
+import { useTeam } from "./useTeam";
+import api from "../../services/api";
 
 // Role is normally fixed by how the user logged in. The interactive "View as"
 // switcher is a testing aid only — enable it with localStorage bf-role-testing=1.
@@ -12,22 +15,29 @@ import { formatCurrency } from "./currency";
 
 const $toKES = (dollars: number) => Math.round(dollars * 130);
 
-const SEARCH_INDEX = [
-  { type: "Project", label: "Harborfront Tower", target: "projects" as const },
-  { type: "Project", label: "Midtown Medical Center", target: "projects" as const },
-  { type: "CO", label: "CO-1258 · VAV boxes east wing", target: "change-order" as const, coId: "CO-1258" },
-  { type: "CO", label: "CO-1284 · Curtain wall reinforcement", target: "change-order" as const, coId: "CO-1284" },
-  { type: "People", label: "Sarah Patel · Field Supervisor", target: "team" as const },
-  { type: "People", label: "Jane Cho · Project Executive", target: "team" as const },
-  { type: "Drawing", label: "M-401 Rev 4 — Mechanical", target: "plans" as const },
-  { type: "Report", label: "Approval bottlenecks Q2", target: "reports" as const },
-];
+// Search results and notifications are built from the workspace's real projects,
+// change orders and teammates (see useSearchIndex / useNotifications below).
+// They used to be two hardcoded arrays naming projects, change orders, drawings
+// and people that do not exist — so searching found phantom records and the bell
+// always showed the same three invented events.
+type SearchHit = { type: string; label: string; target: string; coId?: string };
 
-const NOTIFICATIONS = [
-  { t: "Owner approved CO-1252", s: "2m ago", c: "#22C55E", target: "change-order" as const, coId: "CO-1252" },
-  { t: "New comment on CO-1258", s: "18m ago", c: "#3B82F6", target: "change-order" as const, coId: "CO-1258" },
-  { t: "Drawing M-401 Rev 4 published", s: "1h ago", c: "#FF6B1A", target: "plans" as const },
-];
+const relativeTime = (iso?: string) => {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return "";
+  const mins = Math.round((Date.now() - then) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+};
+
+const CO_DOT: Record<string, string> = {
+  approved: "#22C55E", rejected: "#EF4444", owner_approval: "#FF6B1A",
+  pm_review: "#3B82F6", drafted: "#5B6675", void: "#5B6675",
+};
 
 export function Topbar({
   title,
@@ -65,6 +75,9 @@ export function Topbar({
   const currencyRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  // The search field is desktop-only by default; the mobile magnifier reveals it.
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -78,9 +91,44 @@ export function Topbar({
     return () => document.removeEventListener("mousedown", handler);
   }, [showRoles, showCurrency, showNotifs, showResults]);
 
+  // Real, live search index: the workspace's own projects, change orders and
+  // teammates. Change orders are fetched once when the bar is first used, so an
+  // unopened Topbar costs nothing.
+  const { projects } = useProjects();
+  const team = useTeam();
+  const [changeOrders, setChangeOrders] = useState<any[]>([]);
+  const [coLoaded, setCoLoaded] = useState(false);
+  useEffect(() => {
+    if (coLoaded || (!showResults && !showNotifs)) return;
+    setCoLoaded(true);
+    api.listChangeOrders()
+      .then((rows) => setChangeOrders(Array.isArray(rows) ? rows : []))
+      .catch(() => setChangeOrders([]));
+  }, [showResults, showNotifs, coLoaded]);
+
+  const searchIndex: SearchHit[] = [
+    ...projects.map((p) => ({ type: "Project", label: p.code ? `${p.code} · ${p.name}` : p.name, target: "projects" })),
+    ...changeOrders.map((c) => ({ type: "CO", label: `${c.number ?? "CO"} · ${c.title ?? "Untitled"}`, target: "change-order", coId: c.id })),
+    ...team.map((m) => ({ type: "People", label: `${m.name} · ${m.role}`, target: "team" })),
+  ];
+
   const results = q
-    ? SEARCH_INDEX.filter((r) => r.label.toLowerCase().includes(q.toLowerCase()) || r.type.toLowerCase().includes(q.toLowerCase()))
-    : SEARCH_INDEX.slice(0, 4);
+    ? searchIndex.filter((r) => r.label.toLowerCase().includes(q.toLowerCase()) || r.type.toLowerCase().includes(q.toLowerCase())).slice(0, 8)
+    : searchIndex.slice(0, 5);
+
+  // Notifications derived from the most recently updated change orders. There is
+  // no notifications table yet, so rather than invent events this shows real
+  // recent activity — and says plainly when there is none.
+  const notifications = [...changeOrders]
+    .sort((a, b) => +new Date(b.updatedAt ?? b.createdAt ?? 0) - +new Date(a.updatedAt ?? a.createdAt ?? 0))
+    .slice(0, 6)
+    .map((c) => ({
+      t: `${c.number ?? "CO"} · ${c.title ?? "Untitled"}`,
+      s: `${String(c.status ?? "").replace(/_/g, " ") || "updated"} · ${relativeTime(c.updatedAt ?? c.createdAt)}`,
+      c: CO_DOT[c.status] ?? "#5B6675",
+      target: "change-order",
+      coId: c.id as string | undefined,
+    }));
 
   const canCreate = ROLES[role].createCO;
 
@@ -100,22 +148,23 @@ export function Topbar({
 
       <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-2.5 w-full sm:w-auto justify-start sm:justify-end">
         {/* Search */}
-        <div ref={searchRef} className="relative hidden lg:block">
+        <div ref={searchRef} className={`relative ${mobileSearchOpen ? "block w-full order-last mt-2 lg:order-none lg:mt-0 lg:w-auto" : "hidden"} lg:block`}>
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#5B6675]" />
           <input
+            ref={searchInputRef}
             value={q}
             onChange={(e) => { setQ(e.target.value); setShowResults(true); }}
             onFocus={() => setShowResults(true)}
             placeholder="Search projects, orders, people, drawings…"
-            className={`w-[220px] lg:w-[340px] h-9 rounded-md pl-8 pr-3 text-[12px] focus:outline-none focus:border-[#FF6B1A] border ${theme === "light" ? "bg-white border-[#E2E8F0] text-[#1A1D23] placeholder:text-[#94A3B8]" : "bg-[#11161D] border-[#222A35] text-white placeholder:text-[#5B6675]"}`}
+            className={`w-full lg:w-[340px] h-9 rounded-md pl-8 pr-3 text-[12px] focus:outline-none focus:border-[#FF6B1A] border ${theme === "light" ? "bg-white border-[#E2E8F0] text-[#1A1D23] placeholder:text-[#94A3B8]" : "bg-[#11161D] border-[#222A35] text-white placeholder:text-[#5B6675]"}`}
           />
           {showResults && (
             <div className={`absolute top-11 left-0 right-0 rounded-md shadow-2xl z-50 overflow-hidden border ${theme === "light" ? "bg-white border-[#E2E8F0]" : "bg-[#11161D] border-[#222A35]"}`}>
               <div className={`px-3 py-2 text-[10px] uppercase tracking-wider border-b ${theme === "light" ? "text-[#64748B] border-[#E2E8F0]" : "text-[#5B6675] border-[#222A35]"}`}>{results.length} results</div>
               <div className="max-h-[340px] overflow-y-auto">
-                {results.map((r) => (
+                {results.map((r, ri) => (
                   <button
-                    key={r.label}
+                    key={`${r.type}-${r.coId ?? r.label}-${ri}`}
                     onMouseDown={() => {
                       if (r.target === "change-order" && r.coId) {
                         onOpenChangeOrder(r.coId);
@@ -132,13 +181,19 @@ export function Topbar({
                     <span className={`text-[12px] truncate ${theme === "light" ? "text-[#1A1D23]" : "text-white"}`}>{r.label}</span>
                   </button>
                 ))}
-                {results.length === 0 && <div className={`px-3 py-6 text-[12px] text-center ${theme === "light" ? "text-[#64748B]" : "text-[#5B6675]"}`}>No matches</div>}
+                {results.length === 0 && <div className={`px-3 py-6 text-[12px] text-center ${theme === "light" ? "text-[#64748B]" : "text-[#5B6675]"}`}>{searchIndex.length === 0 ? "Nothing to search yet — create a project first" : "No matches"}</div>}
               </div>
             </div>
           )}
         </div>
 
-        <button onClick={() => toast("Open ⌘K command palette")} className={`lg:hidden h-9 w-9 rounded-md border flex items-center justify-center ${theme === "light" ? "bg-white border-[#E2E8F0] text-[#64748B] hover:text-[#1A1D23]" : "bg-[#11161D] border-[#222A35] text-[#8A95A5] hover:text-white"}`}>
+        {/* Reveals and focuses the real search field. It used to raise a toast
+            about a "⌘K command palette" that does not exist. */}
+        <button
+          onClick={() => { setMobileSearchOpen((o) => !o); setShowResults(true); requestAnimationFrame(() => searchInputRef.current?.focus()); }}
+          title="Search"
+          className={`lg:hidden h-9 w-9 rounded-md border flex items-center justify-center ${theme === "light" ? "bg-white border-[#E2E8F0] text-[#64748B] hover:text-[#1A1D23]" : "bg-[#11161D] border-[#222A35] text-[#8A95A5] hover:text-white"}`}
+        >
           <Search className="w-4 h-4" />
         </button>
 
@@ -246,12 +301,14 @@ export function Topbar({
             className={`h-9 w-9 rounded-md border flex items-center justify-center relative ${theme === "light" ? "bg-white border-[#E2E8F0] text-[#64748B] hover:text-[#1A1D23]" : "bg-[#11161D] border-[#222A35] text-[#8A95A5] hover:text-white"}`}
           >
             <Bell className="w-4 h-4" />
-            <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[#FF6B1A]" />
+            {/* Only badge the bell when there is genuinely something to see. */}
+            {notifications.length > 0 && <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[#FF6B1A]" />}
           </button>
           {showNotifs && (
             <div className={`absolute right-0 top-11 w-[300px] rounded-md shadow-2xl z-50 border ${theme === "light" ? "bg-white border-[#E2E8F0]" : "bg-[#11161D] border-[#222A35]"}`}>
-              <div className={`px-3 py-2 text-[10px] uppercase tracking-wider border-b ${theme === "light" ? "text-[#64748B] border-[#E2E8F0]" : "text-[#5B6675] border-[#222A35]"}`}>3 New</div>
-              {NOTIFICATIONS.map((n, i) => (
+              <div className={`px-3 py-2 text-[10px] uppercase tracking-wider border-b ${theme === "light" ? "text-[#64748B] border-[#E2E8F0]" : "text-[#5B6675] border-[#222A35]"}`}>Recent activity</div>
+              {notifications.length === 0 && <div className={`px-3 py-6 text-[12px] text-center ${theme === "light" ? "text-[#64748B]" : "text-[#5B6675]"}`}>Nothing recent yet</div>}
+              {notifications.map((n, i) => (
                 <button
                   key={i}
                   onClick={() => {

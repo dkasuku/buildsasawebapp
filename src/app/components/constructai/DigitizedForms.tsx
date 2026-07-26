@@ -10,6 +10,8 @@ import { api } from "../../services/api";
 import type { ChecklistDto, FormTemplateDto, ChecklistTemplateDto } from "../../services/api";
 import { EmptyState } from "./EmptyState";
 import { useProjects } from "./useProjects";
+import { useTeam } from "./useTeam";
+import { warnSaveFailed } from "./saveFeedback";
 
 // Trigger a real file download in the browser. Every "Download" button on this
 // screen used to be a toast that claimed success and produced no file.
@@ -38,7 +40,9 @@ const fieldToQuestionType = (t: string) => {
 // a hardcoded array of demo names, and because these selects feed `projectId` on
 // the created checklist, every form was filed against a project id that did not
 // exist — the link silently pointed nowhere.
-const USERS = ["Sarah Patel", "Mike Chen", "James Omondi", "Aisha Hassan", "Tom Bradley"];
+// Assignee and share pickers list the workspace's real invited teammates via
+// useTeam(). This was five invented names, so a form could be "assigned" to a
+// person who does not exist and nobody was ever notified.
 
 type Field = { label: string; type: "text" | "number" | "date" | "checkbox" | "select" | "photo"; options?: string; required?: boolean };
 type LocalTemplate = { id: string; title: string; category: string; description: string; fields: Field[] };
@@ -201,6 +205,8 @@ const INITIAL_TEMPLATES: LocalTemplate[] = [
 export function DigitizedForms({ role }: { role: Role }) {
   // The workspace's real projects, for every project select on this screen.
   const { projects: projectOptions } = useProjects();
+  const team = useTeam();
+  const USERS = team.map((m) => m.name);
   const [templates, setTemplates] = useState<LocalTemplate[]>(INITIAL_TEMPLATES);
   const [backendTemplates, setBackendTemplates] = useState<FormTemplateDto[]>([]);
   const [checklists, setChecklists] = useState<ChecklistDto[]>([]);
@@ -410,7 +416,7 @@ export function DigitizedForms({ role }: { role: Role }) {
           trade: String(item.trade || "General"),
           items: item.items.map((it: any) => ({ label: String(it.label || ""), type: ["yes_no", "number", "text", "photo"].includes(it.type) ? it.type : "yes_no", required: !!it.required })),
         };
-        api.createChecklistTemplate({ title: t.title, trade: t.trade, items: JSON.stringify(t.items) }).catch(() => {});
+        api.createChecklistTemplate({ title: t.title, trade: t.trade, items: JSON.stringify(t.items) }).catch(warnSaveFailed("checklist template creation"));
         created++;
       }
       toast.success(`${created} checklist template(s) imported`);
@@ -791,7 +797,7 @@ export function DigitizedForms({ role }: { role: Role }) {
             <div className="flex items-center justify-between mb-4"><div className="text-[14px] text-white font-display flex items-center gap-2"><Share2 className="w-4 h-4 text-[#FF6B1A]" /> Share Template</div><button onClick={() => setShowShare(null)} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button></div>
             <div className="space-y-3 text-[12px]">
               <div className="text-[11px] text-[#8A95A5]">Share <span className="text-white font-display">{showShare.title}</span> with a team member.</div>
-              <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Select user</div><select value={shareUser} onChange={(e) => setShareUser(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white"><option value="">Select…</option>{USERS.map((u) => <option key={u} value={u}>{u}</option>)}</select></div>
+              <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Select user</div><select value={shareUser} onChange={(e) => setShareUser(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white"><option value="">{USERS.length ? "Select…" : "No teammates yet — invite people on the Team page"}</option>{USERS.map((u) => <option key={u} value={u}>{u}</option>)}</select></div>
             </div>
             <div className="flex items-center justify-end gap-2 mt-5 pt-4 border-t border-[#222A35]">
               <button onClick={() => setShowShare(null)} className="h-9 px-3 rounded-md border border-[#222A35] text-[12px] text-[#8A95A5] hover:text-white">Cancel</button>
@@ -808,7 +814,7 @@ export function DigitizedForms({ role }: { role: Role }) {
             <div className="flex items-center justify-between mb-4"><div className="text-[14px] text-white font-display flex items-center gap-2"><Bookmark className="w-4 h-4 text-[#3B82F6]" /> Save as Checklist</div><button onClick={() => setShowSaveChecklist(null)} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button></div>
             <div className="space-y-3 text-[12px]">
               <div className="text-[11px] text-[#8A95A5]">Save <span className="text-white font-display">{showSaveChecklist.title}</span> as a checklist and assign it to a worker.</div>
-              <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Assignee <span className="text-[#EF4444]">*</span></div><select value={assignee} onChange={(e) => setAssignee(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white"><option value="">Select…</option>{USERS.map((u) => <option key={u} value={u}>{u}</option>)}</select></div>
+              <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Assignee <span className="text-[#EF4444]">*</span></div><select value={assignee} onChange={(e) => setAssignee(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white"><option value="">{USERS.length ? "Select…" : "No teammates yet — invite people on the Team page"}</option>{USERS.map((u) => <option key={u} value={u}>{u}</option>)}</select></div>
               <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Project</div><select value={saveProject} onChange={(e) => setSaveProject(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white"><option value="">{projectOptions.length ? "Select a project…" : "No projects yet"}</option>{projectOptions.map((p) => <option key={p.id} value={p.id}>{p.code ? `${p.code} · ${p.name}` : p.name}</option>)}</select></div>
               <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Due date</div><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
               <div className="rounded-md border border-[#222A35] bg-[#0A0E14] p-3">
@@ -873,7 +879,7 @@ export function DigitizedForms({ role }: { role: Role }) {
             <div className="flex items-center justify-between mb-4"><div className="text-[14px] text-white font-display flex items-center gap-2"><ClipboardList className="w-4 h-4 text-[#FF6B1A]" /> Use Checklist Template</div><button onClick={() => setShowUseClTemplate(null)} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button></div>
             <div className="space-y-3 text-[12px]">
               <div className="text-[11px] text-[#8A95A5]">Create a checklist from <span className="text-white font-display">{showUseClTemplate.title}</span> and assign it.</div>
-              <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Assignee <span className="text-[#EF4444]">*</span></div><select value={useClAssignee} onChange={(e) => setUseClAssignee(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white"><option value="">Select…</option>{USERS.map((u) => <option key={u} value={u}>{u}</option>)}</select></div>
+              <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Assignee <span className="text-[#EF4444]">*</span></div><select value={useClAssignee} onChange={(e) => setUseClAssignee(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white"><option value="">{USERS.length ? "Select…" : "No teammates yet — invite people on the Team page"}</option>{USERS.map((u) => <option key={u} value={u}>{u}</option>)}</select></div>
               <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Project</div><select value={useClProject} onChange={(e) => setUseClProject(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white"><option value="">{projectOptions.length ? "Select a project…" : "No projects yet"}</option>{projectOptions.map((p) => <option key={p.id} value={p.id}>{p.code ? `${p.code} · ${p.name}` : p.name}</option>)}</select></div>
               <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Due date</div><input type="date" value={useClDueDate} onChange={(e) => setUseClDueDate(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
               <div className="rounded-md border border-[#222A35] bg-[#0A0E14] p-3">

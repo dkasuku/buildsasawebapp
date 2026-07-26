@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import api, { type ScheduledReportDto } from "../../services/api";
+import api, { type ScheduledReportDto, type ProjectDto } from "../../services/api";
 import { jsPDF } from "jspdf";
 import * as XLSX from "xlsx";
 import { Download, Calendar, Filter, TrendingUp, Plus, GripVertical, X, MapPin, Building2, Clock, AlertTriangle, CheckCircle2, Bell, Mail, Repeat, Trash2, Play } from "lucide-react";
@@ -26,14 +26,47 @@ const velocity = [
   { d: "W5", v: 3.4 }, { d: "W6", v: 2.9 }, { d: "W7", v: 3.1 }, { d: "W8", v: 2.6 },
 ];
 
-const projects = [
-  { p: "Harborfront Tower", region: "PNW", value: 2400, cos: 42, cycle: 3.1, health: 92 },
-  { p: "Midtown Medical", region: "PNW", value: 1100, cos: 28, cycle: 5.4, health: 68 },
-  { p: "Riverside Plaza", region: "NorCal", value: 640, cos: 19, cycle: 2.8, health: 96 },
-  { p: "Cedar Heights", region: "Mountain", value: 92, cos: 6, cycle: 1.9, health: 88 },
-  { p: "Sunset Logistics", region: "Southwest", value: 1800, cos: 24, cycle: 3.7, health: 84 },
-  { p: "Crescent Bay", region: "SoCal", value: 320, cos: 11, cycle: 2.2, health: 94 },
-];
+// The project performance table is built from the workspace's own projects and
+// change orders (see `projects` in the component). It used to be six invented
+// rows with made-up CO values, cycle times and health scores — and the PDF export
+// used the same array, so an exported "report" contained numbers that had nothing
+// to do with the business.
+type ReportRow = { p: string; region: string; value: number; cos: number; cycle: number; health: number };
+
+// Real per-project performance, shared by the table and the PDF export so both
+// always show the same figures. `region` is the project's city (the only
+// geography actually recorded); CO value and count come from real change orders;
+// `cycle` is the mean days between a change order being raised and its last
+// update; `health` is the project's own recorded progress.
+function useProjectReportRows(): ReportRow[] {
+  // Full project rows (not the slim dropdown shape) — this needs `city` and
+  // `progress`, which only the full DTO carries.
+  const [projectList, setProjectList] = useState<ProjectDto[]>([]);
+  const [cos, setCos] = useState<any[]>([]);
+  useEffect(() => {
+    api.getProjects()
+      .then((rows) => setProjectList(Array.isArray(rows) ? rows : []))
+      .catch(() => setProjectList([]));
+    api.listChangeOrders()
+      .then((rows) => setCos(Array.isArray(rows) ? rows : []))
+      .catch(() => setCos([]));
+  }, []);
+
+  return projectList.map((pr) => {
+    const mine = cos.filter((c: any) => c.projectId === pr.id);
+    const cycles = mine
+      .map((c: any) => (c.createdAt && c.updatedAt ? (+new Date(c.updatedAt) - +new Date(c.createdAt)) / 86400000 : null))
+      .filter((n: number | null): n is number => n != null && Number.isFinite(n));
+    return {
+      p: pr.name,
+      region: pr.city || "—",
+      value: Math.round(mine.reduce((sum: number, c: any) => sum + (Number(c.costUSD) || 0), 0) / 1000),
+      cos: mine.length,
+      cycle: cycles.length ? Number((cycles.reduce((a: number, b: number) => a + b, 0) / cycles.length).toFixed(1)) : 0,
+      health: Number(pr.progress) || 0,
+    };
+  });
+}
 
 const regions = [
   { r: "Pacific Northwest", v: 3.5, projects: 2, color: "#FF6B1A" },
@@ -59,6 +92,12 @@ const toRow = (r: ScheduledReportDto): SchedRow => ({
 });
 
 export function Reports() {
+  // Same real rows the By-Project table shows, so an exported PDF matches the UI.
+  const projects = useProjectReportRows();
+  // Region choices are the actual project locations. They were hardcoded US
+  // regions ("PNW", "NorCal", …), so selecting any of them matched nothing and
+  // silently emptied the table.
+  const regionOptions = ["All", ...Array.from(new Set(projects.map((p) => p.region).filter((r) => r && r !== "—")))];
   const { currency } = useCurrency();
   const [tab, setTab] = useState<Tab>("Financial");
   const [range, setRange] = useState("YTD");
@@ -234,7 +273,7 @@ export function Reports() {
               <div>
                 <div className="text-[10px] text-[#5B6675] uppercase tracking-wider mb-2">Region</div>
                 <div className="flex flex-wrap gap-1.5">
-                  {["All", "PNW", "NorCal", "SoCal", "Southwest", "Mountain"].map((r) => (
+                  {regionOptions.map((r) => (
                     <button key={r} onClick={() => setFilters({ ...filters, region: r })} className={`px-2.5 h-8 rounded-md text-[11px] ${filters.region === r ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border border-[#FF6B1A]/30" : "bg-[#0A0E14] border border-[#222A35] text-[#8A95A5]"}`}>{r}</button>
                   ))}
                 </div>
@@ -477,6 +516,8 @@ function OperationalPanel() {
 /* ────────── By Project ────────── */
 function ByProjectPanel({ filters }: { filters: { region: string; minValue: number } }) {
   const { currency } = useCurrency();
+  const projects = useProjectReportRows();
+
   const rows = projects
     .filter((p) => filters.region === "All" || p.region === filters.region)
     .filter((p) => p.value >= filters.minValue)
@@ -512,8 +553,16 @@ function ByProjectPanel({ filters }: { filters: { region: string; minValue: numb
               </tr>
             </thead>
             <tbody className="text-[12px]">
+              {rows.length === 0 && (
+                <tr><td colSpan={6} className="px-5 py-10 text-center text-[12px] text-[#5B6675]">
+                  {projects.length === 0 ? "No projects yet — create one to see performance here." : "No projects match the current filters."}
+                </td></tr>
+              )}
+              {/* Rows are deliberately not clickable: there is no per-project
+                  drill-down report, and each row used to show a pointer cursor and
+                  raise a "Drilling into …" toast that went nowhere. */}
               {rows.map((p) => (
-                <tr key={p.p} onClick={() => toast(`Drilling into ${p.p}`)} className="border-t border-[#222A35] hover:bg-[#161C24] cursor-pointer">
+                <tr key={p.p} className="border-t border-[#222A35]">
                   <td className="px-5 py-3 text-white">{p.p}</td>
                   <td className="px-3 py-3 text-[#8A95A5]">{p.region}</td>
                   <td className="px-3 py-3 text-right text-[#FF6B1A]">{formatCurrency($toKES(p.value * 1000), currency)}</td>
@@ -529,7 +578,6 @@ function ByProjectPanel({ filters }: { filters: { region: string; minValue: numb
                   </td>
                 </tr>
               ))}
-              {rows.length === 0 && <tr><td colSpan={6} className="text-center py-10 text-[#5B6675] text-[12px]">No projects match the filters</td></tr>}
             </tbody>
           </table>
         </div>
@@ -598,7 +646,7 @@ function ByRegionPanel() {
           <div className="text-[11px] text-[#8A95A5] mb-3">{formatCompactCurrency($toKES(total * 1_000_000), currency)} across {regions.reduce((s, r) => s + r.projects, 0)} projects</div>
           <div className="space-y-2.5">
             {regions.map((r) => (
-              <button key={r.r} onClick={() => toast(`Drill into ${r.r}`)} className="w-full text-left p-2 rounded hover:bg-[#0A0E14]">
+              <div key={r.r} className="w-full text-left p-2 rounded">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="flex items-center gap-2 text-[12px] text-white"><MapPin className="w-3 h-3" style={{ color: r.color }} />{r.r}</span>
                   <span className="text-[11px] text-white">{formatCompactCurrency($toKES(r.v * 1_000_000), currency)}</span>
@@ -607,7 +655,7 @@ function ByRegionPanel() {
                   <div className="h-full rounded-full" style={{ width: `${(r.v / total) * 100}%`, background: r.color }} />
                 </div>
                 <div className="text-[10px] text-[#5B6675] mt-1">{r.projects} project{r.projects !== 1 ? "s" : ""}</div>
-              </button>
+              </div>
             ))}
           </div>
         </div>
@@ -617,14 +665,14 @@ function ByRegionPanel() {
         <div className="text-[13px] text-white font-display">Regional Health Map</div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mt-4">
           {regions.map((r) => (
-            <button key={r.r} onClick={() => toast(`${r.r} · ${r.projects} projects`)} className="p-4 rounded-lg border border-[#222A35] bg-[#0A0E14] hover:border-[#FF6B1A]/50 text-left">
+            <div key={r.r} className="p-4 rounded-lg border border-[#222A35] bg-[#0A0E14] text-left">
               <div className="w-7 h-7 rounded-md flex items-center justify-center" style={{ background: `${r.color}25`, color: r.color }}>
                 <MapPin className="w-4 h-4" />
               </div>
               <div className="text-[12px] text-white mt-2 font-display truncate">{r.r}</div>
               <div className="text-[18px] font-display mt-0.5" style={{ color: r.color }}>{formatCompactCurrency($toKES(r.v * 1_000_000), currency)}</div>
               <div className="text-[10px] text-[#5B6675]">{r.projects} project{r.projects !== 1 ? "s" : ""}</div>
-            </button>
+            </div>
           ))}
         </div>
       </div>
@@ -634,6 +682,10 @@ function ByRegionPanel() {
 
 /* ────────── Custom ────────── */
 function CustomPanel({ widgets, onAdd, onRemove, available }: { widgets: string[]; onAdd: (w: string) => void; onRemove: (w: string) => void; available: string[] }) {
+  // Highest CO-exposure project, from real data — the widget previously always
+  // named "Harborfront Tower" with a fixed 2.4M figure.
+  const reportRows = useProjectReportRows();
+  const topProject = [...reportRows].sort((a, b) => b.value - a.value)[0] ?? null;
   const { currency } = useCurrency();
   return (
     <>
@@ -695,7 +747,7 @@ function CustomPanel({ widgets, onAdd, onRemove, available }: { widgets: string[
                   <BarChart data={regions}><Bar dataKey="v" radius={[4, 4, 0, 0]}>{regions.map((r) => <Cell key={r.r} fill={r.color} />)}</Bar></BarChart>
                 </ResponsiveContainer>
               )}
-              {w.includes("Top projects") && <div className="text-center"><Building2 className="w-6 h-6 text-[#FF6B1A] mx-auto" /><div className="text-[14px] text-white mt-2">Harborfront Tower</div><div className="text-[10px] text-[#5B6675]">{formatCompactCurrency($toKES(2.4 * 1_000_000), currency)} exposure</div></div>}
+              {w.includes("Top projects") && (topProject ? <div className="text-center"><Building2 className="w-6 h-6 text-[#FF6B1A] mx-auto" /><div className="text-[14px] text-white mt-2">{topProject.p}</div><div className="text-[10px] text-[#5B6675]">{formatCompactCurrency($toKES(topProject.value * 1000), currency)} CO exposure</div></div> : <div className="text-center text-[11px] text-[#5B6675]">No project data yet</div>)}
               {w.includes("SLA") && <div className="text-center"><Clock className="w-6 h-6 text-[#22C55E] mx-auto" /><div className="text-[22px] text-white mt-2 font-display">84%</div><div className="text-[10px] text-[#5B6675]">on-SLA</div></div>}
             </div>
           </div>

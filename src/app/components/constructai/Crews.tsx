@@ -5,6 +5,7 @@ import type { Role } from "./roles";
 import api from "../../services/api";
 import { EmptyState } from "./EmptyState";
 import { ProjectSelect } from "./ProjectSelect";
+import { warnSaveFailed } from "./saveFeedback";
 
 const mapCrew = (r: any): Crew => ({
   id: r.id, name: r.name, trade: r.trade || "", foreman: r.foreman || "", project: r.project || "",
@@ -65,7 +66,7 @@ export default function Crews({ role }: { role: Role }) {
   const setStatus = (id: string, status: Crew["status"]) => {
     setCrews((prev) => prev.map((c) => (c.id === id ? { ...c, status } : c)));
     toast.success(`Crew marked ${STATUS_META[status].label}`);
-    api.updateCrew(id, { status }).catch(() => { /* offline */ });
+    api.updateCrew(id, { status }).catch(warnSaveFailed("crew update"));
   };
 
   const addMember = (crewId: string) => {
@@ -75,20 +76,20 @@ export default function Crews({ role }: { role: Role }) {
     setCrews((prev) => prev.map((c) => (c.id === crewId ? { ...c, members: next } : c)));
     setNewMemberName(""); setNewMemberTrade(""); setAddingTo(null);
     toast.success("Member added to crew");
-    api.updateCrew(crewId, { members: next }).catch(() => { /* offline */ });
+    api.updateCrew(crewId, { members: next }).catch(warnSaveFailed("crew update"));
   };
 
   const removeMember = (crewId: string, memberId: string) => {
     const next = (crews.find((c) => c.id === crewId)?.members ?? []).filter((m) => m.id !== memberId);
     setCrews((prev) => prev.map((c) => (c.id === crewId ? { ...c, members: next } : c)));
     toast.success("Member removed");
-    api.updateCrew(crewId, { members: next }).catch(() => { /* offline */ });
+    api.updateCrew(crewId, { members: next }).catch(warnSaveFailed("crew update"));
   };
 
   const removeCrew = (id: string) => {
     setCrews((prev) => prev.filter((c) => c.id !== id));
     toast.success("Crew deleted");
-    api.deleteCrew(id).catch(() => { /* offline */ });
+    api.deleteCrew(id).catch(warnSaveFailed("crew deletion"));
   };
 
   return (

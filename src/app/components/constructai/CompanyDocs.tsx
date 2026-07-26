@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Plus, Search, X, FolderOpen, FileText, Download, Trash2, UploadCloud, File, FileSpreadsheet, FileImage, Shield, BookOpen, Award } from "lucide-react";
 import type { Role } from "./roles";
 import api from "../../services/api";
+import { warnSaveFailed } from "./saveFeedback";
 
 type Doc = {
   id: string;
@@ -76,14 +77,14 @@ export default function CompanyDocs({ role }: { role: Role }) {
     newDocs.forEach((d) => {
       api.createCompanyDoc({ name: d.name, category: d.category, type: d.type, size: d.size, uploadedBy: d.uploadedBy, date: d.date })
         .then((saved: any) => setDocs((prev) => prev.map((x) => x.id === d.id ? { ...x, id: saved.id } : x)))
-        .catch(() => { /* offline — keep local */ });
+        .catch(warnSaveFailed("company doc creation"));
     });
   };
 
   const remove = (id: string) => {
     setDocs((prev) => prev.filter((d) => d.id !== id));
     toast.success("Document deleted");
-    api.deleteCompanyDoc(id).catch(() => { /* offline */ });
+    api.deleteCompanyDoc(id).catch(warnSaveFailed("company doc deletion"));
   };
 
   return (

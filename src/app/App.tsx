@@ -15,7 +15,6 @@ import { ChangeOrderDetail } from "./components/constructai/ChangeOrderDetail";
 import { MobileCreate } from "./components/constructai/MobileCreate";
 import { FieldView } from "./components/constructai/FieldView";
 import { Reports } from "./components/constructai/Reports";
-import { Team } from "./components/constructai/Team.tsx";
 import { Plans } from "./components/constructai/Plans";
 import { Tasks } from "./components/constructai/Tasks";
 import { Schedule } from "./components/constructai/Schedule";

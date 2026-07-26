@@ -915,7 +915,10 @@ app.post('/api/projects/:projectId/messages', auth, async (req, res) => {
         text,
         attachment,
         projectId: req.params.projectId,
-        userId: demoUser.id,
+        // The signed-in author, not the built-in demo user. This was hardcoded to
+        // demoUser.id, so every project message — whoever sent it — was stored and
+        // displayed as coming from "Site Manager".
+        userId: (req.user && (req.user.sub || req.user.id)) || demoUser.id,
       },
     });
     res.json(msg);
