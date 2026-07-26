@@ -662,7 +662,11 @@ export const api = {
     } catch { /* cloud not configured — fall back to local */ }
     const fd = new FormData();
     fd.append("file", file);
-    const r: any = await http("/api/upload", { method: "POST", body: fd });
+    // Name the file in the failure. With several files uploading at once, a bare
+    // "Upload failed" says nothing about which one died or why.
+    let r: any;
+    try { r = await http("/api/upload", { method: "POST", body: fd }); }
+    catch (e: any) { throw new Error(`${file.name}: ${e?.message || "upload failed"}`); }
     const url: string = r?.url || "";
     return url.startsWith("http") ? url : `${API_URL}${url}`;
   },

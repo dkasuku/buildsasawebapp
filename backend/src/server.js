@@ -64,13 +64,31 @@ const prisma = prismaBase.$extends({
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
 const path = require('path');
+// Where locally-uploaded files are written. A relative path resolves against the
+// process CWD — which on a container is part of the image and is wiped on every
+// deploy, taking every uploaded plan, drawing and photo with it. In production
+// point UPLOAD_DIR at a mounted volume (e.g. /data/uploads), or configure
+// S3_BUCKET so uploads go to object storage and never touch the container disk.
+const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || 'uploads');
 // Keep the original file extension so the static server sends the right
 // Content-Type (otherwise images upload but won't render in the browser).
+// Multer creates the directory itself when destination is a plain string.
 const uploadStorage = multer.diskStorage({
-  destination: 'uploads/',
+  destination: UPLOAD_DIR,
   filename: (_req, file, cb) => cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${path.extname(file.originalname || '')}`),
 });
 const upload = multer({ storage: uploadStorage });
+// Multer reports storage failures (read-only filesystem, disk full, bad path) to
+// the Express error handler, which answers with an HTML page — so the browser
+// could only ever show a generic "Upload failed". Wrap it to return the real
+// reason as JSON, and log it, so a broken upload is diagnosable from the client.
+const singleFile = (field) => (req, res, next) => upload.single(field)(req, res, (err) => {
+  if (err) {
+    console.error(`[upload] ${field} failed:`, (err && (err.stack || err.message)) || err);
+    return res.status(400).json({ error: (err && err.message) || 'Upload failed' });
+  }
+  return next();
+});
 const AUTH_REQUIRED = process.env.AUTH_REQUIRED === 'true';
 
 // Email (Resend) — optional. With no key, links/passwords are logged to the
@@ -109,7 +127,8 @@ if (ALLOWED_ORIGINS.length) {
 }
 app.use(express.json());
 // Serve locally-uploaded files (used when S3/R2 is not configured).
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', express.static(UPLOAD_DIR));
+console.log(`[upload] local files -> ${UPLOAD_DIR}${process.env.UPLOAD_DIR ? '' : ' (ephemeral — set UPLOAD_DIR to a mounted volume in production)'}`);
 
 // In-memory user stub (replace with real users)
 // Safety net: never let one failed request crash the whole backend.
@@ -1485,7 +1504,7 @@ app.delete('/api/documents/:id', auth, async (req, res) => {
 });
 
 // File upload stub (local). Replace with S3 presign in production.
-app.post('/api/upload', auth, upload.single('file'), (req, res) => {
+app.post('/api/upload', auth, singleFile('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file' });
   res.json({ url: `/uploads/${req.file.filename}` });
 });
@@ -2380,7 +2399,7 @@ app.post('/api/checklist-templates/from-csv', auth, async (req, res) => {
 });
 
 // Parse uploaded file (.csv or .xlsx) and return preview + suggested column mappings
-app.post('/api/checklist-templates/parse-file', auth, upload.single('file'), async (req, res) => {
+app.post('/api/checklist-templates/parse-file', auth, singleFile('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const ext = (req.file.originalname || '').toLowerCase();
@@ -3516,7 +3535,7 @@ function extractJSON(str) {
   return str;
 }
 
-app.post('/api/ai/extract-checklist-from-document', auth, upload.single('file'), async (req, res) => {
+app.post('/api/ai/extract-checklist-from-document', auth, singleFile('file'), async (req, res) => {
   try {
     const file = req.file;
     if (!file) return res.status(400).json({ error: 'No file uploaded' });

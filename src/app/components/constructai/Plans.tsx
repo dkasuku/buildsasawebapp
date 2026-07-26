@@ -262,7 +262,7 @@ export function Plans({ role }: { role: Role }) {
     toast.info(`Uploading ${pendingFiles.length} file${pendingFiles.length === 1 ? "" : "s"}…`);
     let uploaded: string[];
     try { uploaded = await Promise.all(pendingFiles.map((f) => api.uploadFile(f))); }
-    catch { return toast.error("Upload failed"); }
+    catch (e: any) { return toast.error(`Upload failed — ${e?.message || "unknown error"}`, { duration: 8000 }); }
     const added: Drawing[] = pendingFiles.map((f, i) => {
       const base = f.name.replace(/\.[^.]+$/, "");
       const id = base.match(/^[A-Z]-\d+/i)?.[0]?.toUpperCase() ?? `X-${1000 + drawings.length + i}`;
