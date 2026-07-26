@@ -329,7 +329,22 @@ app.get('/api/auth/google/callback', async (req, res) => {
 
 // Send transactional email via Resend. Falls back to console logging (and
 // returns sent:false) when no API key is configured, so dev never blocks.
+// RFC 2606 reserves these for documentation and testing, so they can never
+// receive mail. Seeded demo accounts carry such addresses and Resend rejects the
+// request outright (422), which fills the log with what look like real delivery
+// failures. Skip them instead of spending an API call to be told no.
+function isUndeliverableAddress(addr) {
+  const domain = String(addr || '').split('@')[1];
+  if (!domain || !String(addr).includes('@')) return true;
+  const d = domain.toLowerCase();
+  return /(^|\.)example\.(com|net|org|edu)$/.test(d) || /\.(test|invalid|localhost|example)$/.test(d);
+}
+
 async function sendEmail({ to, subject, html, attachments }) {
+  if (isUndeliverableAddress(to)) {
+    console.log(`[EMAIL] skipped — "${to}" is a reserved/undeliverable test address | ${subject}`);
+    return { sent: false, skipped: true };
+  }
   if (!RESEND_API_KEY) {
     console.log(`[EMAIL] (no RESEND_API_KEY — not sent) To: ${to} | ${subject}${attachments && attachments.length ? ` | ${attachments.length} attachment(s)` : ''}`);
     console.log('[EMAIL] body:', html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
