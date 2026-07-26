@@ -70,8 +70,33 @@ model Project {
   safetyIncidents SafetyIncident[]
   equipment       Equipment[]
   drawingVersions DrawingVersion[]
+  drawings        Drawing[]
   planMarkups     PlanMarkup[]
   changeOrders    ChangeOrder[]
+}
+
+// An uploaded sheet. DrawingVersion tracks revisions of a sheet; this is the
+// sheet itself, which had no home before — uploads lived in React state only and
+// were lost on refresh.
+model Drawing {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  number      String // sheet number, e.g. A-101
+  title       String
+  discipline  String
+  rev         Int      @default(1)
+  status      String   @default("Draft")
+  fileUrl     String
+  fileName    String?
+  fileSize    Int?
+  uploadedBy  String?
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([workspaceId])
 }
 
 model Assignment {

@@ -43,6 +43,34 @@ function forceLogout() {
   if (typeof window !== "undefined") window.location.assign("/");
 }
 
+// POST a FormData with byte-level progress. fetch exposes no upload progress, so
+// this drops to XMLHttpRequest — the only browser API that reports it. Used for
+// drawing uploads, where files are big enough that a silent wait looks like a
+// hang. Rejects with the server's message so callers can show the real reason.
+function uploadWithProgress(url: string, fd: FormData, onProgress: (pct: number) => void): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100)));
+    };
+    // Bytes are delivered, but the server still has to forward them to storage —
+    // hold at 99 until it answers so the bar never claims done too early.
+    xhr.upload.onload = () => onProgress(99);
+    xhr.onload = () => {
+      let body: any = null;
+      try { body = JSON.parse(xhr.responseText); } catch { /* non-JSON */ }
+      if (xhr.status >= 200 && xhr.status < 300) { onProgress(100); return resolve(body); }
+      reject(new Error((body && body.error) || xhr.responseText || `HTTP ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error("Network error — the file did not reach the server"));
+    xhr.ontimeout = () => reject(new Error("The upload timed out"));
+    xhr.send(fd);
+  });
+}
+
 async function http<T>(path: string, init?: RequestInit, _retried = false): Promise<T> {
   const token = localStorage.getItem(TOKEN_KEY);
   const isFormData = init?.body instanceof FormData;
@@ -556,12 +584,36 @@ export type PlanMarkupDto = {
   createdAt: string;
 };
 
+export type DrawingDto = {
+  id: string;
+  number: string;
+  title: string;
+  discipline: string;
+  rev: number;
+  status: string;
+  fileUrl: string;
+  fileName?: string | null;
+  fileSize?: number | null;
+  uploadedBy?: string | null;
+  projectId: string;
+  project?: { id: string; name: string } | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type DrawingVersionDto = {
   id: string;
   drawingId: string;
   rev: number;
   url: string;
   uploadedBy?: string | null;
+  // Sheet metadata. Nullable — rows created before the Plans board persisted
+  // anything have none, so callers fall back per field.
+  title?: string | null;
+  discipline?: string | null;
+  fileName?: string | null;
+  sizeLabel?: string | null;
+  status?: string | null;
   projectId: string;
   createdAt: string;
 };
@@ -657,18 +709,31 @@ export const api = {
   // URL, which silently required a CORS policy on the bucket — without one the
   // PUT was blocked and the error was swallowed, so files vanished with no
   // explanation. Routing through the API removes that dependency entirely.
-  uploadFile: async (file: File): Promise<string> => {
+  // onProgress reports 0-100 as the bytes leave the browser. fetch cannot report
+  // upload progress at all, so this uses XMLHttpRequest when a caller asks for it
+  // — drawings are large, and a dialog that sits still for a minute reads as
+  // broken. Without a callback it stays on fetch.
+  uploadFile: async (file: File, onProgress?: (pct: number) => void): Promise<string> => {
     const fd = new FormData();
     fd.append("file", file);
     // Name the file in the failure. With several uploading at once, a bare
     // "Upload failed" says nothing about which one died or why.
     let r: any;
-    try { r = await http("/api/upload", { method: "POST", body: fd }); }
-    catch (e: any) { throw new Error(`${file.name}: ${e?.message || "upload failed"}`); }
+    try {
+      r = onProgress
+        ? await uploadWithProgress(`${API_URL}/api/upload`, fd, onProgress)
+        : await http("/api/upload", { method: "POST", body: fd });
+    } catch (e: any) { throw new Error(`${file.name}: ${e?.message || "upload failed"}`); }
     const url: string = r?.url || "";
     if (!url) throw new Error(`${file.name}: server returned no file URL`);
     return url.startsWith("http") ? url : `${API_URL}${url}`;
   },
+
+  // Drawings (uploaded sheets)
+  getDrawings: (projectId?: string) => http<DrawingDto[]>(`/api/drawings${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`),
+  createDrawing: (projectId: string, payload: Partial<DrawingDto>) => http<DrawingDto>(`/api/projects/${projectId}/drawings`, { method: "POST", body: JSON.stringify(payload) }),
+  updateDrawing: (id: string, payload: Partial<DrawingDto>) => http<DrawingDto>(`/api/drawings/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  deleteDrawing: (id: string) => http(`/api/drawings/${id}`, { method: "DELETE" }),
   getProjects: () => http<ProjectDto[]>("/api/projects"),
   getDashboardInsight: () => http<{ title: string; detail?: string; changeOrderId?: string } | null>("/api/dashboard/insight"),
   getProjectMessages: (projectId: string) => http<MessageDto[]>(`/api/projects/${projectId}/messages`),

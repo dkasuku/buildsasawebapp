@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import api from "../../services/api";
+import type { DrawingDto } from "../../services/api";
 import { DrawingViewer, toViewerRole } from "./drawing-viewer";
 import { FileStack, Search, Filter, Upload, Share2, Download, Eye, Clock, X, Check, MessageSquare, MapPin, Layers, Users as UsersIcon, ZoomIn, ZoomOut, Maximize2, PenTool, Circle, Type, Undo, History, Cloud, Box, ExternalLink } from "lucide-react";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
@@ -35,7 +36,6 @@ const workers = [
 
 const DISCIPLINES = ["All", "Architectural", "Mechanical", "Structural", "Electrical", "Civil"];
 const UPLOAD_DISCIPLINES = ["Auto-detect", "Architectural", "Mechanical", "Structural", "Electrical", "Civil"];
-const PROJECT_OPTIONS = ["Harborfront Tower", "Midtown Medical", "Riverside Plaza", "Sunset Logistics", "Cedar Heights", "Crescent Bay Marina"];
 
 const formatBytes = (b: number) => {
   if (b < 1024) return `${b} B`;
@@ -64,10 +64,12 @@ export function Plans({ role }: { role: Role }) {
   const [note, setNote] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [uploadProject, setUploadProject] = useState(PROJECT_OPTIONS[0]);
+  // Set from the real project list once it loads; see loadBoard below.
+  const [uploadProject, setUploadProject] = useState("");
   const [uploadDiscipline, setUploadDiscipline] = useState("Auto-detect");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   // Markups & versions
   const [markups, setMarkups] = useState<{ id: string; drawingId: string; x: number; y: number; w?: number; h?: number; text: string; color: string; type: string }[]>([]);
@@ -86,19 +88,46 @@ export function Plans({ role }: { role: Role }) {
 
   const canShare = ROLES[role].sharePlans;
 
-  // Resolve mock drawing project names to real backend project IDs so markups &
+  // Resolve drawing project names to real backend project IDs so markups &
   // versions can persist. Falls back to local-only when no backend match exists.
   const [projectIds, setProjectIds] = useState<Record<string, string>>({});
-  useEffect(() => {
-    (async () => {
-      try {
-        const ps = await api.getProjects();
-        const map: Record<string, string> = {};
-        ps.forEach((p) => { map[p.name] = p.id; });
-        setProjectIds(map);
-      } catch { /* backend offline — markups stay local */ }
-    })();
-  }, []);
+  const [projectList, setProjectList] = useState<{ id: string; name: string }[]>([]);
+
+  const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|svg)(\?.*)?$/i;
+  const SHEET_THUMB = "https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=800&q=80";
+  // A stored row is the source of truth for a sheet; rebuild the card from it.
+  const rowToDrawing = (r: DrawingDto): Drawing => ({
+    id: r.number,
+    title: r.title,
+    project: r.project?.name || "",
+    rev: r.rev,
+    discipline: r.discipline,
+    updated: r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "just now",
+    size: r.fileSize ? formatBytes(r.fileSize) : "—",
+    img: IMAGE_EXT.test(r.fileName || r.fileUrl || "") ? r.fileUrl : SHEET_THUMB,
+    recipients: 0,
+    status: (r.status as Drawing["status"]) || "Draft",
+    fileUrl: r.fileUrl,
+    fileName: r.fileName || undefined,
+  });
+
+  // Load the real project list and every sheet already saved against it. The
+  // board used to start empty and stay that way: uploads only ever went into
+  // component state, so a reload lost them and the KPI always read zero.
+  const loadBoard = async () => {
+    try {
+      const ps = await api.getProjects();
+      const map: Record<string, string> = {};
+      ps.forEach((p) => { map[p.name] = p.id; });
+      setProjectIds(map);
+      setProjectList(ps.map((p) => ({ id: p.id, name: p.name })));
+    } catch { /* backend offline — markups stay local */ }
+    try {
+      setDrawings((await api.getDrawings()).map(rowToDrawing));
+    } catch { /* leave the board empty rather than inventing rows */ }
+  };
+  useEffect(() => { loadBoard(); }, []);
+
   const resolvePid = (d: Drawing): string | null => projectIds[d.project] ?? null;
   // Real number of projects loaded from the backend (0 for a fresh workspace).
   const projectCount = Object.keys(projectIds).length;
@@ -241,8 +270,9 @@ export function Plans({ role }: { role: Role }) {
 
   const triggerUpload = () => {
     if (!canShare) return toast.error(`${role} can't upload drawings`);
+    if (!projectList.length) return toast.error("Create a project first — drawings are filed under one.");
     setPendingFiles([]);
-    setUploadProject(PROJECT_OPTIONS[0]);
+    setUploadProject(projectList[0].id);
     setUploadDiscipline("Auto-detect");
     setUploadOpen(true);
   };
@@ -260,33 +290,43 @@ export function Plans({ role }: { role: Role }) {
   const commitUpload = async () => {
     if (!pendingFiles.length) return toast.error("Add at least one file");
     if (!uploadProject) return toast.error("Select a project");
-    toast.info(`Uploading ${pendingFiles.length} file${pendingFiles.length === 1 ? "" : "s"}…`);
-    let uploaded: string[];
-    try { uploaded = await Promise.all(pendingFiles.map((f) => api.uploadFile(f))); }
-    catch (e: any) { return toast.error(`Upload failed — ${e?.message || "unknown error"}`, { duration: 8000 }); }
-    const added: Drawing[] = pendingFiles.map((f, i) => {
-      const base = f.name.replace(/\.[^.]+$/, "");
-      const id = base.match(/^[A-Z]-\d+/i)?.[0]?.toUpperCase() ?? `X-${1000 + drawings.length + i}`;
-      const url = uploaded[i];
-      return {
-        id,
-        title: base,
-        project: uploadProject,
-        rev: 1,
-        discipline: uploadDiscipline === "Auto-detect" ? inferDiscipline(id) : uploadDiscipline,
-        updated: "just now",
-        size: formatBytes(f.size),
-        img: f.type.startsWith("image/") ? url : "https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=800&q=80",
-        recipients: 0,
-        status: "Draft" as const,
-        fileUrl: url,
-        fileName: f.name,
-      };
-    });
-    setDrawings((arr) => [...added, ...arr]);
-    toast.success(`Uploaded ${added.length} drawing${added.length === 1 ? "" : "s"} to ${uploadProject} · status: Draft`);
-    setPendingFiles([]);
-    setUploadOpen(false);
+    const projectName = projectList.find((p) => p.id === uploadProject)?.name || "project";
+    setUploading(true);
+    const toastId = toast.loading(`Uploading ${pendingFiles.length} file${pendingFiles.length === 1 ? "" : "s"} to ${projectName}…`);
+    try {
+      // Upload the bytes, then record the sheet against the project. Saving was
+      // the missing half: uploads previously stopped at component state, so
+      // every drawing vanished on reload.
+      const saved: Drawing[] = [];
+      for (let i = 0; i < pendingFiles.length; i++) {
+        const f = pendingFiles[i];
+        toast.loading(`Uploading ${f.name} (${i + 1}/${pendingFiles.length})…`, { id: toastId });
+        const url = await api.uploadFile(f, (pct) => {
+          toast.loading(`Uploading ${f.name} (${i + 1}/${pendingFiles.length}) — ${pct}%`, { id: toastId });
+        });
+        const base = f.name.replace(/\.[^.]+$/, "");
+        const number = base.match(/^[A-Z]-\d+/i)?.[0]?.toUpperCase() ?? base.slice(0, 40);
+        const row = await api.createDrawing(uploadProject, {
+          number,
+          title: base,
+          discipline: uploadDiscipline === "Auto-detect" ? inferDiscipline(number) : uploadDiscipline,
+          rev: 1,
+          status: "Draft",
+          fileUrl: url,
+          fileName: f.name,
+          fileSize: f.size,
+        });
+        saved.push(rowToDrawing(row));
+      }
+      setDrawings((arr) => [...saved, ...arr]);
+      toast.success(`Saved ${saved.length} drawing${saved.length === 1 ? "" : "s"} to ${projectName}`, { id: toastId });
+      setPendingFiles([]);
+      setUploadOpen(false);
+    } catch (e: any) {
+      toast.error(`Upload failed — ${e?.message || "unknown error"}`, { id: toastId, duration: 10000 });
+    } finally {
+      setUploading(false);
+    }
   };
 
   return (
@@ -605,7 +645,7 @@ export function Plans({ role }: { role: Role }) {
                 <div>
                   <label className="text-[11px] text-[#8A95A5] block mb-1">Project *</label>
                   <select value={uploadProject} onChange={(e) => setUploadProject(e.target.value)} className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]">
-                    {PROJECT_OPTIONS.map((p) => <option key={p}>{p}</option>)}
+                    {projectList.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </div>
                 <div>
@@ -637,7 +677,11 @@ export function Plans({ role }: { role: Role }) {
                   <div className="space-y-1.5 max-h-[220px] overflow-y-auto">
                     {pendingFiles.map((f, i) => (
                       <div key={i} className="flex items-center gap-2 p-2 rounded-md bg-[#0A0E14] border border-[#222A35]">
-                        <FileStack className="w-3.5 h-3.5 text-[#8A95A5] shrink-0" />
+                        {/* Images preview straight from the local File, so you can
+                            confirm you picked the right sheet before it uploads. */}
+                        {f.type.startsWith("image/")
+                          ? <img src={URL.createObjectURL(f)} alt="" onLoad={(e) => URL.revokeObjectURL((e.target as HTMLImageElement).src)} className="w-9 h-9 rounded object-cover border border-[#222A35] shrink-0" />
+                          : <FileStack className="w-3.5 h-3.5 text-[#8A95A5] shrink-0" />}
                         <div className="flex-1 min-w-0">
                           <div className="text-[12px] text-white truncate">{f.name}</div>
                           <div className="text-[10px] text-[#5B6675]">{formatBytes(f.size)}</div>
@@ -656,9 +700,12 @@ export function Plans({ role }: { role: Role }) {
                   commitUpload already says what is missing. */}
               <button
                 onClick={commitUpload}
-                className={`flex-1 h-10 rounded-md text-[12px] flex items-center justify-center gap-2 ${pendingFiles.length ? "bg-[#FF6B1A] text-white shadow-[0_4px_14px_rgba(255,107,26,0.35)] hover:bg-[#FF7E33]" : "bg-[#222A35] text-[#8A95A5] hover:bg-[#2A3441]"}`}
+                className={`flex-1 h-10 rounded-md text-[12px] flex items-center justify-center gap-2 ${uploading ? "bg-[#FF6B1A]/60 text-white cursor-wait" : pendingFiles.length ? "bg-[#FF6B1A] text-white shadow-[0_4px_14px_rgba(255,107,26,0.35)] hover:bg-[#FF7E33]" : "bg-[#222A35] text-[#8A95A5] hover:bg-[#2A3441]"}`}
               >
-                <Upload className="w-4 h-4" /> Upload {pendingFiles.length || ""} to {uploadProject.split(" ")[0]}
+                <Upload className="w-4 h-4" />
+                {uploading
+                  ? "Uploading…"
+                  : `Upload ${pendingFiles.length || ""} to ${(projectList.find((p) => p.id === uploadProject)?.name || "project").split(" ")[0]}`}
               </button>
             </div>
           </div>

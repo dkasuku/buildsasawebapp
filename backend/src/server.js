@@ -25,7 +25,7 @@ const currentWs = () => { const s = wsStore.getStore(); return s && s.ws ? s.ws 
 const TENANT_MODELS = new Set([
   'User', 'Project', 'LedgerEntry', 'ExpenseCategory', 'DailyLog', 'PunchItem', 'Subscription', 'BillingInvoice',
   'ChangeOrder', 'ChangeOrderActivity', 'Commitment', 'Document', 'Bid', 'BidPackage', 'Invoice', 'Inspection', 'SafetyIncident',
-  'Equipment', 'ChecklistTemplate', 'Checklist', 'DrawingVersion', 'PlanMarkup', 'ScheduledReport', 'Attendance',
+  'Equipment', 'ChecklistTemplate', 'Checklist', 'Drawing', 'DrawingVersion', 'PlanMarkup', 'ScheduledReport', 'Attendance',
   'Observation', 'CoordinationIssue', 'ActionPlan', 'Correspondence', 'WorkTask', 'ScheduleItem', 'Crew',
   'DirectoryContact', 'CompanyDoc', 'Announcement', 'FormTemplate', 'Conversation',
   'PaymentApplication', 'RetentionRecord', 'CostCode', 'Approval',
@@ -3107,6 +3107,67 @@ app.post('/api/projects/:projectId/drawing-versions', auth, async (req, res) => 
     const { drawingId, rev, url, uploadedBy } = req.body;
     const row = await prisma.drawingVersion.create({ data: { drawingId, rev, url, uploadedBy, projectId: req.params.projectId } });
     res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===== DRAWINGS (uploaded sheets) =====
+// Sheets used to exist only in the browser's memory: an upload pushed a row into
+// React state and was gone on the next refresh, so the register always read zero.
+app.get('/api/drawings', auth, async (req, res) => {
+  try {
+    const where = req.query.projectId ? { projectId: String(req.query.projectId) } : {};
+    const rows = await prisma.drawing.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: { project: { select: { id: true, name: true } } },
+    });
+    res.json(rows || []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/projects/:projectId/drawings', auth, async (req, res) => {
+  try {
+    const { number, title, discipline, fileUrl, fileName, fileSize, rev, status } = req.body || {};
+    if (!fileUrl) return res.status(400).json({ error: 'fileUrl is required' });
+    if (!title && !number) return res.status(400).json({ error: 'number or title is required' });
+    const project = await prisma.project.findUnique({ where: { id: req.params.projectId } });
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const row = await prisma.drawing.create({
+      data: {
+        number: String(number || title).slice(0, 120),
+        title: String(title || number).slice(0, 300),
+        discipline: discipline || 'Architectural',
+        rev: Number.isFinite(Number(rev)) ? Number(rev) : 1,
+        status: status || 'Draft',
+        fileUrl,
+        fileName: fileName || null,
+        fileSize: Number.isFinite(Number(fileSize)) ? Number(fileSize) : null,
+        uploadedBy: req.user && req.user.email ? req.user.email : null,
+        projectId: project.id,
+      },
+      include: { project: { select: { id: true, name: true } } },
+    });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/drawings/:id', auth, async (req, res) => {
+  try {
+    const { title, discipline, status, rev } = req.body || {};
+    const data = {};
+    if (title != null) data.title = String(title);
+    if (discipline != null) data.discipline = String(discipline);
+    if (status != null) data.status = String(status);
+    if (rev != null && Number.isFinite(Number(rev))) data.rev = Number(rev);
+    const row = await prisma.drawing.update({ where: { id: req.params.id }, data, include: { project: { select: { id: true, name: true } } } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/drawings/:id', auth, async (req, res) => {
+  try {
+    await prisma.drawing.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
