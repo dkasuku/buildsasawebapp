@@ -98,10 +98,25 @@ export function DrawingCanvas({ vm, punchPins = [], punchActive = false, onPunch
           style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transition: panRef.current ? "none" : "transform 0.08s ease-out" }}
         >
           {isPdf ? (
-            // 🔌 PDF: drop a react-pdf / pdf.js <Page> here. Placeholder keeps layout + markups working.
-            <div className="w-[680px] h-[480px] bg-white text-[#0F172A] flex flex-col items-center justify-center gap-2 rounded-sm">
-              <div className="text-[13px] font-semibold">{selectedRevision.fileSize} · PDF</div>
-              <div className="text-[11px] text-[#64748B]">PDF rendering integration point (pdf.js)</div>
+            // Render the PDF with the browser's own viewer. This used to be a
+            // white placeholder reading "PDF rendering integration point", so
+            // uploading a PDF drawing — which is most of them — and opening it
+            // showed nothing at all. The <object> element is used because it
+            // falls back cleanly when a browser refuses to display PDFs inline.
+            <div className="relative w-[min(90vw,900px)] h-[78vh] bg-white rounded-sm overflow-hidden">
+              <object data={`${selectedRevision.fileUrl}#toolbar=0&navpanes=0&view=FitH`} type="application/pdf" className="w-full h-full">
+                <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-center px-6 text-[#0F172A]">
+                  <div className="text-[13px] font-semibold">This browser won't display the PDF inline</div>
+                  <div className="text-[11px] text-[#64748B]">{selectedRevision.fileSize} · PDF</div>
+                  <a href={selectedRevision.fileUrl} target="_blank" rel="noopener noreferrer" className="h-9 px-4 rounded-md bg-[#FF6B1A] text-white text-[12px] inline-flex items-center">
+                    Open in a new tab
+                  </a>
+                </div>
+              </object>
+              {/* The embedded viewer swallows pointer events, so markups could
+                  never be placed on a PDF. This transparent catcher sits above it
+                  only while a tool is armed — the PDF stays interactive otherwise. */}
+              {(activeTool || punchActive) && <div className="absolute inset-0 cursor-crosshair" />}
             </div>
           ) : (
             <ImageWithFallback src={selectedRevision.fileUrl} alt="drawing" className="max-w-none max-h-[78vh] block" draggable={false} />
@@ -158,7 +173,7 @@ export function DrawingCanvas({ vm, punchPins = [], punchActive = false, onPunch
       </div>
 
       {/* Mini-map / overview */}
-      <div className="absolute bottom-3 right-3 w-36 h-24 rounded-md border border-[#222A35] bg-[#0A0E14]/90 overflow-hidden hidden sm:block">
+      <div className="absolute bottom-3 right-3 w-36 h-24 rounded-md border border-[#222A35] bg-[#0A0E14]/90 overflow-hidden hidden sm:block pointer-events-none">
         {!isPdf && <ImageWithFallback src={selectedRevision.fileUrl} alt="overview" className="w-full h-full object-cover opacity-60" draggable={false} />}
         <div className="absolute inset-0">
           {visible.map((m) => <span key={m.id} className="absolute w-1 h-1 rounded-full" style={{ left: `${m.x}%`, top: `${m.y}%`, background: m.color }} />)}

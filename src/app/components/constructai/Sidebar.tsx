@@ -9,6 +9,9 @@ export type View =
   | "login"
   | "dashboard"
   | "projects"
+  // Per-project dashboard. Reached from a project card, never from the nav, so
+  // it is deliberately absent from NAV below.
+  | "project-detail"
   | "change-order"
   | "change-orders"
   | "plans"

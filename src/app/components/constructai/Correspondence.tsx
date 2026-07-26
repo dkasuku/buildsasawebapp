@@ -4,10 +4,11 @@ import { Plus, Search, X, MessageSquare, FileText, Send, Download, ArrowUpRight,
 import type { Role } from "./roles";
 import api from "../../services/api";
 import { EmptyState } from "./EmptyState";
+import { ProjectSelect } from "./ProjectSelect";
 
 const mapCorr = (r: any): Correspondence => ({
   id: r.id, subject: r.subject, type: r.type, direction: r.direction, status: r.status,
-  from: r.fromParty || "", to: r.toParty || "", project: r.project || "", date: r.date || "", body: r.body || "",
+  from: r.fromParty || "", to: r.toParty || "", project: r.project || "", projectId: r.projectId || "", date: r.date || "", body: r.body || "",
   attachments: (() => { try { return JSON.parse(r.attachments || "[]"); } catch { return []; } })(),
 });
 
@@ -19,7 +20,10 @@ type Correspondence = {
   status: "draft" | "sent" | "received" | "responded";
   from: string;
   to: string;
+  /** Display name of the linked project. */
   project: string;
+  /** Durable link to the real project row. */
+  projectId: string;
   date: string;
   body: string;
   attachments: string[];
@@ -163,9 +167,11 @@ export default function CorrespondenceModule({ role }: { role: Role }) {
         setItems((prev) => [c, ...prev]);
         toast.success(`${c.id} created as draft`);
         try {
-          const saved = await api.createCorrespondence({ subject: c.subject, type: c.type, direction: c.direction, status: c.status, fromParty: c.from, toParty: c.to, project: c.project, date: c.date, body: c.body, attachments: c.attachments });
+          const saved = await api.createCorrespondence({ subject: c.subject, type: c.type, direction: c.direction, status: c.status, fromParty: c.from, toParty: c.to, project: c.project, projectId: c.projectId || null, date: c.date, body: c.body, attachments: c.attachments });
           setItems((prev) => prev.map((x) => x.id === c.id ? mapCorr(saved) : x));
-        } catch { /* offline — keep local */ }
+        } catch (e: any) {
+          toast.error(`Saved locally only — ${e?.message || "the server rejected it"}`, { duration: 8000 });
+        }
       }} />}
     </div>
   );
@@ -175,17 +181,20 @@ function NewCorrespondenceModal({ onClose, onCreate }: { onClose: () => void; on
   const [subject, setSubject] = useState("");
   const [type, setType] = useState<Correspondence["type"]>("Letter");
   const [to, setTo] = useState("");
-  const [project, setProject] = useState("Westside Tower");
+  // Real projects, replacing three hardcoded demo names.
+  const [project, setProject] = useState<{ id: string; name: string } | null>(null);
   const [body, setBody] = useState("");
 
   const PREFIX: Record<Correspondence["type"], string> = { Letter: "LTR", Submittal: "SUB", Transmittal: "TRN", Notice: "NTC" };
 
   const submit = () => {
     if (!subject.trim()) { toast.error("Subject is required"); return; }
+    if (!project) { toast.error("Select the project this correspondence relates to"); return; }
     onCreate({
       id: `${PREFIX[type]}-${String(Math.floor(Math.random() * 9000) + 1000).padStart(4, "0")}`,
       subject: subject.trim(), type, direction: "outgoing", status: "draft",
-      from: "Buildsasa Construction Ltd", to: to.trim() || "Unspecified recipient", project,
+      from: "Buildsasa Construction Ltd", to: to.trim() || "Unspecified recipient",
+      project: project.name, projectId: project.id,
       date: new Date().toISOString().slice(0, 10),
       body: body.trim(), attachments: [],
     });
@@ -205,9 +214,7 @@ function NewCorrespondenceModal({ onClose, onCreate }: { onClose: () => void; on
             <select value={type} onChange={(e) => setType(e.target.value as Correspondence["type"])} className="h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-2 text-[13px] text-white">
               <option>Letter</option><option>Submittal</option><option>Transmittal</option><option>Notice</option>
             </select>
-            <select value={project} onChange={(e) => setProject(e.target.value)} className="h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-2 text-[13px] text-white">
-              <option>Westside Tower</option><option>Riverside Mall</option><option>Hilltop Residences</option>
-            </select>
+            <ProjectSelect value={project?.id} onChange={setProject} />
           </div>
           <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="Recipient (e.g. Client, Architect)" className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
           <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Letter body…" rows={4} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-lg px-3 py-2 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A] resize-none" />

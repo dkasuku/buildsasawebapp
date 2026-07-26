@@ -4,7 +4,8 @@ import { Sparkles, Send, Square, Pencil, SquarePen, ClipboardList, Loader2, Chec
 import type { Role } from "./roles";
 import { ROLES } from "./roles";
 import { AI_GREETING, looksLikeFormRequest, inferTradeCategory, aiErrorText, type Msg, type AiFormDraft } from "./AiAssistantPanel";
-import api from "../../services/api";
+import api, { type ProjectOverviewDto } from "../../services/api";
+import { useProjects } from "./useProjects";
 
 function aiReply(q: string): string {
   const l = q.toLowerCase();
@@ -20,22 +21,79 @@ function aiReply(q: string): string {
   return "I'm Buildsasa AI, your construction assistant. I can help with safety, QA checklists, cost control, scheduling, and subcontractor management. What would you like to explore?";
 }
 
-function genFinancial(project: string, type: string) {
-  const base: Record<string, { budget: number; spent: number; cats: Record<string, number> }> = {
-    "Harborfront Tower": { budget: 12_500_000, spent: 8_200_000, cats: { Structural: 3_200_000, MEP: 2_100_000, Finishes: 1_400_000, External: 900_000, Preliminaries: 600_000 } },
-    "Midtown Medical": { budget: 8_750_000, spent: 4_100_000, cats: { Structural: 1_800_000, MEP: 1_200_000, Finishes: 600_000, External: 300_000, Preliminaries: 200_000 } },
-    "Riverside Plaza": { budget: 15_200_000, spent: 9_800_000, cats: { Structural: 3_800_000, MEP: 2_600_000, Finishes: 1_900_000, External: 1_100_000, Preliminaries: 400_000 } },
-    "Cedar Heights": { budget: 6_400_000, spent: 2_900_000, cats: { Structural: 1_100_000, MEP: 800_000, Finishes: 500_000, External: 300_000, Preliminaries: 200_000 } },
-    "Sunset Logistics": { budget: 4_200_000, spent: 1_800_000, cats: { Structural: 700_000, MEP: 500_000, Finishes: 300_000, External: 200_000, Preliminaries: 100_000 } },
-    "Crescent Bay Marina": { budget: 9_100_000, spent: 5_400_000, cats: { Structural: 2_100_000, MEP: 1_400_000, Finishes: 900_000, External: 600_000, Preliminaries: 400_000 } },
-  };
-  const d = base[project] || { budget: 5_000_000, spent: 2_500_000, cats: { Structural: 1_000_000, MEP: 700_000, Finishes: 500_000, External: 200_000, Preliminaries: 100_000 } };
-  const rem = d.budget - d.spent, pct = Math.round((d.spent / d.budget) * 100), mo = 9, burn = Math.round(d.spent / mo), fc = Math.round(d.spent + burn * (18 - mo)), v = fc - d.budget;
-  if (type === "summary") return { title: "Financial Summary", lines: [`Project: ${project}`, `Budget: KSh ${d.budget.toLocaleString()}`, `Spent: KSh ${d.spent.toLocaleString()} (${pct}%)`, `Remaining: KSh ${rem.toLocaleString()}`, `Forecast: KSh ${fc.toLocaleString()}`, `Variance: ${v >= 0 ? "Overrun" : "Under-run"} KSh ${Math.abs(v).toLocaleString()}`] };
-  if (type === "breakdown") return { title: "Cost Breakdown", lines: [`Project: ${project}`, ...Object.entries(d.cats).map(([c, v2]) => `${c}: KSh ${v2.toLocaleString()} (${Math.round((v2/d.spent)*100)}%)`)] };
-  const cash: string[] = [`Project: ${project}`, `Cash Flow (next 6 months):`];
-  for (let m = 1; m <= 6; m++) { const inflow = Math.round(burn * (0.9 + Math.random() * 0.3)), net = inflow - burn; cash.push(`Month +${m}: In KSh ${inflow.toLocaleString()} | Out KSh ${burn.toLocaleString()} | Net KSh ${net.toLocaleString()}`); }
-  return { title: "Cash Flow", lines: cash };
+// Build a financial report from the project's REAL figures.
+//
+// This used to be a lookup table of invented budgets keyed by demo project
+// names ("Harborfront Tower", …), with a random-number cash flow. Any project
+// the user had actually created missed the table entirely and silently got the
+// same fallback numbers — a plausible-looking report about nothing. Everything
+// below now comes from the project's own ledger, budget categories and invoices,
+// and where a figure genuinely isn't recorded yet the report says so.
+const KSH = (n: number) => `KSh ${Math.round(n).toLocaleString()}`;
+const USD_TO_KES = 130;
+
+function genFinancial(projectName: string, type: string, ov: ProjectOverviewDto) {
+  const f = ov.financials;
+  const budget = f.budget * USD_TO_KES;
+  const spent = f.actual * USD_TO_KES;
+  const cashIn = f.cashIn * USD_TO_KES;
+  const cashOut = f.cashOut * USD_TO_KES;
+  const header = `Project: ${projectName}`;
+
+  if (type === "summary") {
+    const lines = [header];
+    if (budget > 0) {
+      const pct = Math.round((spent / budget) * 100);
+      const variance = spent - budget;
+      lines.push(
+        `Budget: ${KSH(budget)}`,
+        `Spent to date: ${KSH(spent)} (${pct}% of budget)`,
+        `Remaining: ${KSH(budget - spent)}`,
+        `Position: ${variance > 0 ? `Over budget by ${KSH(variance)}` : `Under budget by ${KSH(Math.abs(variance))}`}`,
+      );
+    } else {
+      lines.push("Budget: not set — add cost categories in Financials to track budget vs. spend.");
+      if (spent > 0) lines.push(`Recorded spend: ${KSH(spent)}`);
+    }
+    lines.push(
+      `Cash in: ${KSH(cashIn)}`,
+      `Cash out: ${KSH(cashOut)}`,
+      `Net cash: ${KSH(cashIn - cashOut)}`,
+      `Committed to subcontracts: ${KSH(f.committed * USD_TO_KES)}`,
+      `Invoiced: ${KSH(f.invoicedTotal)} · unpaid ${KSH(f.invoicedUnpaid)}`,
+      `Change orders raised: ${ov.counts.changeOrders}`,
+    );
+    return { title: "Financial Summary", lines };
+  }
+
+  if (type === "breakdown") {
+    if (!f.expenses.length) {
+      return { title: "Cost Breakdown", lines: [header, "No cost categories recorded for this project yet.", "Add them in Financials and this breakdown will fill in."] };
+    }
+    const totalActual = f.expenses.reduce((s, e) => s + (Number(e.actualUSD) || 0), 0);
+    return {
+      title: "Cost Breakdown",
+      lines: [
+        header,
+        ...f.expenses.map((e) => {
+          const a = (Number(e.actualUSD) || 0) * USD_TO_KES;
+          const b = (Number(e.budgetUSD) || 0) * USD_TO_KES;
+          const share = totalActual > 0 ? Math.round(((Number(e.actualUSD) || 0) / totalActual) * 100) : 0;
+          return `${e.name}: ${KSH(a)} of ${KSH(b)} budget (${share}% of total spend)`;
+        }),
+        `Total: ${KSH(totalActual * USD_TO_KES)}`,
+      ],
+    };
+  }
+
+  // Cash flow: actuals only. A forecast invented from a random multiplier is
+  // worse than no forecast, so it is not produced here.
+  const lines = [header, `Cash in to date: ${KSH(cashIn)}`, `Cash out to date: ${KSH(cashOut)}`, `Net position: ${KSH(cashIn - cashOut)}`];
+  if (f.invoicedUnpaid > 0) lines.push(`Expected in from unpaid invoices: ${KSH(f.invoicedUnpaid)}`);
+  const outstanding = f.committed * USD_TO_KES - cashOut;
+  if (outstanding > 0) lines.push(`Committed but not yet paid: ${KSH(outstanding)}`);
+  if (cashIn === 0 && cashOut === 0) lines.push("No ledger entries recorded for this project yet — add them in Financials.");
+  return { title: "Cash Flow", lines };
 }
 
 // `messages`/`setMessages` are the SAME session state owned by App, so this
@@ -48,7 +106,11 @@ export default function BuildflexAI({ role, messages, setMessages, onOpenForm }:
   const askInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, askLoad]);
 
-  const [fProj, setFProj] = useState("Harborfront Tower"); const [fType, setFType] = useState<"summary"|"breakdown"|"cashflow">("summary"); const [fResult, setFResult] = useState<{title:string;lines:string[]}|null>(null);
+  // Real projects for the report picker; fProj holds the project ID.
+  const { projects: projectOptions } = useProjects();
+  const [fProj, setFProj] = useState(""); const [fType, setFType] = useState<"summary"|"breakdown"|"cashflow">("summary"); const [fResult, setFResult] = useState<{title:string;lines:string[]}|null>(null);
+  const [fLoading, setFLoading] = useState(false);
+  useEffect(() => { if (!fProj && projectOptions.length) setFProj(projectOptions[0].id); }, [projectOptions, fProj]);
 
   const askSend = async () => {
     const q = askIn.trim();
@@ -94,8 +156,23 @@ export default function BuildflexAI({ role, messages, setMessages, onOpenForm }:
   };
   const newChat = () => { askAbortRef.current?.abort(); setMessages([AI_GREETING]); setAskIn(""); };
 
-  const genFin = () => { setFResult(genFinancial(fProj,fType)); };
-  const exportFin = () => { if (!fResult) return; const blob=new Blob([[fResult.title,"",...fResult.lines].join("\n")],{type:"text/plain"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`report-${fProj.replace(/\s+/g,"-")}.txt`; a.click(); URL.revokeObjectURL(url); toast.success("Report downloaded"); };
+  const fProjName = projectOptions.find((p) => p.id === fProj)?.name ?? "";
+  // Fetch the project's actual financial position, then format it. The report is
+  // no longer generated from a hardcoded table.
+  const genFin = async () => {
+    if (!fProj) { toast.error("Pick a project for the report"); return; }
+    if (fLoading) return;
+    setFLoading(true);
+    try {
+      const ov = await api.getProjectOverview(fProj);
+      setFResult(genFinancial(fProjName || ov.project.name, fType, ov));
+    } catch (e: any) {
+      toast.error(`Could not build the report — ${e?.message || "unknown error"}`);
+    } finally {
+      setFLoading(false);
+    }
+  };
+  const exportFin = () => { if (!fResult) return; const blob=new Blob([[fResult.title,"",...fResult.lines].join("\n")],{type:"text/plain"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`report-${(fProjName || "project").replace(/\s+/g,"-")}.txt`; a.click(); URL.revokeObjectURL(url); toast.success("Report downloaded"); };
 
   const TIP = "text-[10px] px-2 py-1 rounded-md bg-[#0A0E14] border border-[#222A35] text-[#8A95A5] hover:text-white hover:border-[#FF6B1A]/40";
   const BTN = (t: string) => `h-9 px-3 text-[12px] flex items-center gap-1.5 ${tab===t?"bg-[#161C24] text-white":"text-[#8A95A5]"}`;
@@ -138,13 +215,13 @@ export default function BuildflexAI({ role, messages, setMessages, onOpenForm }:
       {tab==="financials"&& perms.financials && (
         <div className="space-y-5">
           <div className="rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden">
-            <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-[#222A35]"><div className="flex items-center gap-2 text-[13px] text-white font-display"><TrendingUp className="w-4 h-4 text-[#FF6B1A]" /> Financial Report Generator</div><div className="text-[11px] text-[#8A95A5] mt-0.5">Select a project and report type to generate a financial summary, cost breakdown, or cash flow projection.</div></div>
+            <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-[#222A35]"><div className="flex items-center gap-2 text-[13px] text-white font-display"><TrendingUp className="w-4 h-4 text-[#FF6B1A]" /> Financial Report Generator</div><div className="text-[11px] text-[#8A95A5] mt-0.5">Select one of your projects and a report type. Every figure is read from that project’s own ledger, budget categories and invoices.</div></div>
             <div className="p-4 sm:p-5 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Project</div><select value={fProj} onChange={e=>setFProj(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]">{"Harborfront Tower;Midtown Medical;Riverside Plaza;Cedar Heights;Sunset Logistics;Crescent Bay Marina".split(";").map(p=><option key={p}>{p}</option>)}</select></div>
-                <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Report Type</div><select value={fType} onChange={e=>setFType(e.target.value as any)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]"><option value="summary">Financial Summary</option><option value="breakdown">Cost Breakdown</option><option value="cashflow">Cash Flow Projection</option></select></div>
+                <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Project</div><select value={fProj} onChange={e=>setFProj(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]"><option value="">{projectOptions.length?"Select a project…":"No projects yet — create one first"}</option>{projectOptions.map(p=><option key={p.id} value={p.id}>{p.code?`${p.code} · ${p.name}`:p.name}</option>)}</select></div>
+                <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Report Type</div><select value={fType} onChange={e=>setFType(e.target.value as any)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]"><option value="summary">Financial Summary</option><option value="breakdown">Cost Breakdown</option><option value="cashflow">Cash Flow (actuals)</option></select></div>
               </div>
-              <button onClick={genFin} className="h-9 px-4 rounded-md bg-[#FF6B1A] text-white text-[12px] flex items-center gap-1.5 hover:bg-[#FF7E33]"><TrendingUp className="w-3.5 h-3.5" /> Generate Report</button>
+              <button onClick={genFin} disabled={fLoading||!fProj} className="h-9 px-4 rounded-md bg-[#FF6B1A] text-white text-[12px] flex items-center gap-1.5 hover:bg-[#FF7E33] disabled:opacity-50"><TrendingUp className="w-3.5 h-3.5" /> {fLoading?"Building report…":"Generate Report"}</button>
             </div>
           </div>
           {fResult&&(

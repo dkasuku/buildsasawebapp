@@ -168,11 +168,11 @@ export default function Inspections({ role = "Contractor" }: { role?: Role }) {
       setShowNew(false);
       setForm({ type: "quality", inspector: "", date: "", status: "draft", notes: "", photos: null, videos: null, readinessPhotos: null, assignedTo: null, templateId: null });
       toast.success("Inspection request created");
-    } catch {
-      const localRow: InspectionDto = { ...payload, id: `IN-${Date.now()}`, projectId, approvals: [], createdAt: new Date().toISOString() };
-      setInspections([localRow, ...inspections]);
-      setShowNew(false);
-      toast.success("Inspection request created (offline)");
+    } catch (e: any) {
+      // Previously this pushed a local-only row and reported success "(offline)",
+      // so a rejected save looked identical to a real one and the inspection was
+      // gone on the next reload. The dialog stays open with the entered values.
+      toast.error(`Inspection not created — ${e?.message || "the server rejected it"}`, { duration: 8000 });
     }
   };
 

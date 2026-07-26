@@ -7,6 +7,7 @@ import type { Role } from "./roles";
 import api from "../../services/api";
 import { ExpandableText } from "./ExpandableText";
 import { EmptyState } from "./EmptyState";
+import { useProjects } from "./useProjects";
 
 const parseJSON = (s: any) => { try { return s ? JSON.parse(s) : undefined; } catch { return undefined; } };
 const mapAnn = (r: any): Announcement => ({
@@ -40,13 +41,9 @@ type Announcement = {
   totalRecipients: number;
 };
 
-const PROJECTS = [
-  "HFT-21 · Harborfront Tower",
-  "MMC-14 · Midtown Medical",
-  "RSP-08 · Riverside Plaza",
-  "CHR-32 · Cedar Heights Residences",
-  "SLH-19 · Sunset Logistics Hub",
-];
+// Projects come from the workspace (see useProjects below). This was a hardcoded
+// list of demo names, so targeting an announcement at "a project" aimed it at one
+// that did not exist.
 
 const ALL_ROLES = Object.keys(ROLES) as Role[];
 
@@ -65,6 +62,8 @@ const PRIORITY_COLOR: Record<string, string> = {
 };
 
 export function Announcements() {
+  // The workspace's real projects, for targeting an announcement at one.
+  const { projects: projectOptions } = useProjects();
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [filter, setFilter] = useState<"all" | "pinned" | "urgent">("all");
   const [search, setSearch] = useState("");
@@ -75,7 +74,7 @@ export function Announcements() {
     body: "",
     priority: "normal" as Announcement["priority"],
     audience: "company" as Audience,
-    project: PROJECTS[0],
+    project: "",
     roles: [] as Role[],
     recipients: [] as string[],
     attachments: [] as { name: string; size: string }[],
@@ -155,6 +154,10 @@ export function Announcements() {
     if (!draft.title.trim() || !draft.body.trim()) return toast.error("Title and body are required");
     if (draft.audience === "role" && draft.roles.length === 0) return toast.error("Select at least one role");
     if (draft.audience === "people" && draft.recipients.length === 0) return toast.error("Select at least one person");
+    // The project dropdown legitimately starts unselected now that it lists real
+    // projects (it used to default to a hardcoded demo name), so a project-
+    // targeted announcement has to be checked or it would go out targeting nothing.
+    if (draft.audience === "project" && !draft.project) return toast.error("Select the project this announcement is for");
     const newAnn: Announcement = {
       id: `ann-${Date.now()}`,
       title: draft.title.trim(),
@@ -337,7 +340,8 @@ export function Announcements() {
                 <div>
                   <label className="text-[11px] text-[#8A95A5] block mb-1">Project</label>
                   <select value={draft.project} onChange={(e) => setDraft({ ...draft, project: e.target.value })} className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]">
-                    {PROJECTS.map((p) => <option key={p} value={p}>{p}</option>)}
+                    <option value="">{projectOptions.length ? "Select a project…" : "No projects yet"}</option>
+                    {projectOptions.map((p) => <option key={p.id} value={p.name}>{p.code ? `${p.code} · ${p.name}` : p.name}</option>)}
                   </select>
                 </div>
               )}

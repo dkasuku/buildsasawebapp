@@ -53,6 +53,15 @@ model Project {
   status    String
   progress  Int
   exposure  String?
+  // Free-text scope/brief shown on the project detail page. The form has always
+  // collected this; there was nowhere to put it, so it was dropped on save.
+  description String?
+  // Uploaded project photos as a JSON array of URLs, first entry = cover image.
+  // Also previously collected by the form and silently discarded, which is why
+  // attached images never appeared again after saving.
+  images    String?
+  startDate DateTime?
+  targetEndDate DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -160,10 +169,15 @@ model DailyLog {
   id        String   @id @default(cuid())
   workspaceId String?
   date      DateTime
+  // `crew` is the crew name as typed/selected; `crewId` links to the Crew row it
+  // came from, so the log stays attached to a real roster even if it is renamed.
   crew      String
+  crewId    String?
   headcount Int
   location  String
   notes     String
+  // Optional weather/site conditions — standard on a daily site record.
+  weather   String?
   project   Project  @relation(fields: [projectId], references: [id])
   projectId String
   createdAt DateTime @default(now())
@@ -858,7 +872,11 @@ model Observation {
   status      String   @default("open") // open | in_review | closed
   priority    String   @default("medium") // low | medium | high
   location    String?
+  // `project` is the display name; `projectId` is the durable link to the real
+  // Project row. Only the name was ever stored, so a rename orphaned the record
+  // and nothing could be looked up from it.
   project     String?
+  projectId   String?
   assignee    String?
   date        String?
   description String?
@@ -877,6 +895,7 @@ model CoordinationIssue {
   raisedBy    String?
   assignedTo  String?
   project     String?
+  projectId   String?
   date        String?
   description String?
   comments    String   @default("[]") // JSON array of { author, text, date }
@@ -893,6 +912,7 @@ model ActionPlan {
   due       String?
   status    String   @default("active") // active | completed | overdue
   project   String?
+  projectId String?
   items     String   @default("[]") // JSON array of { id, text, done }
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -908,6 +928,7 @@ model Correspondence {
   fromParty   String?
   toParty     String?
   project     String?
+  projectId   String?
   date        String?
   body        String?
   attachments String   @default("[]") // JSON array of strings
@@ -961,6 +982,7 @@ model Crew {
   trade     String?
   foreman   String?
   project   String?
+  projectId String?
   location  String?
   shift     String   @default("Day") // Day | Night
   status    String   @default("on_site") // on_site | off_site | on_leave

@@ -4,9 +4,11 @@ import { Plus, Search, X, UsersRound, HardHat, MapPin, Trash2, UserPlus, Chevron
 import type { Role } from "./roles";
 import api from "../../services/api";
 import { EmptyState } from "./EmptyState";
+import { ProjectSelect } from "./ProjectSelect";
 
 const mapCrew = (r: any): Crew => ({
   id: r.id, name: r.name, trade: r.trade || "", foreman: r.foreman || "", project: r.project || "",
+  projectId: r.projectId || "",
   location: r.location || "", shift: r.shift, status: r.status,
   members: (() => { try { return JSON.parse(r.members || "[]"); } catch { return []; } })(),
 });
@@ -17,7 +19,10 @@ type Crew = {
   name: string;
   trade: string;
   foreman: string;
+  /** Display name of the linked project. */
   project: string;
+  /** Durable link to the real project row. */
+  projectId: string;
   location: string;
   shift: "Day" | "Night";
   status: "on_site" | "off_site" | "on_leave";
@@ -181,9 +186,13 @@ export default function Crews({ role }: { role: Role }) {
         setExpanded((prev) => new Set(prev).add(c.id));
         toast.success(`Crew "${c.name}" created`);
         try {
-          const saved = await api.createCrew({ name: c.name, trade: c.trade, foreman: c.foreman, project: c.project, location: c.location, shift: c.shift, status: c.status, members: c.members });
+          const saved = await api.createCrew({ name: c.name, trade: c.trade, foreman: c.foreman, project: c.project, projectId: c.projectId || null, location: c.location, shift: c.shift, status: c.status, members: c.members });
           setCrews((prev) => prev.map((x) => x.id === c.id ? mapCrew(saved) : x));
-        } catch { /* offline — keep local */ }
+        } catch (e: any) {
+          // A crew that only exists locally cannot be picked in the Daily Log,
+          // so a failed save has to be visible, not silent.
+          toast.error(`Crew not saved to the server — ${e?.message || "unknown error"}`, { duration: 8000 });
+        }
       }} />}
     </div>
   );
@@ -193,16 +202,19 @@ function NewCrewModal({ onClose, onCreate }: { onClose: () => void; onCreate: (c
   const [name, setName] = useState("");
   const [trade, setTrade] = useState("");
   const [foreman, setForeman] = useState("");
-  const [project, setProject] = useState("Westside Tower");
+  // Real projects, not the three demo names that used to be hardcoded here.
+  const [project, setProject] = useState<{ id: string; name: string } | null>(null);
   const [location, setLocation] = useState("");
   const [shift, setShift] = useState<Crew["shift"]>("Day");
 
   const submit = () => {
     if (!name.trim()) { toast.error("Crew name is required"); return; }
+    if (!project) { toast.error("Select the project this crew works on"); return; }
     onCreate({
       id: `CRW-${String(Math.floor(Math.random() * 90) + 10)}`,
       name: name.trim(), trade: trade.trim() || "General", foreman: foreman.trim() || "Unassigned",
-      project, location: location.trim() || "Unassigned", shift, status: "off_site", members: [],
+      project: project.name, projectId: project.id,
+      location: location.trim() || "Unassigned", shift, status: "off_site", members: [],
     });
     onClose();
   };
@@ -221,9 +233,7 @@ function NewCrewModal({ onClose, onCreate }: { onClose: () => void; onCreate: (c
             <input value={foreman} onChange={(e) => setForeman(e.target.value)} placeholder="Foreman" className="h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <select value={project} onChange={(e) => setProject(e.target.value)} className="h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-2 text-[13px] text-white">
-              <option>Westside Tower</option><option>Riverside Mall</option><option>Hilltop Residences</option>
-            </select>
+            <ProjectSelect value={project?.id} onChange={setProject} />
             <select value={shift} onChange={(e) => setShift(e.target.value as Crew["shift"])} className="h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-2 text-[13px] text-white">
               <option>Day</option><option>Night</option>
             </select>

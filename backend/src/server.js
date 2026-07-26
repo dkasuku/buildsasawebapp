@@ -77,15 +77,39 @@ const uploadStorage = multer.diskStorage({
   destination: UPLOAD_DIR,
   filename: (_req, file, cb) => cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${path.extname(file.originalname || '')}`),
 });
-const upload = multer({ storage: uploadStorage });
+// Cap the request size explicitly. Without a limit multer accepts anything, and
+// a phone photo burst or a 300MB drawing set would be accepted, buffered, and
+// then die halfway with a socket error the browser reports only as "network
+// error". A stated limit produces a clear, actionable message instead.
+const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 100);
+const upload = multer({ storage: uploadStorage, limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024, files: 25 } });
 // Multer reports storage failures (read-only filesystem, disk full, bad path) to
 // the Express error handler, which answers with an HTML page — so the browser
 // could only ever show a generic "Upload failed". Wrap it to return the real
 // reason as JSON, and log it, so a broken upload is diagnosable from the client.
+const multerMessage = (err) => {
+  if (!err) return 'Upload failed';
+  if (err.code === 'LIMIT_FILE_SIZE') return `That file is larger than the ${MAX_UPLOAD_MB}MB limit`;
+  if (err.code === 'LIMIT_FILE_COUNT') return 'Too many files in one request — upload them in smaller batches';
+  if (err.code === 'LIMIT_UNEXPECTED_FILE') return `Unexpected form field "${err.field}" — expected the file under "file"`;
+  if (err.code === 'ENOENT' || err.code === 'EACCES' || err.code === 'EROFS') {
+    return `The server cannot write to its upload directory (${UPLOAD_DIR}). Configure S3_BUCKET or point UPLOAD_DIR at a writable volume.`;
+  }
+  return err.message || 'Upload failed';
+};
 const singleFile = (field) => (req, res, next) => upload.single(field)(req, res, (err) => {
   if (err) {
     console.error(`[upload] ${field} failed:`, (err && (err.stack || err.message)) || err);
-    return res.status(400).json({ error: (err && err.message) || 'Upload failed' });
+    return res.status(400).json({ error: multerMessage(err) });
+  }
+  return next();
+});
+// Same wrapper for batch uploads. `file` is accepted as well as `files` so a
+// single endpoint serves both the one-at-a-time and the multi-select callers.
+const manyFiles = (field) => (req, res, next) => upload.array(field, 25)(req, res, (err) => {
+  if (err) {
+    console.error(`[upload] ${field}[] failed:`, (err && (err.stack || err.message)) || err);
+    return res.status(400).json({ error: multerMessage(err) });
   }
   return next();
 });
@@ -142,7 +166,26 @@ if (ALLOWED_ORIGINS.length) {
 }
 app.use(express.json());
 // Serve locally-uploaded files (used when S3/R2 is not configured).
-app.use('/uploads', express.static(UPLOAD_DIR));
+// crossOriginResourcePolicy is relaxed because the frontend is served from a
+// different origin than the API — without it some browsers refuse to paint the
+// image and the upload looks like it failed. A long immutable cache is safe:
+// stored filenames are unique per upload and never rewritten.
+app.use('/uploads', express.static(UPLOAD_DIR, {
+  maxAge: '365d',
+  immutable: true,
+  setHeaders: (res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  },
+}));
+// Make sure the directory exists at boot rather than at first upload, so a
+// misconfigured/read-only volume is reported in the deploy logs instead of
+// surfacing later as a mysterious failed upload.
+try {
+  require('fs').mkdirSync(UPLOAD_DIR, { recursive: true });
+} catch (e) {
+  console.error(`[upload] CANNOT CREATE upload dir ${UPLOAD_DIR}:`, (e && e.message) || e);
+}
 // Say plainly at boot where uploads land — this is the first thing worth knowing
 // when files upload "successfully" but later cannot be found.
 if (s3) {
@@ -625,39 +668,203 @@ app.delete('/api/users/:id', auth, async (req, res) => {
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
 // Projects
+//
+// `images` is stored as a JSON array of URLs in a text column but is exposed to
+// the client as a real array, so no caller has to know about the encoding. A
+// legacy row holding a single bare URL still parses to a one-item array rather
+// than blowing up.
+const parseImages = (raw) => {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.filter((u) => typeof u === 'string' && u);
+    return typeof parsed === 'string' && parsed ? [parsed] : [];
+  } catch { return typeof raw === 'string' && raw ? [raw] : []; }
+};
+// Never persist an in-browser blob:/data: URL. It renders once in the tab that
+// created it and is dead everywhere else, so storing one produces a permanently
+// broken image that looks exactly like a lost upload.
+const serializeImages = (value) => {
+  const arr = Array.isArray(value) ? value : parseImages(value);
+  const durable = arr.filter((u) => typeof u === 'string' && u && !/^(blob:|data:)/i.test(u));
+  return durable.length ? JSON.stringify(durable) : null;
+};
+const projectDto = (p) => ({
+  ...p,
+  images: parseImages(p.images),
+  changeOrderCount: p._count?.changeOrders ?? p.changeOrderCount ?? 0,
+});
+
 app.get('/api/projects', auth, async (_req, res) => {
   try {
-    const projects = await prisma.project.findMany({ include: { assignments: true, _count: { select: { changeOrders: true } } } });
-    res.json((projects || []).map((p) => ({ ...p, changeOrderCount: p._count?.changeOrders ?? 0 })));
+    const projects = await prisma.project.findMany({
+      include: { assignments: true, _count: { select: { changeOrders: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json((projects || []).map(projectDto));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// A single project with everything the detail page needs, in one round trip.
+app.get('/api/projects/:projectId', auth, async (req, res) => {
+  try {
+    const p = await prisma.project.findUnique({
+      where: { id: req.params.projectId },
+      include: { assignments: true, _count: { select: { changeOrders: true } } },
+    });
+    if (!p) return res.status(404).json({ error: 'Project not found' });
+    res.json(projectDto(p));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/projects', auth, async (req, res) => {
   try {
-    const { code, name, city, lat, lng, value, status, progress, exposure } = req.body;
-    const project = await prisma.project.create({ data: { code, name, city, lat: lat != null ? Number(lat) : undefined, lng: lng != null ? Number(lng) : undefined, value, status, progress, exposure } });
-    res.json(project);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    const { code, name, city, lat, lng, value, status, progress, exposure, description, images, startDate, targetEndDate } = req.body;
+    if (!name || !String(name).trim()) return res.status(400).json({ error: 'Project name is required' });
+    const data = {
+      code, name, city: city || '—', value: value || '', status: status || 'Planning',
+      progress: Number(progress) || 0, exposure, description: description || null,
+      images: serializeImages(images),
+    };
+    if (lat != null) data.lat = Number(lat);
+    if (lng != null) data.lng = Number(lng);
+    if (startDate) data.startDate = new Date(startDate);
+    if (targetEndDate) data.targetEndDate = new Date(targetEndDate);
+    const project = await prisma.project.create({ data });
+    res.json(projectDto(project));
+  } catch (e) {
+    // A duplicate code is a user-fixable mistake, not a server fault — say which
+    // field clashed instead of returning an opaque 500 the UI then swallows.
+    if (e.code === 'P2002') return res.status(409).json({ error: `A project with code "${req.body?.code}" already exists — pick a different code` });
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.put('/api/projects/:projectId', auth, async (req, res) => {
   try {
-    const { code, name, city, lat, lng, value, status, progress, exposure } = req.body;
-    const data = { code, name, city, value, status, progress, exposure };
+    const { code, name, city, lat, lng, value, status, progress, exposure, description, images, startDate, targetEndDate } = req.body;
+    // Only assign what the caller actually sent. A blanket assignment wiped
+    // fields that were merely absent from a partial update.
+    const data = {};
+    for (const [k, v] of Object.entries({ code, name, city, value, status, exposure })) {
+      if (v !== undefined) data[k] = v;
+    }
+    if (progress !== undefined) data.progress = Number(progress) || 0;
+    if (description !== undefined) data.description = description || null;
+    if (images !== undefined) data.images = serializeImages(images);
     if (lat !== undefined) data.lat = lat != null ? Number(lat) : null;
     if (lng !== undefined) data.lng = lng != null ? Number(lng) : null;
-    const project = await prisma.project.update({
-      where: { id: req.params.projectId },
-      data,
-    });
-    res.json(project);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    if (startDate !== undefined) data.startDate = startDate ? new Date(startDate) : null;
+    if (targetEndDate !== undefined) data.targetEndDate = targetEndDate ? new Date(targetEndDate) : null;
+    const project = await prisma.project.update({ where: { id: req.params.projectId }, data });
+    res.json(projectDto(project));
+  } catch (e) {
+    if (e.code === 'P2002') return res.status(409).json({ error: `A project with code "${req.body?.code}" already exists — pick a different code` });
+    if (e.code === 'P2025') return res.status(404).json({ error: 'Project not found' });
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.delete('/api/projects/:projectId', auth, async (req, res) => {
   try {
     await prisma.project.delete({ where: { id: req.params.projectId } });
     res.json({ ok: true });
+  } catch (e) {
+    if (e.code === 'P2025') return res.status(404).json({ error: 'Project not found' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Everything the project detail dashboard needs, aggregated server-side.
+// Doing this in one request instead of a dozen from the browser keeps the page
+// fast on a site connection, and every count is derived from real rows rather
+// than being estimated in the UI. Each section degrades to empty/zero on its own
+// so one failing table can't blank the whole dashboard.
+app.get('/api/projects/:projectId/overview', auth, async (req, res) => {
+  const projectId = req.params.projectId;
+  const safe = async (fn, fallback) => { try { return await fn(); } catch { return fallback; } };
+  try {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: { assignments: true, _count: { select: { changeOrders: true } } },
+    });
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const [
+      schedule, drawings, dailyLogs, punchItems, changeOrders, inspections,
+      safetyIncidents, checklists, documents, expenses, ledger, commitments,
+      invoices, crews, equipment,
+    ] = await Promise.all([
+      safe(() => prisma.scheduleItem.findMany({ where: { projectId }, orderBy: { startDate: 'asc' } }), []),
+      safe(() => prisma.drawing.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 12 }), []),
+      safe(() => prisma.dailyLog.findMany({ where: { projectId }, orderBy: { date: 'desc' }, take: 10 }), []),
+      safe(() => prisma.punchItem.findMany({ where: { projectId } }), []),
+      safe(() => prisma.changeOrder.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 10 }), []),
+      safe(() => prisma.inspection.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 10 }), []),
+      safe(() => prisma.safetyIncident.findMany({ where: { projectId }, orderBy: { date: 'desc' }, take: 10 }), []),
+      safe(() => prisma.checklist.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 10 }), []),
+      // `updated` is a display string, not a date — order by the real timestamp.
+      safe(() => prisma.document.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 10 }), []),
+      safe(() => prisma.expenseCategory.findMany({ where: { projectId } }), []),
+      safe(() => prisma.ledgerEntry.findMany({ where: { projectId }, orderBy: { date: 'desc' } }), []),
+      safe(() => prisma.commitment.findMany({ where: { projectId } }), []),
+      safe(() => prisma.invoice.findMany({ where: { projectId }, orderBy: { issueDate: 'desc' } }), []),
+      // Crews link by projectId now, but rows created before that column existed
+      // only carry the project name — match either so nothing is missed.
+      safe(() => prisma.crew.findMany({ where: { OR: [{ projectId }, { project: project.name }] } }), []),
+      safe(() => prisma.equipment.findMany({ where: { projectId } }), []),
+    ]);
+
+    const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+    const cashIn = ledger.filter((l) => l.type === 'in').reduce((s, l) => s + num(l.amountUSD), 0);
+    const cashOut = ledger.filter((l) => l.type === 'out').reduce((s, l) => s + num(l.amountUSD), 0);
+    // Schedule-weighted completion. Falls back to the manually-entered project
+    // progress when there is no schedule yet, so the figure is never a blank.
+    const scheduleProgress = schedule.length
+      ? Math.round(schedule.reduce((s, i) => s + num(i.percent), 0) / schedule.length)
+      : null;
+    const today = new Date();
+    const openPunch = punchItems.filter((p) => !['closed', 'resolved', 'Closed', 'Resolved'].includes(p.status)).length;
+
+    res.json({
+      project: projectDto(project),
+      progress: {
+        reported: num(project.progress),
+        schedule: scheduleProgress,
+        scheduleItems: schedule.length,
+        milestonesDone: schedule.filter((i) => i.type === 'milestone' && num(i.percent) >= 100).length,
+        milestonesTotal: schedule.filter((i) => i.type === 'milestone').length,
+        overdueItems: schedule.filter((i) => i.endDate && new Date(i.endDate) < today && num(i.percent) < 100).length,
+        blockedItems: schedule.filter((i) => i.status === 'blocked').length,
+      },
+      counts: {
+        drawings: await safe(() => prisma.drawing.count({ where: { projectId } }), drawings.length),
+        dailyLogs: await safe(() => prisma.dailyLog.count({ where: { projectId } }), dailyLogs.length),
+        punchTotal: punchItems.length,
+        punchOpen: openPunch,
+        changeOrders: project._count?.changeOrders ?? changeOrders.length,
+        inspections: inspections.length,
+        safetyIncidents: safetyIncidents.length,
+        checklists: checklists.length,
+        documents: documents.length,
+        commitments: commitments.length,
+        invoices: invoices.length,
+        equipment: equipment.length,
+        crews: crews.length,
+      },
+      financials: {
+        cashIn, cashOut, net: cashIn - cashOut,
+        budget: expenses.reduce((s, e) => s + num(e.budgetUSD), 0),
+        actual: expenses.reduce((s, e) => s + num(e.actualUSD), 0),
+        committed: commitments.reduce((s, c) => s + num(c.contractValue), 0),
+        invoicedTotal: invoices.reduce((s, i) => s + num(i.amount), 0),
+        invoicedUnpaid: invoices.filter((i) => i.status !== 'paid').reduce((s, i) => s + num(i.amount), 0),
+        expenses,
+      },
+      schedule: schedule.slice(0, 40),
+      recent: { drawings, dailyLogs, changeOrders, inspections, safetyIncidents, checklists, documents, invoices },
+      team: project.assignments || [],
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -807,17 +1014,37 @@ app.get('/api/projects/:projectId/daily-log', auth, async (req, res) => {
 });
 app.post('/api/projects/:projectId/daily-log', auth, async (req, res) => {
   try {
-    const { date, crew, headcount, location, notes } = req.body;
-    const row = await prisma.dailyLog.create({ data: { date: new Date(date), crew, headcount: Number(headcount), location, notes, projectId: req.params.projectId } });
+    const { date, crew, crewId, headcount, location, notes, weather } = req.body;
+    if (!crew || !String(crew).trim()) return res.status(400).json({ error: 'Pick a crew for this log' });
+    // An absent/invalid date used to become `Invalid Date` and be rejected by
+    // Postgres with an opaque error; default to today instead.
+    const when = date ? new Date(date) : new Date();
+    const row = await prisma.dailyLog.create({
+      data: {
+        date: isNaN(when.getTime()) ? new Date() : when,
+        crew, crewId: crewId || null, headcount: Number(headcount) || 0,
+        location: location || '', notes: notes || '', weather: weather || null,
+        projectId: req.params.projectId,
+      },
+    });
     res.json(row);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put('/api/projects/:projectId/daily-log/:id', auth, async (req, res) => {
   try {
-    const { date, crew, headcount, location, notes } = req.body;
-    const row = await prisma.dailyLog.update({ where: { id: req.params.id }, data: { date: new Date(date), crew, headcount: Number(headcount), location, notes } });
+    const { date, crew, crewId, headcount, location, notes, weather } = req.body;
+    const data = {};
+    if (date !== undefined) { const w = new Date(date); if (!isNaN(w.getTime())) data.date = w; }
+    for (const [k, v] of Object.entries({ crew, crewId, location, notes, weather })) {
+      if (v !== undefined) data[k] = v;
+    }
+    if (headcount !== undefined) data.headcount = Number(headcount) || 0;
+    const row = await prisma.dailyLog.update({ where: { id: req.params.id }, data });
     res.json(row);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    if (e.code === 'P2025') return res.status(404).json({ error: 'Daily log not found' });
+    res.status(500).json({ error: e.message });
+  }
 });
 app.delete('/api/projects/:projectId/daily-log/:id', auth, async (req, res) => {
   try {
@@ -1539,32 +1766,75 @@ app.delete('/api/documents/:id', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// File upload stub (local). Replace with S3 presign in production.
-app.post('/api/upload', auth, singleFile('file'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No file' });
+// The absolute, browser-loadable URL for a locally-stored file. Returning a
+// bare "/uploads/x.jpg" made every caller responsible for prefixing the API
+// origin, and the ones that forgot produced a path resolved against the
+// FRONTEND origin — a 404 that looked exactly like "the upload did nothing".
+// PUBLIC_API_URL wins when set (custom domain / proxy in front of the API);
+// otherwise the request's own host is correct by construction.
+const localFileUrl = (req, filename) => {
+  const base = process.env.PUBLIC_API_URL
+    ? String(process.env.PUBLIC_API_URL).replace(/\/$/, '')
+    : `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.get('host')}`;
+  return `${base}/uploads/${filename}`;
+};
+
+// Store one staged multer file and return its public URL. Shared by the single
+// and batch endpoints so both behave identically.
+async function storeUploadedFile(req, file) {
+  const fs = require('fs');
   // With object storage configured the browser never talks to the bucket: multer
   // stages the file on disk, this forwards it, and the temp copy is deleted. No
   // bucket CORS policy is needed, and nothing durable is left on the container
   // filesystem — which a deploy would wipe anyway.
   if (s3) {
-    const fs = require('fs');
-    const Key = storageKeyFor(req.file.originalname);
+    const Key = storageKeyFor(file.originalname);
     try {
       await s3.putObject({
         Bucket: process.env.S3_BUCKET,
         Key,
-        Body: fs.createReadStream(req.file.path),
-        ContentType: req.file.mimetype || 'application/octet-stream',
+        Body: fs.createReadStream(file.path),
+        ContentType: file.mimetype || 'application/octet-stream',
       }).promise();
-      return res.json({ url: publicUrlFor(Key), key: Key });
-    } catch (e) {
-      console.error('[upload] object storage put failed:', (e && e.code) || '', (e && e.message) || e);
-      return res.status(502).json({ error: `Storage upload failed: ${(e && e.message) || 'unknown error'}` });
+      return { url: publicUrlFor(Key), key: Key, name: file.originalname, size: file.size, type: file.mimetype };
     } finally {
-      fs.unlink(req.file.path, () => {});
+      fs.unlink(file.path, () => {});
     }
   }
-  res.json({ url: `/uploads/${req.file.filename}` });
+  // Local disk. Confirm the bytes actually landed — a silent write failure here
+  // is the difference between a working URL and a 404 discovered days later.
+  if (!fs.existsSync(file.path)) throw new Error('the file was not written to disk');
+  return { url: localFileUrl(req, file.filename), key: file.filename, name: file.originalname, size: file.size, type: file.mimetype };
+}
+
+app.post('/api/upload', auth, singleFile('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file was received — the form field must be named "file"' });
+  try {
+    const stored = await storeUploadedFile(req, req.file);
+    res.json(stored);
+  } catch (e) {
+    console.error('[upload] store failed:', (e && e.code) || '', (e && e.message) || e);
+    res.status(502).json({ error: `Could not store ${req.file.originalname}: ${(e && e.message) || 'unknown error'}` });
+  }
+});
+
+// Batch upload. One request instead of N means a multi-photo pick from a phone
+// is a single round trip, and a partial failure is reported per file rather than
+// aborting the whole set.
+app.post('/api/upload/batch', auth, manyFiles('file'), async (req, res) => {
+  const files = req.files || [];
+  if (!files.length) return res.status(400).json({ error: 'No files were received — the form field must be named "file"' });
+  const uploaded = [];
+  const failed = [];
+  for (const f of files) {
+    try { uploaded.push(await storeUploadedFile(req, f)); }
+    catch (e) {
+      console.error('[upload] store failed:', (e && e.message) || e);
+      failed.push({ name: f.originalname, error: (e && e.message) || 'unknown error' });
+    }
+  }
+  if (!uploaded.length) return res.status(502).json({ error: `No file could be stored: ${failed.map((f) => `${f.name} (${f.error})`).join(', ')}`, failed });
+  res.json({ uploaded, failed });
 });
 
 // S3 presign endpoint (use when S3_BUCKET is configured)
@@ -3793,8 +4063,13 @@ function crudRoutes(path, model, fields, jsonFields = []) {
     }
     return data;
   };
-  app.get(`/api/${path}`, auth, async (_req, res) => {
-    try { res.json((await prisma[model].findMany({ orderBy: { createdAt: 'desc' } })) || []); }
+  app.get(`/api/${path}`, auth, async (req, res) => {
+    try {
+      // ?projectId= scopes the list to one project, which is what the project
+      // detail page needs. Absent, it lists everything as before.
+      const where = req.query.projectId && fields.includes('projectId') ? { projectId: String(req.query.projectId) } : {};
+      res.json((await prisma[model].findMany({ where, orderBy: { createdAt: 'desc' } })) || []);
+    }
     catch (e) { res.status(500).json({ error: e.message }); }
   });
   app.post(`/api/${path}`, auth, async (req, res) => {
@@ -3811,16 +4086,18 @@ function crudRoutes(path, model, fields, jsonFields = []) {
   });
 }
 
+// `projectId` is whitelisted alongside `project` on every module that links to
+// one, so the record keeps a real reference and not just a display name.
 crudRoutes('observations', 'observation',
-  ['title', 'type', 'status', 'priority', 'location', 'project', 'assignee', 'date', 'description', 'photos']);
+  ['title', 'type', 'status', 'priority', 'location', 'project', 'projectId', 'assignee', 'date', 'description', 'photos']);
 crudRoutes('coordination-issues', 'coordinationIssue',
-  ['title', 'type', 'status', 'priority', 'raisedBy', 'assignedTo', 'project', 'date', 'description', 'comments'], ['comments']);
+  ['title', 'type', 'status', 'priority', 'raisedBy', 'assignedTo', 'project', 'projectId', 'date', 'description', 'comments'], ['comments']);
 crudRoutes('action-plans', 'actionPlan',
-  ['title', 'source', 'owner', 'due', 'status', 'project', 'items'], ['items']);
+  ['title', 'source', 'owner', 'due', 'status', 'project', 'projectId', 'items'], ['items']);
 crudRoutes('correspondence', 'correspondence',
-  ['subject', 'type', 'direction', 'status', 'fromParty', 'toParty', 'project', 'date', 'body', 'attachments'], ['attachments']);
+  ['subject', 'type', 'direction', 'status', 'fromParty', 'toParty', 'project', 'projectId', 'date', 'body', 'attachments'], ['attachments']);
 crudRoutes('crews', 'crew',
-  ['name', 'trade', 'foreman', 'project', 'location', 'shift', 'status', 'members'], ['members']);
+  ['name', 'trade', 'foreman', 'project', 'projectId', 'location', 'shift', 'status', 'members'], ['members']);
 crudRoutes('work-tasks', 'workTask',
   ['title', 'description', 'trade', 'assignees', 'priority', 'status', 'dueDate', 'projectId', 'createdById'], ['assignees']);
 crudRoutes('directory-contacts', 'directoryContact',

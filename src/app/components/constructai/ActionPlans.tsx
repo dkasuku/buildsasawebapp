@@ -4,10 +4,11 @@ import { Plus, Search, X, ClipboardCheck, CheckCircle2, Circle, Trash2, Calendar
 import type { Role } from "./roles";
 import api from "../../services/api";
 import { EmptyState } from "./EmptyState";
+import { ProjectSelect } from "./ProjectSelect";
 
 const mapPlan = (r: any): ActionPlan => ({
   id: r.id, title: r.title, source: r.source || "", owner: r.owner || "", due: r.due || "",
-  status: r.status, project: r.project || "",
+  status: r.status, project: r.project || "", projectId: r.projectId || "",
   items: (() => { try { return JSON.parse(r.items || "[]"); } catch { return []; } })(),
 });
 
@@ -19,7 +20,10 @@ type ActionPlan = {
   owner: string;
   due: string;
   status: "active" | "completed" | "overdue";
+  /** Display name of the linked project. */
   project: string;
+  /** Durable link to the real project row. */
+  projectId: string;
   items: PlanItem[];
 };
 
@@ -145,10 +149,14 @@ export default function ActionPlans({ role }: { role: Role }) {
         setExpanded(p.id);
         toast.success(`Action plan ${p.id} created`);
         try {
-          const saved = await api.createActionPlan({ title: p.title, source: p.source, owner: p.owner, due: p.due, status: p.status, project: p.project, items: p.items });
+          const saved = await api.createActionPlan({ title: p.title, source: p.source, owner: p.owner, due: p.due, status: p.status, project: p.project, projectId: p.projectId || null, items: p.items });
           setPlans((prev) => prev.map((x) => x.id === p.id ? mapPlan(saved) : x));
           setExpanded((e) => e === p.id ? saved.id : e);
-        } catch { /* offline — keep local */ }
+        } catch (e: any) {
+          // The card stays on screen but the plan was NOT saved — say so rather
+          // than leaving a row that vanishes on the next reload.
+          toast.error(`Saved locally only — ${e?.message || "the server rejected it"}`, { duration: 8000 });
+        }
       }} />}
     </div>
   );
@@ -158,19 +166,23 @@ function NewPlanModal({ onClose, onCreate }: { onClose: () => void; onCreate: (p
   const [title, setTitle] = useState("");
   const [owner, setOwner] = useState("");
   const [due, setDue] = useState("");
-  const [project, setProject] = useState("Westside Tower");
+  // The project dropdown used to be three hardcoded demo names, so whatever you
+  // picked was saved as a project that did not exist. It now lists the real ones.
+  const [project, setProject] = useState<{ id: string; name: string } | null>(null);
   const [source, setSource] = useState("");
   const [steps, setSteps] = useState<string[]>([""]);
 
   const submit = () => {
     if (!title.trim()) { toast.error("Title is required"); return; }
+    if (!project) { toast.error("Select a project for this plan"); return; }
     const items = steps.map((s, i) => ({ id: `i${i + 1}`, text: s.trim(), done: false })).filter((i) => i.text);
     if (items.length === 0) { toast.error("Add at least one step"); return; }
     onCreate({
       id: `AP-${200 + Math.floor(Math.random() * 800)}`,
       title: title.trim(), owner: owner.trim() || "Unassigned",
       due: due || new Date().toISOString().slice(0, 10),
-      status: "active", project, source: source.trim() || "Manual", items,
+      status: "active", project: project.name, projectId: project.id,
+      source: source.trim() || "Manual", items,
     });
     onClose();
   };
@@ -189,9 +201,7 @@ function NewPlanModal({ onClose, onCreate }: { onClose: () => void; onCreate: (p
             <input type="date" value={due} onChange={(e) => setDue(e.target.value)} className="h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <select value={project} onChange={(e) => setProject(e.target.value)} className="h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-2 text-[13px] text-white">
-              <option>Westside Tower</option><option>Riverside Mall</option><option>Hilltop Residences</option>
-            </select>
+            <ProjectSelect value={project?.id} onChange={setProject} />
             <input value={source} onChange={(e) => setSource(e.target.value)} placeholder="Source (e.g. OBS-102)" className="h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
           </div>
           <div className="text-[11px] text-[#8A95A5]">Steps</div>

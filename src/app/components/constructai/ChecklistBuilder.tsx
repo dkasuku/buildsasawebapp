@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Plus, Trash2, UploadCloud, FileSpreadsheet, Check, Clock, Users, ChevronDown, AlertCircle, Loader2, ClipboardList } from "lucide-react";
 import { toast } from "sonner";
 import { ROLE_COLORS } from "./roles";
+import type { Role } from "./roles";
 import { TEAM_MEMBERS, getMember, getMemberColor, getMemberInitials } from "./team-data";
 import { useTeam, resolveName } from "./useTeam";
 
@@ -281,7 +282,7 @@ export function ChecklistBuilder({
                                 }}
                                 className="w-full text-left px-3 py-2 hover:bg-[#161C24] flex items-center gap-2 border-b border-[#222A35]/40 last:border-0"
                               >
-                                <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[9px] font-medium shrink-0" style={{ background: ROLE_COLORS[m.role] }}>
+                                <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[9px] font-medium shrink-0" style={{ background: ROLE_COLORS[m.role as Role] ?? "#5B6675" }}>
                                   {m.initials}
                                 </div>
                                 <div className="flex-1 min-w-0">

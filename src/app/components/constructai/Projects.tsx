@@ -5,7 +5,10 @@ import { MapPicker } from "./MapPicker";
 import { EmptyState } from "./EmptyState";
 import { ImageLightbox } from "./ImageLightbox";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
-import api from "../../services/api";
+import { useFileUpload } from "./useFileUpload";
+import { UploadTray } from "./UploadTray";
+import { refreshProjects } from "./useProjects";
+import api, { absoluteFileUrl } from "../../services/api";
 import type { View } from "./Sidebar";
 import type { Role } from "./roles";
 import { ROLES } from "./roles";
@@ -146,7 +149,22 @@ const CURRENCY_TO_KES: Record<string, number> = {
   "AED": 35,
 };
 
-export function Projects({ setView, role = "Contractor" }: { setView: (v: View) => void; role?: Role }) {
+export function Projects({
+  setView,
+  role = "Contractor",
+  onOpenProject,
+  openEditProjectId,
+  onConsumeEditProjectId,
+}: {
+  setView: (v: View) => void;
+  role?: Role;
+  /** Drill into the per-project dashboard. */
+  onOpenProject?: (projectId: string) => void;
+  /** Open the edit dialog for this project once the list has loaded (used when
+   *  returning from the detail page's "Edit project"). */
+  openEditProjectId?: string | null;
+  onConsumeEditProjectId?: () => void;
+}) {
   const showFin = ROLES[role].financials;
   const { currency } = useCurrency();
   const [tab, setTab] = useState("All");
@@ -164,40 +182,79 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [form, setForm] = useState<ProjectForm>({ name: "", code: "", city: "", lat: null, lng: null, description: "", value: "", status: "Planning", progress: 0, changeOrders: 0, exposureCurrency: "KSh", exposureAmount: "0", images: [], pm: "None", architect: "None", qs: "None", checklist: { items: [] } });
   const [editForm, setEditForm] = useState<ProjectForm | null>(null);
+  // Uploads for the New and Edit dialogs. Each appends only the URLs that
+  // actually stored, so a partial failure keeps the successful images.
+  const newImages = useFileUpload({
+    onUploaded: (urls) => setForm((s) => ({ ...s, images: [...s.images, ...urls] })),
+  });
+  const editImages = useFileUpload({
+    onUploaded: (urls) => setEditForm((s) => (s ? { ...s, images: [...s.images, ...urls] } : s)),
+  });
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     details: true, progress: true, team: true, images: true, checklist: false,
   });
   // Tracks whether the backend has responded — lets us tell a genuinely empty
   // workspace (show empty state) apart from "backend offline" (keep seed demo).
   const [apiLoaded, setApiLoaded] = useState(false);
-  // Load projects from API (fallback to seed on error)
-  useEffect(() => {
-    api.getProjects().then((data) => {
+  // Map a backend row to the card model. `id` is carried through — it was
+  // dropped before, which left every loaded project without one, so edit and
+  // delete fell back to matching on `code` and any code change silently created
+  // a second project instead of updating the first.
+  const fromDto = (p: any): Project => {
+    // Real uploaded photos, resolved to absolute URLs. Legacy rows stored a bare
+    // "/uploads/…" path that only worked if the API and app shared an origin.
+    const images = (Array.isArray(p.images) ? p.images : [])
+      .map((u: string) => absoluteFileUrl(u))
+      .filter(Boolean);
+    return {
+      id: p.id,
+      name: p.name,
+      code: p.code,
+      city: p.city,
+      lat: p.lat ?? null,
+      lng: p.lng ?? null,
+      description: p.description ?? "",
+      value: p.value,
+      valueKES: p.valueKES ?? parseCompactValue(p.value || "0") * 130,
+      status: p.status,
+      progress: p.progress,
+      changeOrders: p.changeOrderCount ?? 0,
+      exposure: p.exposure ?? "+$0",
+      exposureKES: p.exposureKES ?? Math.round(parseCompactValue(p.exposure || "0") * 130),
+      // Fall back to the stock photo only for display; it is never written back,
+      // so an unphotographed project doesn't acquire a fake image on next save.
+      img: images[0] || DEFAULT_PROJECT_IMG,
+      images,
+      pm: p.assignments?.find((a: any) => a.role === "PM")?.userId || "None",
+      architect: p.assignments?.find((a: any) => a.role === "Architect")?.userId || "None",
+      qs: p.assignments?.find((a: any) => a.role === "QS")?.userId || "None",
+    };
+  };
+
+  const reloadProjects = async () => {
+    try {
+      const data = await api.getProjects();
+      setProjects((data ?? []).map(fromDto));
       setApiLoaded(true);
-      // Backend responded: trust it. An empty array means a fresh workspace.
-      setProjects((data ?? []).map((p) => ({
-        name: p.name,
-        code: p.code,
-        city: p.city,
-        value: p.value,
-        valueKES: (p as any).valueKES,
-        status: p.status,
-        progress: p.progress,
-        changeOrders: (p as any).changeOrderCount ?? 0,
-        exposure: (p as any).exposure ?? "+$0",
-        exposureKES: (p as any).exposureKES,
-        img: DEFAULT_PROJECT_IMG,
-        images: [DEFAULT_PROJECT_IMG],
-        pm: p.assignments?.find((a) => a.role === "PM")?.userId || "None",
-        architect: p.assignments?.find((a) => a.role === "Architect")?.userId || "None",
-        qs: p.assignments?.find((a) => a.role === "QS")?.userId || "None",
-      })));
-    }).catch(() => {
+      // Keep the shared project dropdowns (Daily Log, Action Plans, Crews, …) in
+      // step, so a project created here is immediately selectable there.
+      refreshProjects();
+    } catch {
       // Backend unreachable — fall back to the seed demo so the screen isn't blank.
       setProjects(initialProjects);
       setApiLoaded(true);
-    });
-  }, []);
+    }
+  };
+  useEffect(() => { reloadProjects(); }, []);
+
+  // Returning from the detail page's "Edit project": open the dialog once the
+  // list has the project, then clear the request so it doesn't re-trigger.
+  useEffect(() => {
+    if (!openEditProjectId || !projects.length) return;
+    const hit = projects.find((p) => p.id === openEditProjectId);
+    if (hit) openEdit(hit);
+    onConsumeEditProjectId?.();
+  }, [openEditProjectId, projects]);
   // Recent change orders for the "Recent Activity" panel (real data; empty for a
   // fresh workspace). Loaded once on mount.
   const [recentCOs, setRecentCOs] = useState<any[] | null>(null);
@@ -225,8 +282,24 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
     + (highExposureOnly ? 1 : 0)
     + (highCOOnly ? 1 : 0);
 
+  // Drill into a project's own dashboard. A project that only exists locally
+  // (backend offline, or the seed fallback) has no id and therefore no server
+  // record to load — say so rather than opening a page that can only error.
+  const openProject = (project: Project) => {
+    if (!project.id) {
+      toast.error("This project isn't saved on the server yet, so it has no dashboard. Reload and try again.");
+      return;
+    }
+    if (!onOpenProject) {
+      toast.error("Project details aren't available here.");
+      return;
+    }
+    onOpenProject(project.id);
+  };
+
   const openEdit = (project: Project) => {
     const parsedExposure = parseExposure(project.exposure);
+    editImages.reset();
     setEditingProject(project);
     const normalizedChecklist: Checklist = {
       items: (project.checklist?.items ?? []).map((i) => ({
@@ -245,7 +318,9 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
       changeOrders: project.changeOrders,
       exposureCurrency: parsedExposure.currency,
       exposureAmount: parsedExposure.amount,
-      images: project.images.length ? [...project.images] : [project.img],
+      // Only the project's real photos. Seeding this with `project.img` pulled in
+      // the stock placeholder, which then got saved back as if it were an upload.
+      images: [...project.images],
       pm: project.pm,
       architect: project.architect,
       qs: project.qs,
@@ -255,106 +330,99 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
     setActionMenu(null);
   };
 
-  const createProject = () => {
+  // Create the project on the server FIRST, then update the list from the row it
+  // returns. The old version optimistically added a card, fired the request, and
+  // swallowed any error — so a rejected save (duplicate code, offline, validation)
+  // still showed "Project created" and a card that vanished on the next reload.
+  const [saving, setSaving] = useState(false);
+  const createProject = async () => {
     if (!form.name.trim()) return toast.error("Project name is required");
+    if (saving) return;
     const code = form.code.trim() || form.name.slice(0, 3).toUpperCase() + "-" + Math.floor(Math.random() * 90 + 10);
-    const images = form.images.length ? [...form.images] : [DEFAULT_PROJECT_IMG];
-    const newP: Project = {
-      name: form.name.trim(),
-      code,
-      city: form.city.trim() || "—",
-      description: form.description.trim(),
-      value: form.value.trim() || "$0M",
-      valueKES: parseCompactValue(form.value.trim() || "$0M") * 130,
-      progress: form.progress || 0,
-      status: form.status,
-      changeOrders: form.changeOrders || 0,
-      exposure: formatExposure(form.exposureCurrency, form.exposureAmount),
-      exposureKES: Math.round(parseCompactValue(form.exposureAmount || "0") * (CURRENCY_TO_KES[form.exposureCurrency] || 130)),
-      img: images[0],
-      images,
-      pm: form.pm,
-      architect: form.architect,
-      qs: form.qs,
-      checklist: form.checklist,
-    };
-    setProjects([newP, ...projects]);
-    api.createProject({
-      code: newP.code,
-      name: newP.name,
-      city: newP.city,
-      lat: newP.lat,
-      lng: newP.lng,
-      value: newP.value,
-      status: newP.status,
-      progress: newP.progress,
-      exposure: newP.exposure,
-    }).then((created) => {
-      setProjects((prev) => prev.map((p) => (p.code === newP.code ? { ...p, id: (created as any).id ?? p.code } : p)));
-      const pid = (created as any).id ?? newP.code;
+    // Only durable server URLs are persisted. A blob: preview would render once
+    // and be dead everywhere else.
+    const images = form.images.filter((u) => u && !u.startsWith("blob:") && !u.startsWith("data:"));
+    setSaving(true);
+    try {
+      const created = await api.createProject({
+        code,
+        name: form.name.trim(),
+        city: form.city.trim() || "—",
+        lat: form.lat ?? null,
+        lng: form.lng ?? null,
+        value: form.value.trim() || "$0M",
+        status: form.status,
+        progress: form.progress || 0,
+        exposure: formatExposure(form.exposureCurrency, form.exposureAmount),
+        description: form.description.trim(),
+        images,
+      } as any);
+      const pid = (created as any).id;
+      // Team assignments are best-effort: the project itself is already saved, so
+      // a failure here must not read as "the project wasn't created".
       const assignments = [
-        newP.pm !== "None" ? api.createAssignment(pid, "PM", newP.pm) : Promise.resolve(),
-        newP.architect !== "None" ? api.createAssignment(pid, "Architect", newP.architect) : Promise.resolve(),
-        newP.qs !== "None" ? api.createAssignment(pid, "QS", newP.qs) : Promise.resolve(),
+        form.pm !== "None" ? api.createAssignment(pid, "PM", form.pm) : Promise.resolve(),
+        form.architect !== "None" ? api.createAssignment(pid, "Architect", form.architect) : Promise.resolve(),
+        form.qs !== "None" ? api.createAssignment(pid, "QS", form.qs) : Promise.resolve(),
       ];
-      return Promise.all(assignments);
-    }).catch(() => {
-      // keep local only on failure
-    });
-    setForm({ name: "", code: "", city: "", lat: null, lng: null, description: "", value: "", status: "Planning", progress: 0, changeOrders: 0, exposureCurrency: "KSh", exposureAmount: "0", images: [], pm: "None", architect: "None", qs: "None", checklist: { items: [] } });
-    setShowNew(false);
-    toast.success(`Project ${newP.name} created`);
+      await Promise.allSettled(assignments);
+      await reloadProjects();
+      setForm({ name: "", code: "", city: "", lat: null, lng: null, description: "", value: "", status: "Planning", progress: 0, changeOrders: 0, exposureCurrency: "KSh", exposureAmount: "0", images: [], pm: "None", architect: "None", qs: "None", checklist: { items: [] } });
+      newImages.reset();
+      setShowNew(false);
+      toast.success(`Project ${form.name.trim()} created`);
+    } catch (e: any) {
+      // The form stays open with the entered values so nothing is retyped.
+      toast.error(`Could not create the project — ${e?.message || "unknown error"}`, { duration: 8000 });
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editingProject || !editForm) return;
     if (!editForm.name.trim()) return toast.error("Project name is required");
-    const images = editForm.images.length ? [...editForm.images] : [DEFAULT_PROJECT_IMG];
-
-    setProjects((prev) => prev.map((project) => {
-      if (project.code !== editingProject.code) return project;
-      return {
-        ...project,
+    if (saving) return;
+    // Only durable URLs are persisted; the stock placeholder is display-only and
+    // must never be written back as if it were an uploaded photo.
+    const images = editForm.images.filter((u) => u && u !== DEFAULT_PROJECT_IMG && !u.startsWith("blob:") && !u.startsWith("data:"));
+    const pid = editingProject.id;
+    // Without a real id there is nothing to update on the server. Say so rather
+    // than pretending the change was saved — which is what previously happened
+    // when a project loaded without an id and the fallback used its code.
+    if (!pid) {
+      toast.error("This project has no server record yet — reload the page and try again.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.updateProject(pid, {
+        code: editForm.code.trim() || editingProject.code,
         name: editForm.name.trim(),
-        code: editForm.code.trim() || project.code,
         city: editForm.city.trim() || "—",
         description: editForm.description.trim(),
         value: editForm.value.trim() || "$0M",
-        valueKES: parseCompactValue(editForm.value.trim() || "$0M") * 130,
         status: editForm.status,
-        progress: Number.isFinite(editForm.progress) ? editForm.progress : project.progress,
-        changeOrders: Number.isFinite(editForm.changeOrders) ? editForm.changeOrders : project.changeOrders,
+        progress: Number.isFinite(editForm.progress) ? editForm.progress : editingProject.progress,
         exposure: formatExposure(editForm.exposureCurrency, editForm.exposureAmount),
-        exposureKES: Math.round(parseCompactValue(editForm.exposureAmount || "0") * (CURRENCY_TO_KES[editForm.exposureCurrency] || 130)),
-        img: images[0],
         images,
-        pm: editForm.pm,
-        architect: editForm.architect,
-        qs: editForm.qs,
-        checklist: editForm.checklist,
-      };
-    }));
-    const target = projects.find((p) => p.code === editingProject.code);
-    const pid = target?.id || target?.code || editForm.code;
-    api.updateProject(pid as any, {
-      code: editForm.code,
-      name: editForm.name,
-      city: editForm.city,
-      description: editForm.description,
-      value: editForm.value,
-      status: editForm.status,
-      progress: editForm.progress,
-      exposure: formatExposure(editForm.exposureCurrency, editForm.exposureAmount),
-    }).catch(() => { /* ignore failures, keep local */ });
-    const editAssignments = [
-      editForm.pm !== "None" ? api.createAssignment(pid as any, "PM", editForm.pm) : Promise.resolve(),
-      editForm.architect !== "None" ? api.createAssignment(pid as any, "Architect", editForm.architect) : Promise.resolve(),
-      editForm.qs !== "None" ? api.createAssignment(pid as any, "QS", editForm.qs) : Promise.resolve(),
-    ];
-    Promise.all(editAssignments).catch(() => {});
-    setEditingProject(null);
-    setEditForm({ name: "", code: "", city: "", description: "", value: "", status: "Planning", progress: 0, changeOrders: 0, exposureCurrency: "KSh", exposureAmount: "0", images: [], pm: "None", architect: "None", qs: "None", checklist: { items: [] } });
-    toast.success("Project updated");
+      } as any);
+      const editAssignments = [
+        editForm.pm !== "None" ? api.createAssignment(pid, "PM", editForm.pm) : Promise.resolve(),
+        editForm.architect !== "None" ? api.createAssignment(pid, "Architect", editForm.architect) : Promise.resolve(),
+        editForm.qs !== "None" ? api.createAssignment(pid, "QS", editForm.qs) : Promise.resolve(),
+      ];
+      await Promise.allSettled(editAssignments);
+      await reloadProjects();
+      setEditingProject(null);
+      setEditForm(null);
+      editImages.reset();
+      toast.success("Project updated");
+    } catch (e: any) {
+      toast.error(`Could not save the project — ${e?.message || "unknown error"}`, { duration: 8000 });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const updateProjectStatus = (code: string, status: string) => {
@@ -585,7 +653,10 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
             return (
             <button
               key={p.code}
-              onClick={() => openEdit(p)}
+              // Clicking a card now opens the project's own dashboard. It used to
+              // jump straight into the edit dialog, so there was no way to simply
+              // look at a project. Editing is on the ⋯ menu.
+              onClick={() => openProject(p)}
               className="text-left rounded-xl border border-[#222A35] bg-[#11161D] overflow-visible hover:border-[#FF6B1A]/50 transition group relative"
             >
               <div className="relative h-[140px] overflow-hidden rounded-t-xl">
@@ -610,6 +681,13 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
                 </button>
                 {menuOpen && (
                   <div className="absolute right-0 mt-2 w-44 rounded-md border border-[#222A35] bg-[#0F141B] shadow-2xl text-[12px] text-[#C2CAD6] overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => { setActionMenu(null); openProject(p); }}
+                      className="w-full text-left px-3 py-2 hover:bg-[#161C24] hover:text-white whitespace-nowrap"
+                    >
+                      View details
+                    </button>
                     <button
                       type="button"
                       onClick={() => openEdit(p)}
@@ -707,12 +785,13 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
                   <th className="text-left px-3 py-2.5">City</th>
                   <th className="text-left px-3 py-2.5">Team</th>
                   <th className="text-right px-3 py-2.5">Value</th>
-                  <th className="text-right px-5 py-2.5">Progress</th>
+                  <th className="text-right px-3 py-2.5">Progress</th>
+                  <th className="text-right px-5 py-2.5">Actions</th>
                 </tr>
               </thead>
               <tbody className="text-[12px]">
                 {filtered.map((p) => (
-                  <tr key={p.code} onClick={() => openEdit(p)} className="border-t border-[#222A35] hover:bg-[#161C24] cursor-pointer">
+                  <tr key={p.code} onClick={() => openProject(p)} className="border-t border-[#222A35] hover:bg-[#161C24] cursor-pointer">
                     <td className="px-5 py-3 text-white">{p.name}</td>
                     <td className="px-3 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] border ${statusColor(p.status)}`}>{p.status}</span></td>
                     <td className="px-3 py-3 text-[#8A95A5]">{p.city}</td>
@@ -723,7 +802,19 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
                       {p.pm === "None" && p.architect === "None" && p.qs === "None" && <div className="text-[#5B6675]">—</div>}
                     </td>
                     <td className="px-3 py-3 text-right text-white">{p.valueKES ? formatCompactCurrency(p.valueKES, currency) : p.value}</td>
-                    <td className="px-5 py-3 text-right text-[#FF6B1A]">{p.progress}%</td>
+                    <td className="px-3 py-3 text-right text-[#FF6B1A]">{p.progress}%</td>
+                    <td className="px-5 py-3 text-right">
+                      {/* Row click opens the dashboard, so editing needs its own
+                          affordance here — previously the list had no way to
+                          reach anything but the edit dialog. */}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openEdit(p); }}
+                        className="text-[11px] text-[#8A95A5] hover:text-white"
+                      >
+                        Edit
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -918,19 +1009,19 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
                     type="file"
                     accept="image/*"
                     multiple
-                    onChange={async (e) => {
+                    onChange={(e) => {
                       const files = Array.from(e.target.files ?? []);
                       e.currentTarget.value = "";
-                      if (!files.length) return;
-                      toast.info(`Uploading ${files.length} image${files.length > 1 ? "s" : ""}…`);
-                      try {
-                        const urls = await Promise.all(files.map((file) => api.uploadFile(file)));
-                        setForm((s) => ({ ...s, images: [...s.images, ...urls] }));
-                      } catch { toast.error("Image upload failed"); }
+                      // Every file reports its own outcome and previews while it
+                      // uploads. Previously a single failure in Promise.all threw
+                      // away the images that HAD uploaded and showed only a bare
+                      // "Image upload failed".
+                      newImages.upload(files);
                     }}
                     className="hidden"
                   />
                 </label>
+                <UploadTray state={newImages} />
                 {form.images.length > 0 && (
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mt-3">
                     {form.images.map((src, idx) => (
@@ -1001,7 +1092,7 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
             </div>
             <div className="flex items-center justify-end gap-2 mt-5">
               <button onClick={() => setShowNew(false)} className="h-9 px-3 rounded-md border border-[#222A35] text-[12px] text-[#8A95A5] hover:text-white">Cancel</button>
-              <button onClick={createProject} className="h-9 px-4 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[12px]">Create project</button>
+              <button onClick={createProject} disabled={saving || newImages.busy} title={newImages.busy ? "Waiting for the images to finish uploading" : undefined} className="h-9 px-4 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] disabled:opacity-60 disabled:cursor-wait text-white text-[12px]">{saving ? "Creating…" : newImages.busy ? "Uploading images…" : "Create project"}</button>
             </div>
           </div>
         </div>
@@ -1192,19 +1283,15 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
                         type="file"
                         accept="image/*"
                         multiple
-                        onChange={async (e) => {
+                        onChange={(e) => {
                           const files = Array.from(e.target.files ?? []);
                           e.currentTarget.value = "";
-                          if (!files.length || !editForm) return;
-                          toast.info(`Uploading ${files.length} image${files.length > 1 ? "s" : ""}…`);
-                          try {
-                            const urls = await Promise.all(files.map((file) => api.uploadFile(file)));
-                            setEditForm((s) => (s ? { ...s, images: [...s.images, ...urls] } : s));
-                          } catch { toast.error("Image upload failed"); }
+                          editImages.upload(files);
                         }}
                         className="hidden"
                       />
                     </label>
+                    <UploadTray state={editImages} />
                     {editForm.images.length > 0 && (
                       <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                         {editForm.images.map((src, idx) => (
@@ -1278,8 +1365,8 @@ export function Projects({ setView, role = "Contractor" }: { setView: (v: View) 
 
             {/* Sticky footer */}
             <div className="flex items-center justify-end gap-2 p-5 sm:p-6 pt-4 border-t border-[#222A35] shrink-0 bg-[#11161D]">
-              <button onClick={() => { setEditingProject(null); setEditForm(null); }} className="h-9 px-3 rounded-md border border-[#222A35] text-[12px] text-[#8A95A5] hover:text-white">Cancel</button>
-              <button onClick={saveEdit} className="h-9 px-4 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[12px]">Save changes</button>
+              <button onClick={() => { setEditingProject(null); setEditForm(null); editImages.reset(); }} className="h-9 px-3 rounded-md border border-[#222A35] text-[12px] text-[#8A95A5] hover:text-white">Cancel</button>
+              <button onClick={saveEdit} disabled={saving || editImages.busy} title={editImages.busy ? "Waiting for the images to finish uploading" : undefined} className="h-9 px-4 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] disabled:opacity-60 disabled:cursor-wait text-white text-[12px]">{saving ? "Saving…" : editImages.busy ? "Uploading images…" : "Save changes"}</button>
             </div>
           </div>
         </div>

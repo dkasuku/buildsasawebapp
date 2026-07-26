@@ -9,6 +9,24 @@ import type { Role } from "./roles";
 import { api } from "../../services/api";
 import type { ChecklistDto, FormTemplateDto, ChecklistTemplateDto } from "../../services/api";
 import { EmptyState } from "./EmptyState";
+import { useProjects } from "./useProjects";
+
+// Trigger a real file download in the browser. Every "Download" button on this
+// screen used to be a toast that claimed success and produced no file.
+const downloadFile = (filename: string, contents: string, mime = "text/csv;charset=utf-8") => {
+  const blob = new Blob([contents], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+};
+
+// Quote a value for CSV: wrap in quotes and double any embedded quote, so a
+// comma or newline inside an answer cannot shift the columns.
+const csvCell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+const csvRows = (rows: unknown[][]) => rows.map((r) => r.map(csvCell).join(",")).join("\r\n");
+const slug = (s: string) => (s || "export").replace(/[^\w\-]+/g, "-").replace(/^-|-$/g, "").toLowerCase();
 
 const fieldToQuestionType = (t: string) => {
   if (t === "checkbox") return "yes_no";
@@ -16,7 +34,10 @@ const fieldToQuestionType = (t: string) => {
   return t;
 };
 
-const PROJECTS = ["Harborfront Tower", "Midtown Medical", "Riverside Plaza", "Sunset Logistics", "Cedar Heights"];
+// The project list is loaded from the workspace (see useProjects below). It was
+// a hardcoded array of demo names, and because these selects feed `projectId` on
+// the created checklist, every form was filed against a project id that did not
+// exist — the link silently pointed nowhere.
 const USERS = ["Sarah Patel", "Mike Chen", "James Omondi", "Aisha Hassan", "Tom Bradley"];
 
 type Field = { label: string; type: "text" | "number" | "date" | "checkbox" | "select" | "photo"; options?: string; required?: boolean };
@@ -178,6 +199,8 @@ const INITIAL_TEMPLATES: LocalTemplate[] = [
 ];
 
 export function DigitizedForms({ role }: { role: Role }) {
+  // The workspace's real projects, for every project select on this screen.
+  const { projects: projectOptions } = useProjects();
   const [templates, setTemplates] = useState<LocalTemplate[]>(INITIAL_TEMPLATES);
   const [backendTemplates, setBackendTemplates] = useState<FormTemplateDto[]>([]);
   const [checklists, setChecklists] = useState<ChecklistDto[]>([]);
@@ -194,14 +217,14 @@ export function DigitizedForms({ role }: { role: Role }) {
 
   const [newForm, setNewForm] = useState<Partial<LocalTemplate>>({ category: "custom", fields: [] });
   const [fillAnswers, setFillAnswers] = useState<Record<string, string>>({});
-  const [fillProject, setFillProject] = useState(PROJECTS[0]);
+  const [fillProject, setFillProject] = useState("");
   const photoRef = useRef<HTMLInputElement>(null);
   const [pendingPhotoField, setPendingPhotoField] = useState("");
 
   const [shareUser, setShareUser] = useState("");
   const [assignee, setAssignee] = useState("");
   const [dueDate, setDueDate] = useState("");
-  const [saveProject, setSaveProject] = useState(PROJECTS[0]);
+  const [saveProject, setSaveProject] = useState("");
 
   // Checklist template state
   const [backendClTemplates, setBackendClTemplates] = useState<ChecklistTemplateDto[]>([]);
@@ -209,9 +232,12 @@ export function DigitizedForms({ role }: { role: Role }) {
   const [clTrade, setClTrade] = useState("All");
   const [showNewClTemplate, setShowNewClTemplate] = useState(false);
   const [showUseClTemplate, setShowUseClTemplate] = useState<LocalChecklistTemplate | null>(null);
+  // Read-only view of an assigned checklist. The "Open" button on a checklist
+  // card only raised a toast before, so there was no way to see its contents.
+  const [viewChecklist, setViewChecklist] = useState<ChecklistDto | null>(null);
   const [newClTemplate, setNewClTemplate] = useState<Partial<LocalChecklistTemplate>>({ trade: "General", items: [] });
   const [useClAssignee, setUseClAssignee] = useState("");
-  const [useClProject, setUseClProject] = useState(PROJECTS[0]);
+  const [useClProject, setUseClProject] = useState("");
   const [useClDueDate, setUseClDueDate] = useState("");
   const [importJson, setImportJson] = useState("");
 
@@ -276,11 +302,11 @@ export function DigitizedForms({ role }: { role: Role }) {
     toast.success("Template deleted");
   };
 
-  const openFill = (t: LocalTemplate) => { setFillAnswers({}); setFillProject(PROJECTS[0]); setShowFill(t); };
+  const openFill = (t: LocalTemplate) => { setFillAnswers({}); setFillProject(projectOptions[0]?.id ?? ""); setShowFill(t); };
 
   const submitFill = () => {
     if (!showFill) return;
-    setSubmissions((prev) => [...prev, { id: "sub-" + Date.now(), templateId: showFill.id, templateTitle: showFill.title, project: fillProject, submittedAt: new Date().toLocaleString(), status: "submitted", answers: { ...fillAnswers } }]);
+    setSubmissions((prev) => [...prev, { id: "sub-" + Date.now(), templateId: showFill.id, templateTitle: showFill.title, project: projectOptions.find((p) => p.id === fillProject)?.name ?? "", submittedAt: new Date().toLocaleString(), status: "submitted", answers: { ...fillAnswers } }]);
     setShowFill(null);
     toast.success("Form submitted");
   };
@@ -315,8 +341,11 @@ export function DigitizedForms({ role }: { role: Role }) {
       });
       setChecklists((prev) => [row, ...prev]);
       toast.success("Saved as checklist and assigned to " + assignee);
-    } catch {
-      toast.success("Saved as checklist (offline mode)");
+    } catch (e: any) {
+      // This reported success ("offline mode") on any failure, so a rejected
+      // save looked identical to a real one until the page was reloaded and the
+      // checklist was simply gone.
+      toast.error(`Not saved — ${e?.message || "the server rejected it"}`, { duration: 8000 });
     }
     setShowSaveChecklist(null); setAssignee(""); setDueDate("");
   };
@@ -429,8 +458,8 @@ export function DigitizedForms({ role }: { role: Role }) {
       });
       setChecklists((prev) => [row, ...prev]);
       toast.success(`Checklist "${showUseClTemplate.title}" created and assigned to ${useClAssignee}`);
-    } catch {
-      toast.success("Checklist created (offline mode)");
+    } catch (e: any) {
+      toast.error(`Checklist not created — ${e?.message || "the server rejected it"}`, { duration: 8000 });
     }
     setShowUseClTemplate(null); setUseClAssignee(""); setUseClDueDate("");
   };
@@ -498,7 +527,17 @@ export function DigitizedForms({ role }: { role: Role }) {
                   <button onClick={() => openFill(t)} className="flex-1 h-8 rounded-md bg-[#FF6B1A] text-white text-[11px] flex items-center justify-center gap-1"><PenTool className="w-3 h-3" /> Fill</button>
                   <button onClick={() => setShowShare(t)} className="h-8 px-2 rounded-md border border-[#222A35] text-[11px] text-[#8A95A5] hover:text-white flex items-center gap-1"><Share2 className="w-3 h-3" /> Share</button>
                   <button onClick={() => setShowSaveChecklist(t)} className="h-8 px-2 rounded-md border border-[#3B82F6]/30 text-[11px] text-[#3B82F6] bg-[#3B82F6]/10 hover:bg-[#3B82F6]/20 flex items-center gap-1"><Bookmark className="w-3 h-3" /> Save as Checklist</button>
-                  <button onClick={() => toast("Template downloaded")} className="h-8 w-8 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center"><Download className="w-3.5 h-3.5" /></button>
+                  <button
+                    title="Download this template as CSV"
+                    onClick={() => {
+                      downloadFile(
+                        `${slug(t.title)}-template.csv`,
+                        csvRows([["Field", "Type", "Required", "Options"], ...t.fields.map((fl: any) => [fl.label, fl.type, fl.required ? "yes" : "no", (fl.options || []).join(" | ")])]),
+                      );
+                      toast.success("Template downloaded");
+                    }}
+                    className="h-8 w-8 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center"
+                  ><Download className="w-3.5 h-3.5" /></button>
                 </div>
               </div>
             ))}
@@ -549,7 +588,17 @@ export function DigitizedForms({ role }: { role: Role }) {
                 </div>
                 <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-[#222A35]">
                   <button onClick={() => setShowUseClTemplate(t)} className="flex-1 h-8 rounded-md bg-[#FF6B1A] text-white text-[11px] flex items-center justify-center gap-1"><ClipboardList className="w-3 h-3" /> Use Template</button>
-                  <button onClick={() => toast(`Template "${t.title}" downloaded`)} className="h-8 w-8 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center"><Download className="w-3.5 h-3.5" /></button>
+                  <button
+                    title="Download this template as CSV"
+                    onClick={() => {
+                      downloadFile(
+                        `${slug(t.title)}-checklist-template.csv`,
+                        csvRows([["Question", "Type", "Required", "Options"], ...t.items.map((it: any) => [it.label ?? it.question, it.type ?? it.questionType, it.required ? "yes" : "no", (it.options || []).join(" | ")])]),
+                      );
+                      toast.success(`"${t.title}" downloaded`);
+                    }}
+                    className="h-8 w-8 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center"
+                  ><Download className="w-3.5 h-3.5" /></button>
                 </div>
               </div>
             ))}
@@ -590,8 +639,29 @@ export function DigitizedForms({ role }: { role: Role }) {
                   <span className="flex items-center gap-1"><CheckCircle className="w-3 h-3" /> {cl.questions?.length || 0} items</span>
                 </div>
                 <div className="flex gap-2 mt-3 pt-3 border-t border-[#222A35]">
-                  <button onClick={() => toast("Opening checklist " + cl.title)} className="flex-1 h-8 rounded-md bg-[#FF6B1A] text-white text-[11px] flex items-center justify-center gap-1"><ChevronRight className="w-3 h-3" /> Open</button>
-                  <button onClick={() => toast("Checklist exported")} className="h-8 w-8 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center"><Download className="w-3.5 h-3.5" /></button>
+                  <button
+                    onClick={() => setViewChecklist(cl)}
+                    className="flex-1 h-8 rounded-md bg-[#FF6B1A] text-white text-[11px] flex items-center justify-center gap-1"
+                  ><ChevronRight className="w-3 h-3" /> Open</button>
+                  <button
+                    title="Export this checklist as CSV"
+                    onClick={() => {
+                      downloadFile(
+                        `${slug(cl.title)}-checklist.csv`,
+                        csvRows([
+                          ["Checklist", cl.title],
+                          ["Status", cl.status],
+                          ["Assignee", cl.assignee || ""],
+                          ["Due", cl.dueDate ? new Date(cl.dueDate).toLocaleDateString() : ""],
+                          [],
+                          ["#", "Question", "Type", "Required"],
+                          ...(cl.questions || []).map((qn: any, i: number) => [i + 1, qn.question, qn.questionType, qn.required ? "yes" : "no"]),
+                        ]),
+                      );
+                      toast.success("Checklist exported");
+                    }}
+                    className="h-8 w-8 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center"
+                  ><Download className="w-3.5 h-3.5" /></button>
                 </div>
               </div>
             ))}
@@ -620,7 +690,25 @@ export function DigitizedForms({ role }: { role: Role }) {
                     <td className="px-3 py-2.5 text-[#8A95A5]">{s.project}</td>
                     <td className="px-3 py-2.5 text-[#8A95A5]">{s.submittedAt}</td>
                     <td className="px-3 py-2.5"><span className={`px-2 py-0.5 rounded-full text-[10px] border ${s.status === "approved" ? "bg-[#22C55E]/15 text-[#22C55E] border-[#22C55E]/30" : s.status === "submitted" ? "bg-[#3B82F6]/15 text-[#3B82F6] border-[#3B82F6]/30" : "bg-[#5B6675]/15 text-[#5B6675] border-[#5B6675]/30"}`}>{s.status}</span></td>
-                    <td className="px-4 py-2.5 text-right"><button onClick={() => toast("Downloaded submission PDF")} className="text-[#8A95A5] hover:text-white"><Download className="w-3.5 h-3.5" /></button></td>
+                    <td className="px-4 py-2.5 text-right"><button
+                        title="Download this submission as CSV"
+                        onClick={() => {
+                          downloadFile(
+                            `${slug(s.templateTitle)}-${slug(s.submittedAt)}.csv`,
+                            csvRows([
+                              ["Form", s.templateTitle],
+                              ["Project", s.project],
+                              ["Submitted", s.submittedAt],
+                              ["Status", s.status],
+                              [],
+                              ["Field", "Answer"],
+                              ...Object.entries(s.answers || {}),
+                            ]),
+                          );
+                          toast.success("Submission downloaded");
+                        }}
+                        className="text-[#8A95A5] hover:text-white"
+                      ><Download className="w-3.5 h-3.5" /></button></td>
                   </tr>
                 ))}
                 {submissions.length === 0 && <tr><td colSpan={5} className="text-center py-8 text-[11px] text-[#5B6675]">No submissions yet</td></tr>}
@@ -669,7 +757,7 @@ export function DigitizedForms({ role }: { role: Role }) {
           <div className="bg-[#11161D] border border-[#222A35] rounded-xl w-full max-w-lg p-5 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4"><div><div className="text-[14px] text-white font-display">{showFill.title}</div><div className="text-[11px] text-[#8A95A5]">{showFill.description}</div></div><button onClick={() => setShowFill(null)} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button></div>
             <div className="space-y-3 text-[12px]">
-              <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Project</div><select value={fillProject} onChange={(e) => setFillProject(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white">{PROJECTS.map((p) => <option key={p}>{p}</option>)}</select></div>
+              <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Project</div><select value={fillProject} onChange={(e) => setFillProject(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white"><option value="">{projectOptions.length ? "Select a project…" : "No projects yet"}</option>{projectOptions.map((p) => <option key={p.id} value={p.id}>{p.code ? `${p.code} · ${p.name}` : p.name}</option>)}</select></div>
               {showFill.fields.map((f, i) => (
                 <div key={i}>
                   <div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">{f.label}{f.required && <span className="text-[#EF4444]"> *</span>}</div>
@@ -721,7 +809,7 @@ export function DigitizedForms({ role }: { role: Role }) {
             <div className="space-y-3 text-[12px]">
               <div className="text-[11px] text-[#8A95A5]">Save <span className="text-white font-display">{showSaveChecklist.title}</span> as a checklist and assign it to a worker.</div>
               <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Assignee <span className="text-[#EF4444]">*</span></div><select value={assignee} onChange={(e) => setAssignee(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white"><option value="">Select…</option>{USERS.map((u) => <option key={u} value={u}>{u}</option>)}</select></div>
-              <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Project</div><select value={saveProject} onChange={(e) => setSaveProject(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white">{PROJECTS.map((p) => <option key={p}>{p}</option>)}</select></div>
+              <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Project</div><select value={saveProject} onChange={(e) => setSaveProject(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white"><option value="">{projectOptions.length ? "Select a project…" : "No projects yet"}</option>{projectOptions.map((p) => <option key={p.id} value={p.id}>{p.code ? `${p.code} · ${p.name}` : p.name}</option>)}</select></div>
               <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Due date</div><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
               <div className="rounded-md border border-[#222A35] bg-[#0A0E14] p-3">
                 <div className="text-[10px] text-[#5B6675] uppercase tracking-wider mb-1">Checklist items ({showSaveChecklist.fields.length})</div>
@@ -786,7 +874,7 @@ export function DigitizedForms({ role }: { role: Role }) {
             <div className="space-y-3 text-[12px]">
               <div className="text-[11px] text-[#8A95A5]">Create a checklist from <span className="text-white font-display">{showUseClTemplate.title}</span> and assign it.</div>
               <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Assignee <span className="text-[#EF4444]">*</span></div><select value={useClAssignee} onChange={(e) => setUseClAssignee(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white"><option value="">Select…</option>{USERS.map((u) => <option key={u} value={u}>{u}</option>)}</select></div>
-              <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Project</div><select value={useClProject} onChange={(e) => setUseClProject(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white">{PROJECTS.map((p) => <option key={p}>{p}</option>)}</select></div>
+              <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Project</div><select value={useClProject} onChange={(e) => setUseClProject(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white"><option value="">{projectOptions.length ? "Select a project…" : "No projects yet"}</option>{projectOptions.map((p) => <option key={p.id} value={p.id}>{p.code ? `${p.code} · ${p.name}` : p.name}</option>)}</select></div>
               <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Due date</div><input type="date" value={useClDueDate} onChange={(e) => setUseClDueDate(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
               <div className="rounded-md border border-[#222A35] bg-[#0A0E14] p-3">
                 <div className="text-[10px] text-[#5B6675] uppercase tracking-wider mb-1">Checklist items ({showUseClTemplate.items.length})</div>
@@ -805,11 +893,69 @@ export function DigitizedForms({ role }: { role: Role }) {
         </div>
       )}
 
+      {/* Read-only checklist viewer — what "Open" now actually opens. */}
+      {viewChecklist && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setViewChecklist(null)}>
+          <div className="bg-[#11161D] border border-[#222A35] rounded-xl w-full max-w-lg p-5 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-4 gap-3">
+              <div className="min-w-0">
+                <div className="text-[14px] text-white font-display flex items-center gap-2"><ClipboardList className="w-4 h-4 text-[#FF6B1A] shrink-0" /> <span className="truncate">{viewChecklist.title}</span></div>
+                <div className="text-[11px] text-[#8A95A5] mt-1">{viewChecklist.description || "No description"}</div>
+              </div>
+              <button onClick={() => setViewChecklist(null)} className="text-[#8A95A5] hover:text-white shrink-0"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+              {[
+                { l: "Status", v: viewChecklist.status },
+                { l: "Assignee", v: viewChecklist.assignee || "—" },
+                { l: "Due", v: viewChecklist.dueDate ? new Date(viewChecklist.dueDate).toLocaleDateString() : "—" },
+                { l: "Items", v: String(viewChecklist.questions?.length ?? 0) },
+              ].map((m) => (
+                <div key={m.l} className="rounded-md border border-[#222A35] bg-[#0A0E14] p-2">
+                  <div className="text-[9px] text-[#5B6675] uppercase tracking-wider">{m.l}</div>
+                  <div className="text-[12px] text-white truncate mt-0.5">{m.v}</div>
+                </div>
+              ))}
+            </div>
+            <div className="rounded-md border border-[#222A35] bg-[#0A0E14] p-3">
+              <div className="text-[10px] text-[#5B6675] uppercase tracking-wider mb-2">Questions</div>
+              {(viewChecklist.questions ?? []).length === 0 ? (
+                <div className="text-[11px] text-[#5B6675]">This checklist has no questions.</div>
+              ) : (
+                <ol className="space-y-1.5">
+                  {(viewChecklist.questions ?? []).map((qn, i) => {
+                    // Show the submitted answer next to the question when one exists.
+                    const answer = (viewChecklist.responses ?? []).find((r) => r.questionId === qn.id)?.value;
+                    return (
+                      <li key={qn.id ?? i} className="text-[11.5px] text-[#C2CAD6] flex gap-2">
+                        <span className="text-[#5B6675] shrink-0">{i + 1}.</span>
+                        <span className="min-w-0">
+                          {qn.question}{qn.required && <span className="text-[#EF4444]"> *</span>}
+                          <span className="block text-[10px] text-[#5B6675]">{qn.questionType}{answer ? ` · answered: ${answer}` : ""}</span>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 mt-4">
+              <button onClick={() => setViewChecklist(null)} className="h-9 px-3 rounded-md border border-[#222A35] text-[12px] text-[#8A95A5] hover:text-white">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={async (e) => {
         const f = e.target.files?.[0]; const field = pendingPhotoField;
         e.currentTarget.value = "";
         if (!f || !field) return;
-        let url: string; try { url = await api.uploadFile(f); } catch { url = URL.createObjectURL(f); }
+        // A blob: URL was used as the fallback here, which meant a failed
+        // upload was recorded on the submission as a link that only ever worked
+        // in the tab that created it. Report the failure instead.
+        let url: string;
+        try { url = await api.uploadFile(f); }
+        catch (err: any) { toast.error(`Photo not uploaded — ${err?.message || "unknown error"}`, { duration: 8000 }); return; }
         setFillAnswers((prev) => ({ ...prev, [field]: url }));
       }} />
     </div>

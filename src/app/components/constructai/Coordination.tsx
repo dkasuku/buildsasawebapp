@@ -4,6 +4,7 @@ import { Plus, Search, X, Briefcase, MessageSquare, Send, AlertCircle, CheckCirc
 import type { Role } from "./roles";
 import api from "../../services/api";
 import { EmptyState } from "./EmptyState";
+import { ProjectSelect } from "./ProjectSelect";
 
 type Comment = { author: string; text: string; date: string };
 type Issue = {
@@ -14,7 +15,10 @@ type Issue = {
   priority: "low" | "medium" | "high";
   raisedBy: string;
   assignedTo: string;
+  /** Display name of the linked project. */
   project: string;
+  /** Durable link to the real project row. */
+  projectId: string;
   date: string;
   description: string;
   comments: Comment[];
@@ -22,7 +26,7 @@ type Issue = {
 
 const mapIssue = (r: any): Issue => ({
   id: r.id, title: r.title, type: r.type, status: r.status, priority: r.priority,
-  raisedBy: r.raisedBy || "", assignedTo: r.assignedTo || "", project: r.project || "",
+  raisedBy: r.raisedBy || "", assignedTo: r.assignedTo || "", project: r.project || "", projectId: r.projectId || "",
   date: r.date || "", description: r.description || "",
   comments: (() => { try { return JSON.parse(r.comments || "[]"); } catch { return []; } })(),
 });
@@ -178,9 +182,11 @@ export default function Coordination({ role }: { role: Role }) {
         setIssues((prev) => [i, ...prev]);
         toast.success(`${i.id} created`);
         try {
-          const saved = await api.createCoordinationIssue({ title: i.title, type: i.type, status: i.status, priority: i.priority, raisedBy: i.raisedBy, assignedTo: i.assignedTo, project: i.project, date: i.date, description: i.description, comments: i.comments });
+          const saved = await api.createCoordinationIssue({ title: i.title, type: i.type, status: i.status, priority: i.priority, raisedBy: i.raisedBy, assignedTo: i.assignedTo, project: i.project, projectId: i.projectId || null, date: i.date, description: i.description, comments: i.comments });
           setIssues((prev) => prev.map((x) => x.id === i.id ? mapIssue(saved) : x));
-        } catch { /* offline — keep local */ }
+        } catch (e: any) {
+          toast.error(`Saved locally only — ${e?.message || "the server rejected it"}`, { duration: 8000 });
+        }
       }} />}
     </div>
   );
@@ -191,15 +197,18 @@ function NewIssueModal({ onClose, onCreate }: { onClose: () => void; onCreate: (
   const [type, setType] = useState<Issue["type"]>("RFI");
   const [priority, setPriority] = useState<Issue["priority"]>("medium");
   const [assignedTo, setAssignedTo] = useState("");
-  const [project, setProject] = useState("Westside Tower");
+  // Real projects, replacing three hardcoded demo names.
+  const [project, setProject] = useState<{ id: string; name: string } | null>(null);
   const [description, setDescription] = useState("");
 
   const submit = () => {
     if (!title.trim()) { toast.error("Title is required"); return; }
+    if (!project) { toast.error("Select the project this issue is on"); return; }
     onCreate({
       id: `RFI-${String(Math.floor(Math.random() * 900) + 100).padStart(3, "0")}`,
       title: title.trim(), type, status: "open", priority,
-      raisedBy: "You", assignedTo: assignedTo.trim() || "Unassigned", project,
+      raisedBy: "You", assignedTo: assignedTo.trim() || "Unassigned",
+      project: project.name, projectId: project.id,
       date: new Date().toISOString().slice(0, 10),
       description: description.trim(), comments: [],
     });
@@ -225,9 +234,7 @@ function NewIssueModal({ onClose, onCreate }: { onClose: () => void; onCreate: (
           </div>
           <div className="grid grid-cols-2 gap-3">
             <input value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} placeholder="Assign to" className="h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
-            <select value={project} onChange={(e) => setProject(e.target.value)} className="h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-2 text-[13px] text-white">
-              <option>Westside Tower</option><option>Riverside Mall</option><option>Hilltop Residences</option>
-            </select>
+            <ProjectSelect value={project?.id} onChange={setProject} />
           </div>
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe the issue, reference drawings…" rows={3} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-lg px-3 py-2 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A] resize-none" />
         </div>

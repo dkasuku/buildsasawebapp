@@ -71,6 +71,24 @@ function uploadWithProgress(url: string, fd: FormData, onProgress: (pct: number)
   });
 }
 
+// Resolve any stored file reference to something the browser can actually load.
+//
+// Three shapes exist in the database, because the storage strategy changed over
+// time and old rows were never rewritten:
+//   1. Absolute http(s) URL — object storage, or a newer local upload. Use as-is.
+//   2. A bare "/uploads/…" path — older local uploads. These must be resolved
+//      against the API origin. Left alone, the browser resolves them against the
+//      FRONTEND origin and 404s, which is indistinguishable from a lost upload.
+//   3. A blob:/data: URL — an in-browser preview that was saved by mistake. It
+//      is dead in any other tab or device, so there is nothing to salvage.
+export function absoluteFileUrl(url?: string | null): string {
+  if (!url) return "";
+  const u = String(url).trim();
+  if (!u) return "";
+  if (/^(https?:|data:|blob:)/i.test(u)) return u;
+  return `${API_URL}${u.startsWith("/") ? "" : "/"}${u}`;
+}
+
 async function http<T>(path: string, init?: RequestInit, _retried = false): Promise<T> {
   const token = localStorage.getItem(TOKEN_KEY);
   const isFormData = init?.body instanceof FormData;
@@ -108,8 +126,47 @@ export type ProjectDto = {
   status: string;
   progress: number;
   exposure: string;
-  assignments?: { role: string; userId: string }[];
+  description?: string | null;
+  /** Uploaded project photos; first entry is the cover image. */
+  images?: string[];
+  startDate?: string | null;
+  targetEndDate?: string | null;
+  assignments?: { id?: string; role: string; userId: string }[];
   changeOrderCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+/** Aggregated project dashboard payload — see GET /api/projects/:id/overview. */
+export type ProjectOverviewDto = {
+  project: ProjectDto;
+  progress: {
+    reported: number;
+    schedule: number | null;
+    scheduleItems: number;
+    milestonesDone: number;
+    milestonesTotal: number;
+    overdueItems: number;
+    blockedItems: number;
+  };
+  counts: {
+    drawings: number; dailyLogs: number; punchTotal: number; punchOpen: number;
+    changeOrders: number; inspections: number; safetyIncidents: number;
+    checklists: number; documents: number; commitments: number; invoices: number;
+    equipment: number; crews: number;
+  };
+  financials: {
+    cashIn: number; cashOut: number; net: number; budget: number; actual: number;
+    committed: number; invoicedTotal: number; invoicedUnpaid: number;
+    expenses: ExpenseDto[];
+  };
+  schedule: ScheduleItemDto[];
+  recent: {
+    drawings: DrawingDto[]; dailyLogs: DailyLogDto[]; changeOrders: any[];
+    inspections: InspectionDto[]; safetyIncidents: SafetyIncidentDto[];
+    checklists: ChecklistDto[]; documents: DocumentDto[]; invoices: InvoiceDto[];
+  };
+  team: { id?: string; role: string; userId: string }[];
 };
 
 export type ScheduleItemDto = {
@@ -180,10 +237,41 @@ export type DailyLogDto = {
   id: string;
   date: string;
   crew: string;
+  /** The Crew row this headcount came from, when picked from the Crews module. */
+  crewId?: string | null;
   headcount: number;
   location: string;
   notes: string;
+  weather?: string | null;
+  projectId?: string;
 };
+
+export type CrewMemberDto = { id: string; name: string; trade: string };
+
+export type CrewDto = {
+  id: string;
+  name: string;
+  trade?: string | null;
+  foreman?: string | null;
+  /** Display name of the linked project. */
+  project?: string | null;
+  projectId?: string | null;
+  location?: string | null;
+  shift: string;
+  status: string;
+  /** JSON string on the wire; use parseCrewMembers to read it. */
+  members?: string | CrewMemberDto[] | null;
+};
+
+/** Crew.members is stored as a JSON string; tolerate both shapes and bad JSON. */
+export function parseCrewMembers(members?: string | CrewMemberDto[] | null): CrewMemberDto[] {
+  if (!members) return [];
+  if (Array.isArray(members)) return members;
+  try {
+    const parsed = JSON.parse(members);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
 
 export type PunchDto = {
   id: string;
@@ -714,6 +802,11 @@ export const api = {
   // — drawings are large, and a dialog that sits still for a minute reads as
   // broken. Without a callback it stays on fetch.
   uploadFile: async (file: File, onProgress?: (pct: number) => void): Promise<string> => {
+    if (!file) throw new Error("No file was selected");
+    // A zero-byte file is almost always a failed pick (a cloud-only file on
+    // Android/iCloud that never downloaded). Uploading it "succeeds" and stores
+    // an empty image, which then renders as a broken thumbnail — say so instead.
+    if (file.size === 0) throw new Error(`${file.name} is empty (0 bytes) — the file may not have finished downloading to this device`);
     const fd = new FormData();
     fd.append("file", file);
     // Name the file in the failure. With several uploading at once, a bare
@@ -726,7 +819,31 @@ export const api = {
     } catch (e: any) { throw new Error(`${file.name}: ${e?.message || "upload failed"}`); }
     const url: string = r?.url || "";
     if (!url) throw new Error(`${file.name}: server returned no file URL`);
-    return url.startsWith("http") ? url : `${API_URL}${url}`;
+    return absoluteFileUrl(url);
+  },
+
+  // Upload several files in one request. Returns the URLs that stored plus the
+  // names that failed, so a caller can save what worked and name what didn't
+  // rather than throwing the whole batch away.
+  uploadFiles: async (files: File[], onProgress?: (pct: number) => void): Promise<{ urls: string[]; failed: { name: string; error: string }[] }> => {
+    const list = Array.from(files || []);
+    if (!list.length) return { urls: [], failed: [] };
+    const empty = list.filter((f) => f.size === 0);
+    const usable = list.filter((f) => f.size > 0);
+    const failed = empty.map((f) => ({ name: f.name, error: "the file is empty (0 bytes)" }));
+    if (!usable.length) return { urls: [], failed };
+    const fd = new FormData();
+    usable.forEach((f) => fd.append("file", f));
+    let r: any;
+    try {
+      r = onProgress
+        ? await uploadWithProgress(`${API_URL}/api/upload/batch`, fd, onProgress)
+        : await http("/api/upload/batch", { method: "POST", body: fd });
+    } catch (e: any) { throw new Error(e?.message || "upload failed"); }
+    return {
+      urls: (r?.uploaded || []).map((u: any) => absoluteFileUrl(u.url)).filter(Boolean),
+      failed: [...failed, ...(r?.failed || [])],
+    };
   },
 
   // Drawings (uploaded sheets)
@@ -735,6 +852,9 @@ export const api = {
   updateDrawing: (id: string, payload: Partial<DrawingDto>) => http<DrawingDto>(`/api/drawings/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
   deleteDrawing: (id: string) => http(`/api/drawings/${id}`, { method: "DELETE" }),
   getProjects: () => http<ProjectDto[]>("/api/projects"),
+  getProject: (projectId: string) => http<ProjectDto>(`/api/projects/${projectId}`),
+  /** One-shot dashboard payload for the project detail page. */
+  getProjectOverview: (projectId: string) => http<ProjectOverviewDto>(`/api/projects/${projectId}/overview`),
   getDashboardInsight: () => http<{ title: string; detail?: string; changeOrderId?: string } | null>("/api/dashboard/insight"),
   getProjectMessages: (projectId: string) => http<MessageDto[]>(`/api/projects/${projectId}/messages`),
   getProjectLedger: (projectId: string) => http<LedgerEntryDto[]>(`/api/projects/${projectId}/ledger`),
@@ -986,7 +1106,7 @@ export const api = {
   updateCorrespondence: (id: string, payload: any) => http<any>(`/api/correspondence/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteCorrespondence: (id: string) => http(`/api/correspondence/${id}`, { method: "DELETE" }),
   // Crews
-  getCrews: () => http<any[]>("/api/crews"),
+  getCrews: (params?: { projectId?: string }) => http<CrewDto[]>("/api/crews" + (params?.projectId ? `?projectId=${encodeURIComponent(params.projectId)}` : "")),
   createCrew: (payload: any) => http<any>("/api/crews", { method: "POST", body: JSON.stringify(payload) }),
   updateCrew: (id: string, payload: any) => http<any>(`/api/crews/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteCrew: (id: string) => http(`/api/crews/${id}`, { method: "DELETE" }),

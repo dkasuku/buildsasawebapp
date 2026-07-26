@@ -6,6 +6,7 @@ import { TEAM_MEMBERS } from "./team-data";
 import { useTeam } from "./useTeam";
 import api from "../../services/api";
 import { EmptyState } from "./EmptyState";
+import { ProjectSelect } from "./ProjectSelect";
 
 // Reusable multi-assignee dropdown (light/dark safe). Stores selected member names.
 function AssigneeSelect({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
@@ -38,7 +39,7 @@ function AssigneeSelect({ value, onChange }: { value: string[]; onChange: (v: st
 
 const mapObs = (r: any): Observation => ({
   id: r.id, title: r.title, type: r.type, status: r.status, priority: r.priority,
-  location: r.location || "", project: r.project || "", assignee: r.assignee || "",
+  location: r.location || "", project: r.project || "", projectId: r.projectId || "", assignee: r.assignee || "",
   date: r.date || "", description: r.description || "", photos: r.photos || 0,
 });
 
@@ -49,7 +50,10 @@ type Observation = {
   status: "open" | "in_review" | "closed";
   priority: "low" | "medium" | "high";
   location: string;
+  /** Display name of the linked project. */
   project: string;
+  /** Durable link to the real project row. */
+  projectId: string;
   assignee: string;
   date: string;
   description: string;
@@ -210,9 +214,11 @@ export default function Observations({ role }: { role: Role }) {
         setItems((prev) => [o, ...prev]);
         toast.success(`Observation ${o.id} created`);
         try {
-          const saved = await api.createObservation({ title: o.title, type: o.type, status: o.status, priority: o.priority, location: o.location, project: o.project, assignee: o.assignee, date: o.date, description: o.description, photos: o.photos });
+          const saved = await api.createObservation({ title: o.title, type: o.type, status: o.status, priority: o.priority, location: o.location, project: o.project, projectId: o.projectId || null, assignee: o.assignee, date: o.date, description: o.description, photos: o.photos });
           setItems((prev) => prev.map((x) => x.id === o.id ? mapObs(saved) : x));
-        } catch { /* offline — keep local */ }
+        } catch (e: any) {
+          toast.error(`Saved locally only — ${e?.message || "the server rejected it"}`, { duration: 8000 });
+        }
       }} />}
     </div>
   );
@@ -223,16 +229,19 @@ function NewObservationModal({ onClose, onCreate }: { onClose: () => void; onCre
   const [type, setType] = useState<Observation["type"]>("Quality");
   const [priority, setPriority] = useState<Observation["priority"]>("medium");
   const [location, setLocation] = useState("");
-  const [project, setProject] = useState("Westside Tower");
+  // Real projects, replacing the three hardcoded demo names that were saved as
+  // a project reference matching nothing.
+  const [project, setProject] = useState<{ id: string; name: string } | null>(null);
   const [assignees, setAssignees] = useState<string[]>([]);
   const [description, setDescription] = useState("");
 
   const submit = () => {
     if (!title.trim()) { toast.error("Title is required"); return; }
+    if (!project) { toast.error("Select the project this observation is on"); return; }
     onCreate({
       id: `OBS-${100 + Math.floor(Math.random() * 900)}`,
       title: title.trim(), type, status: "open", priority,
-      location: location.trim() || "Unspecified", project,
+      location: location.trim() || "Unspecified", project: project.name, projectId: project.id,
       assignee: assignees.join(", ") || "Unassigned",
       date: new Date().toISOString().slice(0, 10),
       description: description.trim(), photos: 0,
@@ -258,9 +267,7 @@ function NewObservationModal({ onClose, onCreate }: { onClose: () => void; onCre
             </select>
           </div>
           <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Location (e.g. Level 2 — Grid C4)" className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
-          <select value={project} onChange={(e) => setProject(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-2 text-[13px] text-white">
-            <option>Westside Tower</option><option>Riverside Mall</option><option>Hilltop Residences</option>
-          </select>
+          <ProjectSelect value={project?.id} onChange={setProject} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-2 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
           <div>
             <div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">Assignees (multiple allowed)</div>
             <AssigneeSelect value={assignees} onChange={setAssignees} />

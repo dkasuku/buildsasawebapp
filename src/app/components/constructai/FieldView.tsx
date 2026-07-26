@@ -105,8 +105,12 @@ function QuestionCard({
                   const file = e.target.files?.[0];
                   e.currentTarget.value = "";
                   if (!file) return;
+                  // Only a durable URL is accepted. This used to fall back to
+                  // URL.createObjectURL on failure, which shows the photo in this
+                  // tab and nowhere else — the form was submitted with a dead
+                  // link and the photo was simply lost.
                   try { onChange(await api.uploadFile(file)); }
-                  catch { onChange(URL.createObjectURL(file)); }
+                  catch (err: any) { toast.error(`Photo not uploaded — ${err?.message || "unknown error"}`, { duration: 8000 }); }
                 }}
               />
             </label>

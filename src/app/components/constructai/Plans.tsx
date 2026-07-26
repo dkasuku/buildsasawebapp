@@ -1,7 +1,7 @@
 // Plans module — drawings, markups & version history (backend-wired)
 import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
-import api from "../../services/api";
+import api, { absoluteFileUrl } from "../../services/api";
 import type { DrawingDto } from "../../services/api";
 import { DrawingViewer, toViewerRole } from "./drawing-viewer";
 import { FileStack, Search, Filter, Upload, Share2, Download, Eye, Clock, X, Check, MessageSquare, MapPin, Layers, Users as UsersIcon, ZoomIn, ZoomOut, Maximize2, PenTool, Circle, Type, Undo, History, Cloud, Box, ExternalLink } from "lucide-react";
@@ -11,7 +11,13 @@ import type { Role } from "./roles";
 import { ROLES } from "./roles";
 
 type Drawing = {
+  /** The sheet NUMBER (e.g. "A-101"). Markups and versions are correlated by
+   *  this value, which is why it is not the database id. */
   id: string;
+  /** The database row id — used for React keys and for delete/update calls.
+   *  Sheet numbers are not unique (two files can derive the same one), so using
+   *  `id` as the key made same-numbered sheets collide and disappear. */
+  rowId: string;
   title: string;
   project: string;
   rev: number;
@@ -43,6 +49,19 @@ const formatBytes = (b: number) => {
   return `${(b / 1024 / 1024).toFixed(1)} MB`;
 };
 
+// Thumbnail for a locally-picked file, before it is uploaded. Owns the blob URL
+// for exactly as long as it is on screen.
+function FilePreview({ file }: { file: File }) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(file);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+  if (!url) return <div className="w-9 h-9 rounded bg-[#161C24] border border-[#222A35] shrink-0" />;
+  return <img src={url} alt="" className="w-9 h-9 rounded object-cover border border-[#222A35] shrink-0" />;
+}
+
 const inferDiscipline = (name: string): string => {
   const n = name.toUpperCase();
   if (n.startsWith("A")) return "Architectural";
@@ -70,6 +89,11 @@ export function Plans({ role }: { role: Role }) {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // Sheet filters (the Filters button below).
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [projectFilter, setProjectFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<Drawing["status"][]>([]);
+  const [latestRevOnly, setLatestRevOnly] = useState(false);
 
   // Markups & versions
   const [markups, setMarkups] = useState<{ id: string; drawingId: string; x: number; y: number; w?: number; h?: number; text: string; color: string; type: string }[]>([]);
@@ -79,12 +103,10 @@ export function Plans({ role }: { role: Role }) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<any>(null);
   const [showVersions, setShowVersions] = useState(false);
-  const [drawingVersions, setDrawingVersions] = useState<{ drawingId: string; rev: number; url: string; date: string }[]>([
-    { drawingId: "A-101", rev: 1, url: "", date: "2024-01-10" },
-    { drawingId: "A-101", rev: 2, url: "", date: "2024-02-14" },
-    { drawingId: "A-101", rev: 3, url: "", date: "2024-03-20" },
-    { drawingId: "A-101", rev: 4, url: "", date: "2024-04-05" },
-  ]);
+  // Starts empty and is filled from the backend when a sheet is opened. It used
+  // to be seeded with four invented revisions of a sheet named "A-101", so every
+  // real drawing appeared to have a version history that did not exist.
+  const [drawingVersions, setDrawingVersions] = useState<{ drawingId: string; rev: number; url: string; date: string }[]>([]);
 
   const canShare = ROLES[role].sharePlans;
 
@@ -98,16 +120,17 @@ export function Plans({ role }: { role: Role }) {
   // A stored row is the source of truth for a sheet; rebuild the card from it.
   const rowToDrawing = (r: DrawingDto): Drawing => ({
     id: r.number,
+    rowId: r.id,
     title: r.title,
     project: r.project?.name || "",
     rev: r.rev,
     discipline: r.discipline,
     updated: r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "just now",
     size: r.fileSize ? formatBytes(r.fileSize) : "—",
-    img: IMAGE_EXT.test(r.fileName || r.fileUrl || "") ? r.fileUrl : SHEET_THUMB,
+    img: IMAGE_EXT.test(r.fileName || r.fileUrl || "") ? absoluteFileUrl(r.fileUrl) : SHEET_THUMB,
     recipients: 0,
     status: (r.status as Drawing["status"]) || "Draft",
-    fileUrl: r.fileUrl,
+    fileUrl: absoluteFileUrl(r.fileUrl),
     fileName: r.fileName || undefined,
   });
 
@@ -132,9 +155,21 @@ export function Plans({ role }: { role: Role }) {
   // Real number of projects loaded from the backend (0 for a fresh workspace).
   const projectCount = Object.keys(projectIds).length;
 
+  const activeFilterCount = (projectFilter ? 1 : 0) + statusFilter.length + (latestRevOnly ? 1 : 0);
+
+  // Highest revision held for each sheet number, for the "latest revision only"
+  // filter. Computed once per render rather than per row.
+  const highestRevByNumber = drawings.reduce<Record<string, number>>((acc, d) => {
+    acc[d.id] = Math.max(acc[d.id] ?? 0, d.rev);
+    return acc;
+  }, {});
+
   const filtered = drawings.filter((d) => {
     if (discipline !== "All" && d.discipline !== discipline) return false;
     if (q && !(d.title + d.id + d.project).toLowerCase().includes(q.toLowerCase())) return false;
+    if (projectFilter && d.project !== projectFilter) return false;
+    if (statusFilter.length && !statusFilter.includes(d.status)) return false;
+    if (latestRevOnly && d.rev !== highestRevByNumber[d.id]) return false;
     return true;
   });
 
@@ -371,9 +406,61 @@ export function Plans({ role }: { role: Role }) {
             />
           </div>
           <div className="flex gap-2">
-            <button onClick={() => toast("Filters · trade, project, revision")} className="h-10 px-3 rounded-md border border-[#222A35] text-[12px] text-[#8A95A5] hover:text-white flex items-center gap-1.5 flex-1 sm:flex-none justify-center">
-              <Filter className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Filters</span>
-            </button>
+            {/* A real filter panel. This button used to show a toast naming the
+                filters it would have offered and change nothing. */}
+            <div className="relative flex-1 sm:flex-none" onClick={(e) => e.stopPropagation()}>
+              <button
+                onClick={() => setFiltersOpen((o) => !o)}
+                className={`h-10 px-3 w-full rounded-md border text-[12px] flex items-center gap-1.5 justify-center ${activeFilterCount ? "border-[#FF6B1A]/60 text-white" : "border-[#222A35] text-[#8A95A5] hover:text-white"}`}
+              >
+                <Filter className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Filters</span>
+                {activeFilterCount > 0 && <span className="rounded-full bg-[#FF6B1A] text-white text-[10px] px-1.5">{activeFilterCount}</span>}
+              </button>
+              {filtersOpen && (
+                <div className="absolute right-0 mt-2 w-72 rounded-xl border border-[#222A35] bg-[#0A0E14] shadow-2xl z-30 overflow-hidden">
+                  <div className="px-4 pt-3 pb-2 text-[10px] uppercase tracking-wider text-[#5B6675]">Project</div>
+                  <div className="px-4 pb-3">
+                    <select
+                      value={projectFilter}
+                      onChange={(e) => setProjectFilter(e.target.value)}
+                      className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]"
+                    >
+                      <option value="">All projects</option>
+                      {projectList.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="border-t border-[#222A35] px-4 pt-3 pb-2 text-[10px] uppercase tracking-wider text-[#5B6675]">Status</div>
+                  <div className="px-4 pb-3 grid grid-cols-3 gap-2">
+                    {(["Current", "Draft", "Superseded"] as const).map((s) => (
+                      <label key={s} className="flex items-center gap-1.5 text-[11px] text-[#E6EAF0]">
+                        <input
+                          type="checkbox"
+                          checked={statusFilter.includes(s)}
+                          onChange={() => setStatusFilter((prev) => prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s])}
+                          className="h-3.5 w-3.5 accent-[#FF6B1A]"
+                        />
+                        {s}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="border-t border-[#222A35] px-4 pt-3 pb-3">
+                    <label className="flex items-center gap-2 text-[11px] text-[#E6EAF0]">
+                      <input type="checkbox" checked={latestRevOnly} onChange={(e) => setLatestRevOnly(e.target.checked)} className="h-3.5 w-3.5 accent-[#FF6B1A]" />
+                      Latest revision of each sheet only
+                    </label>
+                  </div>
+                  <div className="border-t border-[#222A35] px-4 py-3 flex items-center justify-between">
+                    <button
+                      onClick={() => { setProjectFilter(""); setStatusFilter([]); setLatestRevOnly(false); }}
+                      className="text-[11px] text-[#8A95A5] hover:text-white"
+                    >
+                      Clear filters
+                    </button>
+                    <button onClick={() => setFiltersOpen(false)} className="text-[11px] text-[#FF6B1A] hover:underline">Done</button>
+                  </div>
+                </div>
+              )}
+            </div>
             {canShare && (
               <button
                 onClick={triggerUpload}
@@ -400,7 +487,7 @@ export function Plans({ role }: { role: Role }) {
       {/* Drawings grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
         {filtered.map((d) => (
-          <div key={d.id} className="rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden hover:border-[#FF6B1A]/40 transition group flex flex-col">
+          <div key={d.rowId || d.id} className="rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden hover:border-[#FF6B1A]/40 transition group flex flex-col">
             <button
               onClick={() => openViewer(d)}
               className="relative h-[140px] sm:h-[160px] overflow-hidden bg-[#0A0E14] text-left"
@@ -447,11 +534,28 @@ export function Plans({ role }: { role: Role }) {
       </div>
 
       {filtered.length === 0 && (
-        <EmptyState
-          icon={FileStack}
-          title="No drawings match"
-          description="Try clearing filters or search"
-        />
+        // Distinguish "you have no drawings" from "your filters hide them all".
+        // A single "No drawings match" message for both made a fresh workspace
+        // look like a filtering problem, and a filtered-out board look empty.
+        drawings.length === 0 ? (
+          <EmptyState
+            icon={FileStack}
+            title="No drawings uploaded yet"
+            description={canShare
+              ? "Upload your architectural, structural or MEP sheets — PDFs, images and CAD files are all accepted."
+              : "No sheets have been published to this workspace yet."}
+            actionLabel={canShare ? "Upload drawings" : undefined}
+            onAction={canShare ? triggerUpload : undefined}
+          />
+        ) : (
+          <EmptyState
+            icon={FileStack}
+            title="No drawings match your filters"
+            description={`${drawings.length} drawing${drawings.length === 1 ? "" : "s"} on the board are hidden by the current search or filters.`}
+            actionLabel="Clear filters"
+            onAction={() => { setQ(""); setDiscipline("All"); setProjectFilter(""); setStatusFilter([]); setLatestRevOnly(false); }}
+          />
+        )
       )}
 
       {/* New full-featured drawing viewer (Procore-style, original implementation) */}
@@ -476,157 +580,10 @@ export function Plans({ role }: { role: Role }) {
         />
       )}
 
-      {/* Legacy inline viewer — superseded by DrawingViewer above, kept disabled for reference */}
-      {false && viewing && (
-        <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-2 sm:p-4" onClick={() => setViewing(null)}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-[1100px] h-full max-h-[92vh] bg-[#0A0E14] border border-[#222A35] rounded-xl overflow-hidden flex flex-col">
-            <div className="p-3 sm:p-4 border-b border-[#222A35] flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-[10px] text-[#5B6675] uppercase tracking-wider font-mono">{viewing.id} · Rev {viewing.rev} · {viewing.status}</div>
-                <div className="text-[13px] sm:text-[15px] text-white font-display truncate">{viewing.title}</div>
-                <div className="text-[11px] text-[#8A95A5] truncate">{viewing.project} · {viewing.discipline} · {viewing.size}</div>
-              </div>
-              <div className="flex items-center gap-1 sm:gap-2 shrink-0 flex-wrap">
-                {/* Markup tools */}
-                <button onClick={() => setMarkupMode(markupMode === "pin" ? "off" : "pin")} className={`h-9 px-2 rounded-md border text-[11px] flex items-center gap-1 ${markupMode === "pin" ? "bg-[#FF6B1A]/15 border-[#FF6B1A]/40 text-[#FF6B1A]" : "border-[#222A35] text-[#8A95A5] hover:text-white"}`}><PenTool className="w-3.5 h-3.5" /> Pin</button>
-                <button onClick={() => setMarkupMode(markupMode === "text" ? "off" : "text")} className={`h-9 px-2 rounded-md border text-[11px] flex items-center gap-1 ${markupMode === "text" ? "bg-[#FF6B1A]/15 border-[#FF6B1A]/40 text-[#FF6B1A]" : "border-[#222A35] text-[#8A95A5] hover:text-white"}`}><Type className="w-3.5 h-3.5" /> Text</button>
-                <button onClick={() => setMarkupMode(markupMode === "box" ? "off" : "box")} className={`h-9 px-2 rounded-md border text-[11px] flex items-center gap-1 ${markupMode === "box" ? "bg-[#FF6B1A]/15 border-[#FF6B1A]/40 text-[#FF6B1A]" : "border-[#222A35] text-[#8A95A5] hover:text-white"}`} title="Add an editable note box / placeholder"><Box className="w-3.5 h-3.5" /> Note Box</button>
-                <button onClick={clearMarkups} className="h-9 px-2 rounded-md border border-[#222A35] text-[11px] text-[#8A95A5] hover:text-white flex items-center gap-1"><Undo className="w-3.5 h-3.5" /> Clear</button>
-                <button onClick={() => setShowVersions((s) => !s)} className={`h-9 px-2 rounded-md border text-[11px] flex items-center gap-1 ${showVersions ? "bg-[#3B82F6]/15 border-[#3B82F6]/40 text-[#3B82F6]" : "border-[#222A35] text-[#8A95A5] hover:text-white"}`}><History className="w-3.5 h-3.5" /> Versions</button>
-                <div className="w-px h-6 bg-[#222A35] mx-1 hidden sm:block" />
-                <button onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))} className="h-9 w-9 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center"><ZoomOut className="w-4 h-4" /></button>
-                <span className="text-[11px] text-[#8A95A5] w-10 text-center">{Math.round(zoom * 100)}%</span>
-                <button onClick={() => setZoom((z) => Math.min(3, z + 0.25))} className="h-9 w-9 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center"><ZoomIn className="w-4 h-4" /></button>
-                <button onClick={() => downloadDrawing(viewing)} className="h-9 px-2 sm:px-3 rounded-md border border-[#222A35] text-[12px] text-[#8A95A5] hover:text-white flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Download</span></button>
-                <button onClick={() => { const d = viewing; setViewing(null); openShare(d); }} className={`h-9 px-2 sm:px-3 rounded-md text-[12px] flex items-center gap-1.5 ${canShare ? "bg-[#FF6B1A] text-white" : "bg-[#222A35] text-[#5B6675]"}`}><Share2 className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Share</span></button>
-                <button onClick={() => setViewing(null)} className="h-9 w-9 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center"><X className="w-4 h-4" /></button>
-              </div>
-            </div>
-            {markupMode === "text" && (
-              <div className="px-3 py-2 border-b border-[#222A35] flex gap-2 items-center">
-                <span className="text-[11px] text-[#8A95A5]">Text:</span>
-                <input value={markupText} onChange={(e) => setMarkupText(e.target.value)} placeholder="Click on drawing to place text" className="flex-1 h-8 bg-[#0A0E14] border border-[#222A35] rounded px-2 text-[12px] text-white" />
-              </div>
-            )}
-            {(markupMode === "box" || markupMode === "pin") && (
-              <div className="px-3 py-2 border-b border-[#222A35] text-[11px] text-[#FF6B1A]">
-                {markupMode === "box" ? "Click anywhere on the drawing to drop an editable note box — then click it to type designs, specs, or placeholders. Drag to move." : "Click on the drawing to drop a location pin. Drag any markup to reposition it."}
-              </div>
-            )}
-            <div className="flex-1 flex overflow-hidden">
-              <div ref={canvasRef} className={`flex-1 overflow-auto bg-[#050709] flex items-center justify-center p-3 sm:p-6 relative ${markupMode !== "off" ? "cursor-crosshair" : ""}`} onClick={addMarkup}>
-                <ImageWithFallback
-                  src={viewing.img}
-                  alt={viewing.title}
-                  className="max-w-none transition-transform select-none"
-                  style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}
-                  draggable={false}
-                />
-                {/* Editable markup / annotation layer */}
-                {markups.filter((m) => m.drawingId === viewing.id).map((m) => {
-                  if (m.type === "box") {
-                    return (
-                      <div
-                        key={m.id}
-                        onPointerDown={(e) => startDrag(e, m)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="absolute group rounded-md border-2 bg-black/55 backdrop-blur-sm shadow-lg cursor-move resize overflow-auto"
-                        style={{ left: `${m.x}%`, top: `${m.y}%`, width: `${m.w ?? 24}%`, height: `${m.h ?? 16}%`, transform: "translate(-50%, -50%)", borderColor: m.color }}
-                      >
-                        <button onClick={(e) => { e.stopPropagation(); removeMarkup(m.id); }} className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-[#EF4444] text-white flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"><X className="w-3 h-3" /></button>
-                        {editingId === m.id ? (
-                          <textarea
-                            autoFocus
-                            value={m.text}
-                            onChange={(e) => setMarkupTextValue(m.id, e.target.value)}
-                            onBlur={() => commitMarkupText(m.id)}
-                            onPointerDown={(e) => e.stopPropagation()}
-                            placeholder="Type design notes, specs, dimensions, placeholders…"
-                            className="w-full h-full bg-transparent text-white text-[11px] leading-snug p-2 resize-none focus:outline-none placeholder:text-[#8A95A5]"
-                          />
-                        ) : (
-                          <div onDoubleClick={(e) => { e.stopPropagation(); setEditingId(m.id); }} className="w-full h-full p-2 text-white text-[11px] leading-snug whitespace-pre-wrap break-words">
-                            {m.text || <span className="text-[#8A95A5]">Double-click to edit…</span>}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  }
-                  return (
-                    <div
-                      key={m.id}
-                      onPointerDown={(e) => startDrag(e, m)}
-                      onClick={(e) => e.stopPropagation()}
-                      className="absolute group cursor-move"
-                      style={{ left: `${m.x}%`, top: `${m.y}%`, transform: "translate(-50%, -50%)" }}
-                    >
-                      <button onClick={(e) => { e.stopPropagation(); removeMarkup(m.id); }} className="absolute -top-2 -right-2 w-4 h-4 rounded-full bg-[#EF4444] text-white flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"><X className="w-2.5 h-2.5" /></button>
-                      {m.type === "pin" ? (
-                        <div className="flex flex-col items-center">
-                          <div className="w-4 h-4 rounded-full border-2 border-white shadow" style={{ background: m.color }} />
-                          {m.text && <div className="mt-1 px-1.5 py-0.5 rounded bg-black/70 text-white text-[10px] whitespace-nowrap">{m.text}</div>}
-                        </div>
-                      ) : editingId === m.id ? (
-                        <input
-                          autoFocus
-                          value={m.text}
-                          onChange={(e) => setMarkupTextValue(m.id, e.target.value)}
-                          onBlur={() => commitMarkupText(m.id)}
-                          onPointerDown={(e) => e.stopPropagation()}
-                          className="px-2 py-1 rounded bg-black/80 text-white text-[11px] border focus:outline-none"
-                          style={{ borderColor: m.color }}
-                        />
-                      ) : (
-                        <div onDoubleClick={(e) => { e.stopPropagation(); setEditingId(m.id); }} className="px-2 py-1 rounded bg-black/70 text-white text-[11px] whitespace-nowrap border" style={{ borderColor: m.color }}>{m.text || "Note"}</div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              {/* Version history sidebar */}
-              {showVersions && (
-                <div className="w-56 border-l border-[#222A35] bg-[#11161D] overflow-y-auto hidden sm:block">
-                  <div className="p-3 border-b border-[#222A35]">
-                    <div className="text-[12px] text-white font-display">Version History</div>
-                    <div className="text-[10px] text-[#5B6675]">{viewing.id}</div>
-                  </div>
-                  <div className="p-2 space-y-1">
-                    {drawingVersions.filter((v) => v.drawingId === viewing.id).map((v) => (
-                      <button key={v.rev} onClick={() => toast(`Switched to revision ${v.rev}`)} className="w-full text-left p-2 rounded-md hover:bg-[#161C24] border border-transparent hover:border-[#222A35]">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] text-white">Rev {v.rev}</span>
-                          <span className="text-[10px] text-[#5B6675]">{v.date}</span>
-                        </div>
-                        {v.rev === viewing.rev && <div className="text-[10px] text-[#22C55E]">Current</div>}
-                      </button>
-                    ))}
-                    {drawingVersions.filter((v) => v.drawingId === viewing.id).length === 0 && (
-                      <div className="text-[11px] text-[#5B6675] p-2">No previous versions</div>
-                    )}
-                  </div>
-                  {/* Cloud integrations */}
-                  <div className="p-3 border-t border-[#222A35] space-y-2">
-                    <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Cloud Storage</div>
-                    <button onClick={() => toast("Opening Box integration...")} className="w-full flex items-center gap-2 p-2 rounded-md border border-[#222A35] hover:border-[#3B82F6]/40 text-[11px] text-[#8A95A5] hover:text-white">
-                      <Box className="w-4 h-4 text-[#3B82F6]" /> Box
-                    </button>
-                    <button onClick={() => toast("Opening Dropbox integration...")} className="w-full flex items-center gap-2 p-2 rounded-md border border-[#222A35] hover:border-[#3B82F6]/40 text-[11px] text-[#8A95A5] hover:text-white">
-                      <Cloud className="w-4 h-4 text-[#3B82F6]" /> Dropbox
-                    </button>
-                    <button onClick={() => toast("Opening OneDrive integration...")} className="w-full flex items-center gap-2 p-2 rounded-md border border-[#222A35] hover:border-[#3B82F6]/40 text-[11px] text-[#8A95A5] hover:text-white">
-                      <ExternalLink className="w-4 h-4 text-[#3B82F6]" /> OneDrive
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="p-3 border-t border-[#222A35] flex items-center justify-between text-[11px] text-[#5B6675]">
-              <span>Updated {viewing.updated}</span>
-              <span>{viewing.recipients} recipients · {markupMode !== "off" ? "click to place markup" : "drag to pan · scroll to zoom"}</span>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* The legacy inline viewer that used to live here was dead code behind
+          `{false && …}` — superseded by DrawingViewer above. It was removed: it
+          could never render, yet it still had to compile, and its 15 type errors
+          masked real ones in this file. */}
 
       {/* Upload modal */}
       {uploadOpen && (
@@ -678,9 +635,13 @@ export function Plans({ role }: { role: Role }) {
                     {pendingFiles.map((f, i) => (
                       <div key={i} className="flex items-center gap-2 p-2 rounded-md bg-[#0A0E14] border border-[#222A35]">
                         {/* Images preview straight from the local File, so you can
-                            confirm you picked the right sheet before it uploads. */}
+                            confirm you picked the right sheet before it uploads.
+                            FilePreview owns the blob URL: creating it inline in
+                            render minted a new one on every re-render (a leak),
+                            and revoking it in onLoad meant the thumbnail vanished
+                            the moment the browser had to repaint it. */}
                         {f.type.startsWith("image/")
-                          ? <img src={URL.createObjectURL(f)} alt="" onLoad={(e) => URL.revokeObjectURL((e.target as HTMLImageElement).src)} className="w-9 h-9 rounded object-cover border border-[#222A35] shrink-0" />
+                          ? <FilePreview file={f} />
                           : <FileStack className="w-3.5 h-3.5 text-[#8A95A5] shrink-0" />}
                         <div className="flex-1 min-w-0">
                           <div className="text-[12px] text-white truncate">{f.name}</div>

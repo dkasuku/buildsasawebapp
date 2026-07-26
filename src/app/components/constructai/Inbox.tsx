@@ -362,8 +362,16 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
     setGroupProfilePic(blobUrl);
     toast.success("Group profile updated");
     e.target.value = "";
-    // Persist in the background, then swap the blob URL for the stored one.
-    api.uploadFile(file).then((u) => { setConversations((prev) => prev.map((c) => c.id === selectedId ? { ...c, profilePic: u } : c)); setGroupProfilePic(u); }).catch(() => {});
+    // Persist in the background, then swap the blob URL for the stored one. If
+    // that fails the blob is the only thing anyone else would receive — a picture
+    // visible to nobody but this tab — so revert and say so.
+    api.uploadFile(file)
+      .then((u) => { setConversations((prev) => prev.map((c) => c.id === selectedId ? { ...c, profilePic: u } : c)); setGroupProfilePic(u); })
+      .catch((err) => {
+        setConversations((prev) => prev.map((c) => c.id === selectedId ? { ...c, profilePic: undefined } : c));
+        setGroupProfilePic("");
+        toast.error(`Group picture not saved — ${err?.message || "unknown error"}`, { duration: 8000 });
+      });
   };
 
   const addMemberToGroup = async (memberId: string) => {
@@ -456,8 +464,16 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
     setAttachments((prev) => [...prev, att]);
     setShowAttachMenu(false);
     toast.success("Attached: " + file.name);
-    // Persist to storage in the background, then swap the blob URL for the real one.
-    api.uploadFile(file).then((u) => setAttachments((prev) => prev.map((a) => (a.id === att.id ? { ...a, url: u } : a)))).catch(() => {});
+    // Persist to storage in the background, then swap the blob URL for the real
+    // one. A silent failure here left the blob URL on the attachment, so the
+    // message was sent with a link that is dead for every recipient — drop the
+    // attachment and say why instead.
+    api.uploadFile(file)
+      .then((u) => setAttachments((prev) => prev.map((a) => (a.id === att.id ? { ...a, url: u } : a))))
+      .catch((err) => {
+        setAttachments((prev) => prev.filter((a) => a.id !== att.id));
+        toast.error(`${file.name} was not attached — ${err?.message || "unknown error"}`, { duration: 8000 });
+      });
     e.target.value = "";
   };
 

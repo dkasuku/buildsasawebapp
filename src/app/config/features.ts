@@ -52,10 +52,22 @@ export function isViewVisible(v: View): boolean {
   if (v === "login") return true;
   if (!simpleModeEnabled()) return true; // all features visible by default
   if (v === "change-order") return CORE_VIEWS.includes("change-orders");
+  if (v === "project-detail") return CORE_VIEWS.includes("projects");
   return CORE_VIEWS.includes(v);
 }
 
+// Detail screens that aren't in the nav and aren't listed per-role: each one is
+// reached by drilling into a record, so it inherits access from the list view
+// that owns it. Without this, navigating to a detail screen bounced straight
+// back because it appeared in no role's `views` array.
+const IMPLIED_VIEWS: Partial<Record<View, View>> = {
+  "project-detail": "projects",
+};
+
 // Intersect a role's permitted views with what's visible right now.
 export function visibleViewsFor(roleViews: View[]): View[] {
-  return roleViews.filter(isViewVisible);
+  const implied = (Object.entries(IMPLIED_VIEWS) as [View, View][])
+    .filter(([detail, parent]) => roleViews.includes(parent) && !roleViews.includes(detail))
+    .map(([detail]) => detail);
+  return [...roleViews, ...implied].filter(isViewVisible);
 }

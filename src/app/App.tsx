@@ -10,6 +10,7 @@ import { PublicBidSubmit } from "./components/constructai/PublicBidSubmit";
 import { ErrorBoundary } from "./components/constructai/ErrorBoundary";
 import { Dashboard } from "./components/constructai/Dashboard";
 import { Projects } from "./components/constructai/Projects";
+import { ProjectDetail } from "./components/constructai/ProjectDetail";
 import { ChangeOrderDetail } from "./components/constructai/ChangeOrderDetail";
 import { MobileCreate } from "./components/constructai/MobileCreate";
 import { FieldView } from "./components/constructai/FieldView";
@@ -61,6 +62,7 @@ import ShemmySupport from "./components/constructai/ShemmySupport";
 const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Executive overview" },
   projects: { title: "Projects", subtitle: "Your sites and jobs" },
+  "project-detail": { title: "Project", subtitle: "Dashboard, progress & everything linked to it" },
   "change-order": { title: "Change Order", subtitle: "Detailed review & approvals" },
   "change-orders": { title: "Change Orders", subtitle: "Cost & schedule impact · approvals" },
   billing: { title: "Billing & Plan", subtitle: "Subscription & payments" },
@@ -168,6 +170,16 @@ export default function App() {
   const [activeChangeOrderId, setActiveChangeOrderId] = useState("CO-1258");
   const [activeChangeOrderStatus, setActiveChangeOrderStatus] = useState<string | null>(null);
   const [returnView, setReturnView] = useState<View>("dashboard");
+  // Which project the detail dashboard is showing. Set by drilling into a card.
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const openProject = (id: string) => {
+    setActiveProjectId(id);
+    setView("project-detail");
+    setDrawerOpen(false);
+  };
+  // Ask the Projects list to open its edit dialog for this project on mount —
+  // used by "Edit project" on the detail page, since the form lives there.
+  const [editProjectId, setEditProjectId] = useState<string | null>(null);
 
   // Theme switch. Uses the View Transitions API to crossfade the whole page as a
   // single composited snapshot (smooth, no per-element repaint flicker). Falls
@@ -410,7 +422,33 @@ export default function App() {
                 onNavigate={setView}
               />
             )}
-            {effectiveView === "projects" && <Projects setView={setView} role={role} />}
+            {effectiveView === "projects" && (
+              <Projects
+                setView={setView}
+                role={role}
+                onOpenProject={openProject}
+                openEditProjectId={editProjectId}
+                onConsumeEditProjectId={() => setEditProjectId(null)}
+              />
+            )}
+            {effectiveView === "project-detail" && (
+              activeProjectId ? (
+                <ProjectDetail
+                  key={activeProjectId}
+                  projectId={activeProjectId}
+                  role={role}
+                  setView={setView}
+                  onBack={() => setView("projects")}
+                  // Editing lives in the Projects list, which owns the form —
+                  // hand the user back there with the dialog already open.
+                  onEdit={() => { setEditProjectId(activeProjectId); setView("projects"); }}
+                />
+              ) : (
+                // Reached without a project selected (e.g. a stale view after a
+                // reload). Send the user somewhere useful instead of a blank page.
+                <Projects setView={setView} role={role} onOpenProject={openProject} />
+              )
+            )}
             {effectiveView === "change-order" && (
               <ChangeOrderDetail
                 key={activeChangeOrderId}

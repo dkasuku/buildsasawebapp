@@ -21,6 +21,14 @@ const PERMISSION_LABELS: Record<keyof Permissions, { label: string; icon: any; d
   assignTasks: { label: "Assign Tasks", icon: Users, description: "Can create and assign tasks to crews" },
   completeTasks: { label: "Complete Tasks", icon: CheckCircle, description: "Can mark tasks as done and upload proof" },
   isWorkspaceOwner: { label: "Workspace Owner", icon: Shield, description: "Full admin control over workspace settings" },
+  // These six exist in Permissions and are enforced everywhere, but had no entry
+  // here — so the Role Manager silently offered no way to see or change them.
+  viewChecklists: { label: "View Checklists", icon: CheckCircle, description: "Can open checklists and see their questions and responses" },
+  useAI: { label: "Use AI Assistant", icon: Info, description: "Access to Buildsasa AI for reports, checklists and guidance" },
+  canCreateInspection: { label: "Create Inspections", icon: FileText, description: "Can raise a new inspection request" },
+  canFillInspection: { label: "Fill Inspections", icon: CheckCircle, description: "Can complete an inspection on site and submit it" },
+  canApproveInspection: { label: "Approve Inspections", icon: Shield, description: "Can approve, reject or send an inspection back for rework" },
+  canViewInspectionReports: { label: "Inspection Reports", icon: Eye, description: "Access to completed inspection reports and history" },
 };
 
 export function RoleManager({ role = "Contractor" }: { role?: Role }) {
