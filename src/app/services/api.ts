@@ -649,25 +649,24 @@ export const api = {
   updateUserRole: (id: string, role: string) => http<any>(`/api/users/${id}/role`, { method: "PUT", body: JSON.stringify({ role }) }),
   removeUser: (id: string) => http(`/api/users/${id}`, { method: "DELETE" }),
   getAccessLogs: () => http<any[]>("/api/access-logs"),
-  // Upload a file and get back a PERSISTENT url. Tries cloud (S3/R2) presigned
-  // upload first, then falls back to the server's local-disk upload. Replaces
-  // throwaway in-browser blob URLs so images survive reloads & other devices.
+  // Upload a file and get back a PERSISTENT url, replacing throwaway in-browser
+  // blob URLs so images survive reloads and reach other devices.
+  //
+  // Everything goes through the server, which forwards to object storage when
+  // it is configured. The browser used to PUT straight to a presigned bucket
+  // URL, which silently required a CORS policy on the bucket — without one the
+  // PUT was blocked and the error was swallowed, so files vanished with no
+  // explanation. Routing through the API removes that dependency entirely.
   uploadFile: async (file: File): Promise<string> => {
-    try {
-      const pres: any = await http("/api/upload/presign", { method: "POST", body: JSON.stringify({ filename: file.name, contentType: file.type || "application/octet-stream" }) });
-      if (pres?.url && pres?.publicUrl) {
-        const put = await fetch(pres.url, { method: "PUT", body: file, headers: { "Content-Type": file.type || "application/octet-stream" } });
-        if (put.ok) return pres.publicUrl;
-      }
-    } catch { /* cloud not configured — fall back to local */ }
     const fd = new FormData();
     fd.append("file", file);
-    // Name the file in the failure. With several files uploading at once, a bare
+    // Name the file in the failure. With several uploading at once, a bare
     // "Upload failed" says nothing about which one died or why.
     let r: any;
     try { r = await http("/api/upload", { method: "POST", body: fd }); }
     catch (e: any) { throw new Error(`${file.name}: ${e?.message || "upload failed"}`); }
     const url: string = r?.url || "";
+    if (!url) throw new Error(`${file.name}: server returned no file URL`);
     return url.startsWith("http") ? url : `${API_URL}${url}`;
   },
   getProjects: () => http<ProjectDto[]>("/api/projects"),

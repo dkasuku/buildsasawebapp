@@ -30,11 +30,11 @@ export function PunchList() {
   const uploadFile = async (file: File, itemId?: string) => {
     setUploading(itemId || "new");
     try {
-      const { url, publicUrl } = await api.presignUpload(file.name, file.type);
-      await fetch(url, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
-      return publicUrl;
+      // Goes through the API rather than a direct browser PUT to the bucket, so
+      // no bucket CORS policy is needed and a failure actually raises.
+      return await api.uploadFile(file);
     } catch (e: any) {
-      toast.error("Upload failed: " + (e.message || "Unknown"));
+      toast.error("Upload failed: " + (e.message || "Unknown"), { duration: 8000 });
       return null;
     } finally {
       setUploading(null);

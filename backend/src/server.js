@@ -104,10 +104,25 @@ const s3 = process.env.S3_BUCKET
       accessKeyId: process.env.AWS_ACCESS_KEY_ID,
       secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
       signatureVersion: 'v4',
-      // Cloudflare R2 (and other S3-compatible stores) need a custom endpoint.
+      // Cloudflare R2, Backblaze B2 and other S3-compatible stores need a custom
+      // endpoint. Path-style addressing is what those providers expect.
       ...(process.env.S3_ENDPOINT ? { endpoint: process.env.S3_ENDPOINT, s3ForcePathStyle: true } : {}),
     })
   : null;
+
+// The public URL a stored object is readable at. Order matters:
+//   1. S3_PUBLIC_BASE — an explicit CDN or custom domain, always wins.
+//   2. A custom endpoint (B2, R2, MinIO) — path-style, matching s3ForcePathStyle.
+//   3. Real AWS — virtual-hosted style.
+// Case 2 previously fell through to the AWS pattern, so a Backblaze or R2 upload
+// was recorded as an amazonaws.com link that could never load. Any file stored
+// while that was live has a broken URL in the database.
+const publicUrlFor = (key) => {
+  if (process.env.S3_PUBLIC_BASE) return `${process.env.S3_PUBLIC_BASE.replace(/\/$/, '')}/${key}`;
+  if (process.env.S3_ENDPOINT) return `${process.env.S3_ENDPOINT.replace(/\/$/, '')}/${process.env.S3_BUCKET}/${key}`;
+  return `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+};
+const storageKeyFor = (filename) => `${process.env.S3_UPLOAD_PREFIX || 'uploads/'}${Date.now()}-${String(filename || 'file').replace(/[^\w.\-]/g, '_')}`;
 
 // CORS — comma-separated ALLOWED_ORIGINS env var restricts browser access to
 // the listed frontends. When unset, all origins are allowed (dev fallback).
@@ -128,7 +143,13 @@ if (ALLOWED_ORIGINS.length) {
 app.use(express.json());
 // Serve locally-uploaded files (used when S3/R2 is not configured).
 app.use('/uploads', express.static(UPLOAD_DIR));
-console.log(`[upload] local files -> ${UPLOAD_DIR}${process.env.UPLOAD_DIR ? '' : ' (ephemeral — set UPLOAD_DIR to a mounted volume in production)'}`);
+// Say plainly at boot where uploads land — this is the first thing worth knowing
+// when files upload "successfully" but later cannot be found.
+if (s3) {
+  console.log(`[upload] object storage -> bucket ${process.env.S3_BUCKET}${process.env.S3_ENDPOINT ? ` @ ${process.env.S3_ENDPOINT}` : ' @ AWS'} · public URLs like ${publicUrlFor('<key>')}`);
+} else {
+  console.log(`[upload] local disk -> ${UPLOAD_DIR}${process.env.UPLOAD_DIR ? '' : ' (EPHEMERAL — wiped on every deploy; set UPLOAD_DIR to a mounted volume or configure S3_BUCKET)'}`);
+}
 
 // In-memory user stub (replace with real users)
 // Safety net: never let one failed request crash the whole backend.
@@ -1504,8 +1525,30 @@ app.delete('/api/documents/:id', auth, async (req, res) => {
 });
 
 // File upload stub (local). Replace with S3 presign in production.
-app.post('/api/upload', auth, singleFile('file'), (req, res) => {
+app.post('/api/upload', auth, singleFile('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file' });
+  // With object storage configured the browser never talks to the bucket: multer
+  // stages the file on disk, this forwards it, and the temp copy is deleted. No
+  // bucket CORS policy is needed, and nothing durable is left on the container
+  // filesystem — which a deploy would wipe anyway.
+  if (s3) {
+    const fs = require('fs');
+    const Key = storageKeyFor(req.file.originalname);
+    try {
+      await s3.putObject({
+        Bucket: process.env.S3_BUCKET,
+        Key,
+        Body: fs.createReadStream(req.file.path),
+        ContentType: req.file.mimetype || 'application/octet-stream',
+      }).promise();
+      return res.json({ url: publicUrlFor(Key), key: Key });
+    } catch (e) {
+      console.error('[upload] object storage put failed:', (e && e.code) || '', (e && e.message) || e);
+      return res.status(502).json({ error: `Storage upload failed: ${(e && e.message) || 'unknown error'}` });
+    } finally {
+      fs.unlink(req.file.path, () => {});
+    }
+  }
   res.json({ url: `/uploads/${req.file.filename}` });
 });
 
@@ -1514,7 +1557,7 @@ app.post('/api/upload/presign', auth, async (req, res) => {
   if (!s3 || !process.env.S3_BUCKET) return res.status(500).json({ error: 'S3 not configured' });
   const { filename, contentType } = req.body;
   if (!filename || !contentType) return res.status(400).json({ error: 'filename and contentType required' });
-  const Key = `${process.env.S3_UPLOAD_PREFIX || 'uploads/'}${Date.now()}-${filename}`;
+  const Key = storageKeyFor(filename);
   const params = {
     Bucket: process.env.S3_BUCKET,
     Key,
@@ -1523,15 +1566,59 @@ app.post('/api/upload/presign', auth, async (req, res) => {
   };
   try {
     const url = await s3.getSignedUrlPromise('putObject', params);
-    // Prefer an explicit public base (R2 public bucket URL or custom domain);
-    // otherwise fall back to the AWS S3 virtual-hosted style URL.
-    const publicUrl = process.env.S3_PUBLIC_BASE
-      ? `${process.env.S3_PUBLIC_BASE.replace(/\/$/, '')}/${Key}`
-      : `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${Key}`;
-    res.json({ url, publicUrl, fields: {} });
+    res.json({ url, publicUrl: publicUrlFor(Key), fields: {} });
   } catch (e) {
-    res.status(500).json({ error: 'Failed to presign upload' });
+    console.error('[upload] presign failed:', (e && e.message) || e);
+    res.status(500).json({ error: `Failed to presign upload: ${(e && e.message) || 'unknown error'}` });
   }
+});
+
+// Storage self-test — platform staff only. Answers "is object storage actually
+// working?" with a real round trip rather than a guess: it writes a small object,
+// reads it back over the public URL, then deletes it. Each step is reported
+// separately, so a signing/credential failure, a private bucket, and a wrong
+// public URL are told apart instead of all surfacing as "upload failed".
+app.get('/api/admin/storage-check', auth, async (req, res) => {
+  if (!isPlatformAdmin(req.user && req.user.email)) return res.status(403).json({ error: 'Platform admin only' });
+  const out = {
+    mode: s3 ? 'object-storage' : 'local-disk',
+    bucket: process.env.S3_BUCKET || null,
+    endpoint: process.env.S3_ENDPOINT || null,
+    region: process.env.AWS_REGION || null,
+    publicBase: process.env.S3_PUBLIC_BASE || null,
+    uploadDir: s3 ? null : UPLOAD_DIR,
+    localDiskIsEphemeral: !s3 && !process.env.UPLOAD_DIR,
+    steps: {},
+  };
+  if (!s3) {
+    out.steps.note = 'S3_BUCKET is not set, so uploads are written to the container disk.';
+    return res.json(out);
+  }
+  const Key = `${process.env.S3_UPLOAD_PREFIX || 'uploads/'}_storage-check-${Date.now()}.txt`;
+  const url = publicUrlFor(Key);
+  out.testUrl = url;
+  try {
+    await s3.putObject({ Bucket: process.env.S3_BUCKET, Key, Body: 'buildsasa storage check', ContentType: 'text/plain' }).promise();
+    out.steps.write = 'ok';
+  } catch (e) {
+    out.steps.write = `FAILED — ${(e && e.code) || ''} ${(e && e.message) || e}`.trim();
+    return res.json(out); // nothing else is meaningful once the write failed
+  }
+  try {
+    const r = await fetch(url);
+    out.steps.publicRead = r.ok
+      ? 'ok'
+      : `FAILED — HTTP ${r.status}. The object was stored, but is not publicly readable at this URL. Either make the bucket public or set S3_PUBLIC_BASE to the correct host.`;
+  } catch (e) {
+    out.steps.publicRead = `FAILED — ${(e && e.message) || e}`;
+  }
+  try {
+    await s3.deleteObject({ Bucket: process.env.S3_BUCKET, Key }).promise();
+    out.steps.cleanup = 'ok';
+  } catch (e) {
+    out.steps.cleanup = `left behind — ${(e && e.message) || e}`;
+  }
+  res.json(out);
 });
 
 // ===== BIDS =====

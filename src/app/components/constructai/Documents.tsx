@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { FileText, UploadCloud, Search, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import api from "../../services/api";
 
 type DocRow = { id?: string; name: string; url: string; size: string; updated: string };
@@ -17,12 +18,14 @@ export function Documents() {
   const onUpload = async (file: File) => {
     setUploading(true);
     try {
-      const presign = await api.presignUpload(file.name, file.type || "application/octet-stream");
-      await fetch(presign.url, { method: "PUT", body: file, headers: { "Content-Type": file.type || "application/octet-stream" } });
-      const doc = await api.createDocument({ name: file.name, url: presign.publicUrl, size: `${Math.round(file.size / 1024)} KB`, updated: "Just now" });
+      // Was a direct browser PUT to a presigned URL whose result was never
+      // checked — a blocked upload still recorded a document pointing at a file
+      // that was never stored. uploadFile goes through the API and throws.
+      const url = await api.uploadFile(file);
+      const doc = await api.createDocument({ name: file.name, url, size: `${Math.round(file.size / 1024)} KB`, updated: "Just now" });
       setDocs((prev) => [doc, ...prev]);
-    } catch {
-      // ignore
+    } catch (e: any) {
+      toast.error(`Upload failed — ${e?.message || "unknown error"}`, { duration: 8000 });
     } finally {
       setUploading(false);
     }
