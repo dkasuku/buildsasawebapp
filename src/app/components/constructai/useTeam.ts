@@ -82,3 +82,6 @@ export function resolveName(id: string): string {
   // Looks like a real user id we simply have not loaded yet.
   return _cache === null ? id : `Unknown (${id})`;
 }
+
+/** The live team cache, for helpers that cannot use a hook (see team-data.ts). */
+export function teamCache(): TeamMemberLite[] { return _cache || []; }

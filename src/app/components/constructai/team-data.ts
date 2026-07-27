@@ -25,16 +25,35 @@ export const TEAM_MEMBERS: TeamMember[] = [
   { id: "u-owner", name: "Robert Ochieng", role: "Owner", initials: "RO", phone: "+254 722 011 011", online: false, lastSeen: "Yesterday" },
 ];
 
+// These three resolve a user id for display (avatar colour + initials).
+//
+// They used to look the id up in the TEAM_MEMBERS demo roster only. Real user ids
+// never match it, so every avatar rendered grey with "?" initials once the demo
+// data stopped being used. They now consult the live invited team first, and fall
+// back to deriving a stable colour and initials from the id itself rather than
+// giving up.
+import { teamCache } from "./useTeam";
+
+const AVATAR_FALLBACK = ["#FF6B1A", "#3B82F6", "#22C55E", "#8B5CF6", "#F5A623", "#06B6D4", "#EF4444"];
+
 export function getMember(id: string) {
-  return TEAM_MEMBERS.find((m) => m.id === id);
+  return teamCache().find((m) => m.id === id) ?? TEAM_MEMBERS.find((m) => m.id === id);
 }
 
 export function getMemberColor(id: string) {
   const m = getMember(id);
-  return m ? ROLE_COLORS[m.role] : "#5B6675";
+  if (m && (ROLE_COLORS as Record<string, string>)[m.role]) return (ROLE_COLORS as Record<string, string>)[m.role];
+  if (!id) return "#5B6675";
+  // Stable per-id colour, so the same person is always the same colour.
+  const n = Array.from(id).reduce((a, c) => a + c.charCodeAt(0), 0);
+  return AVATAR_FALLBACK[n % AVATAR_FALLBACK.length];
 }
 
 export function getMemberInitials(id: string) {
   const m = getMember(id);
-  return m?.initials ?? "?";
+  if (m?.initials) return m.initials;
+  if (m?.name) {
+    return m.name.split(" ").filter(Boolean).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+  }
+  return "?";
 }
