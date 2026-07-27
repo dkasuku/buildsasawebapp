@@ -8,6 +8,7 @@ import { ImageWithFallback } from "../figma/ImageWithFallback";
 import { useFileUpload } from "./useFileUpload";
 import { UploadTray } from "./UploadTray";
 import { refreshProjects } from "./useProjects";
+import { resolveName } from "./useTeam";
 import api, { absoluteFileUrl } from "../../services/api";
 import type { View } from "./Sidebar";
 import type { Role } from "./roles";
@@ -22,6 +23,9 @@ const $toKES = (dollars: number) => Math.round(dollars * 130);
 type Project = {
   id?: string;
   name: string;
+  /** Planned completion, from the Project row. Absent for most projects, in which
+   *  case the card shows no date — it used to print a hardcoded "Q4 2027". */
+  targetEndDate?: string | null;
   code: string;
   city: string;
   lat?: number | null;
@@ -132,6 +136,13 @@ const formatExposure = (currency: string, amount: string, sign = "+") => {
   return `${sign}${currency}${spacer}${trimmed}`;
 };
 
+// Project status is free-ish text: the form offers "Planning / On Track / At Risk
+// / Closing / Archived", but rows in the wild also carry "Active" and
+// "In Progress". The KPI checks used to hardcode only the form's vocabulary, so a
+// workspace of "Active" projects reported 0% health and undercounted actives.
+const IN_PROGRESS_STATUSES = ["On Track", "At Risk", "Planning", "Active", "In Progress"];
+const HEALTHY_STATUSES = ["On Track", "Closing", "Active", "In Progress"];
+
 const CURRENCY_TO_KES: Record<string, number> = {
   "KSh": 1,
   "$": 130,
@@ -202,6 +213,7 @@ export function Projects({
     return {
       id: p.id,
       name: p.name,
+      targetEndDate: p.targetEndDate ?? null,
       code: p.code,
       city: p.city,
       lat: p.lat ?? null,
@@ -438,17 +450,17 @@ export function Projects({
 
   // KPI header values derived from the actually-loaded projects (zero/empty for
   // a fresh workspace — no hardcoded demo counts).
-  const activeProjectsCount = projects.filter((p) => ["On Track", "At Risk", "Planning"].includes(p.status)).length;
+  const activeProjectsCount = projects.filter((p) => IN_PROGRESS_STATUSES.includes(p.status)).length;
   const combinedValueKES = projects.reduce((sum, p) => sum + (p.valueKES ?? 0), 0);
   const combinedValueLabel = combinedValueKES > 0 ? formatCompactCurrency(combinedValueKES, currency) : "—";
   const coExposureKES = projects.reduce((sum, p) => sum + (p.exposureKES ?? 0), 0);
   const coExposureLabel = coExposureKES > 0 ? formatCompactCurrency(coExposureKES, currency) : "—";
-  const healthy = projects.filter((p) => ["On Track", "Closing"].includes(p.status)).length;
+  const healthy = projects.filter((p) => HEALTHY_STATUSES.includes(p.status)).length;
   const projectHealthLabel = projects.length > 0 ? `${Math.round((healthy / projects.length) * 100)}%` : "—";
 
   const filtered = projects.filter((p) => {
     const matchesTab = tab === "All"
-      || (tab === "Active" && ["On Track", "At Risk", "Planning"].includes(p.status))
+      || (tab === "Active" && IN_PROGRESS_STATUSES.includes(p.status))
       || tab === p.status;
     if (!matchesTab) return false;
     if (query) {
@@ -734,13 +746,13 @@ export function Projects({
               <div className="p-4 space-y-3">
                 <div className="flex items-center gap-3 text-[11px] text-[#8A95A5]">
                   <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{p.city}</span>
-                  <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />Q4 2027</span>
+                  {p.targetEndDate && <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{new Date(p.targetEndDate).toLocaleDateString(undefined, { month: "short", year: "numeric" })}</span>}
                 </div>
                 {p.description && <div className="text-[11px] text-[#8A95A5] line-clamp-2">{p.description}</div>}
                 <div className="flex flex-wrap gap-1.5 text-[10px] text-[#C2CAD6]">
-                  {p.pm !== "None" && <span className="px-2 py-1 rounded-md bg-[#222A35] flex items-center gap-1"><UserCircle className="w-3 h-3" />PM: {p.pm}</span>}
-                  {p.architect !== "None" && <span className="px-2 py-1 rounded-md bg-[#222A35] flex items-center gap-1"><UserCircle className="w-3 h-3" />Arch: {p.architect}</span>}
-                  {p.qs !== "None" && <span className="px-2 py-1 rounded-md bg-[#222A35] flex items-center gap-1"><UserCircle className="w-3 h-3" />QS: {p.qs}</span>}
+                  {p.pm !== "None" && <span className="px-2 py-1 rounded-md bg-[#222A35] flex items-center gap-1"><UserCircle className="w-3 h-3" />PM: {resolveName(p.pm)}</span>}
+                  {p.architect !== "None" && <span className="px-2 py-1 rounded-md bg-[#222A35] flex items-center gap-1"><UserCircle className="w-3 h-3" />Arch: {resolveName(p.architect)}</span>}
+                  {p.qs !== "None" && <span className="px-2 py-1 rounded-md bg-[#222A35] flex items-center gap-1"><UserCircle className="w-3 h-3" />QS: {resolveName(p.qs)}</span>}
                 </div>
                 <div>
                   <div className="flex items-center justify-between text-[11px] mb-1.5">
@@ -804,9 +816,9 @@ export function Projects({
                     <td className="px-3 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] border ${statusColor(p.status)}`}>{p.status}</span></td>
                     <td className="px-3 py-3 text-[#8A95A5]">{p.city}</td>
                     <td className="px-3 py-3 text-[#8A95A5] text-[11px]">
-                      {p.pm !== "None" && <div>PM: {p.pm}</div>}
-                      {p.architect !== "None" && <div>Arch: {p.architect}</div>}
-                      {p.qs !== "None" && <div>QS: {p.qs}</div>}
+                      {p.pm !== "None" && <div>PM: {resolveName(p.pm)}</div>}
+                      {p.architect !== "None" && <div>Arch: {resolveName(p.architect)}</div>}
+                      {p.qs !== "None" && <div>QS: {resolveName(p.qs)}</div>}
                       {p.pm === "None" && p.architect === "None" && p.qs === "None" && <div className="text-[#5B6675]">—</div>}
                     </td>
                     <td className="px-3 py-3 text-right text-white">{p.valueKES ? formatCompactCurrency(p.valueKES, currency) : p.value}</td>

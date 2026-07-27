@@ -14,6 +14,8 @@ import type { Role } from "./roles";
 import { ROLES } from "./roles";
 import { useTeam, resolveName } from "./useTeam";
 import api, { type ChangeOrderActivityDto } from "../../services/api";
+import { useCurrency } from "./CurrencyContext";
+import { formatCurrency } from "./currency";
 
 type COStatus = "drafted" | "pm_review" | "owner_approval" | "approved" | "rejected" | "void";
 interface ChangeOrder {
@@ -34,7 +36,16 @@ const STATUS_META: Record<COStatus, { label: string; cls: string }> = {
 const TRIGGERS = ["Design clarification", "Owner request", "Unforeseen condition", "Code compliance", "Structural review", "Weather / delays", "Other"];
 const parseArr = (s?: string): string[] => { try { return s ? JSON.parse(s) : []; } catch { return []; } };
 const nameOf = (id: string) => resolveName(id);
-const fmt = (n?: number) => "$" + Math.round(n || 0).toLocaleString("en-US");
+// Costs are stored in USD. This printed a literal "$" regardless of the
+// workspace's selected currency, so the Change Orders screen showed dollars while
+// every other screen showed KSh for the same money.
+const USD_TO_KES = 130;
+
+// Currency-aware money formatter, so change-order costs match the rest of the app.
+function useMoney() {
+  const { currency } = useCurrency();
+  return (usd?: number) => formatCurrency(Math.round((Number(usd) || 0) * USD_TO_KES), currency);
+}
 
 function MultiAssign({ value, onChange, label = "Assignees" }: { value: string[]; onChange: (v: string[]) => void; label?: string }) {
   const [open, setOpen] = useState(false);
@@ -66,6 +77,7 @@ function MultiAssign({ value, onChange, label = "Assignees" }: { value: string[]
 }
 
 export default function ChangeOrders({ role }: { role: Role }) {
+  const fmt = useMoney();
   const perms = ROLES[role];
   const canCreate = perms.createCO || perms.approveAny;
   const canApprove = perms.approveAny;
@@ -231,6 +243,7 @@ function COForm({ projects, initial, canApprove, onClose, onSaved }: { projects:
 
 /* ───────── Detail ───────── */
 function CODetail({ co, projName, canCreate, canApprove, onClose, onEdit, onChanged }: { co: ChangeOrder; projName: (id: string) => string; canCreate: boolean; canApprove: boolean; onClose: () => void; onEdit: () => void; onChanged: (c: ChangeOrder) => void }) {
+  const fmt = useMoney();
   const asg = parseArr(co.assignees);
   const [activity, setActivity] = useState<ChangeOrderActivityDto[]>([]);
   const [comment, setComment] = useState("");
