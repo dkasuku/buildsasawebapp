@@ -338,8 +338,19 @@ export function Plans({ role }: { role: Role }) {
 
   const onPickFiles = (files: FileList | null) => {
     if (!files) return;
-    setPendingFiles((prev) => [...prev, ...Array.from(files)]);
+    // Snapshot the FileList into a real array BEFORE resetting the input.
+    //
+    // `files` is the live FileList owned by the <input>, not a copy. The previous
+    // version passed a lazy updater — `setPendingFiles((prev) => [...prev,
+    // ...Array.from(files)])` — and then cleared `input.value` on the next line.
+    // React runs that updater during the following render, i.e. AFTER the handler
+    // returns, so by the time `Array.from(files)` evaluated, `value = ""` had
+    // already emptied the FileList and zero files were appended. The picker
+    // opened, a file was chosen, and nothing ever appeared in the dialog.
+    const picked = Array.from(files);
     if (fileRef.current) fileRef.current.value = "";
+    if (!picked.length) return;
+    setPendingFiles((prev) => [...prev, ...picked]);
   };
 
   const removePending = (idx: number) => {
