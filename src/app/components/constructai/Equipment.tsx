@@ -158,6 +158,20 @@ function expiryState(date?: string | null): ExpiryState {
   return "none";
 }
 
+// Titled group of form fields in the equipment drawer.
+//
+// This MUST stay at module scope. Declared inside Equipment's body it got a new
+// function identity on every render, and React treats a changed element type as
+// a different component — so each keystroke unmounted every field in the section
+// and mounted a fresh one, destroying the focused <input> mid-typing. You could
+// only enter one character at a time.
+const Section = ({ title, children }: { title: string; children: ReactNode }) => (
+  <div className="space-y-3">
+    <div className="text-[11px] uppercase tracking-wider text-[#FF6B1A] font-medium border-b border-[#222A35] pb-1">{title}</div>
+    {children}
+  </div>
+);
+
 export default function Equipment({ role = "Contractor" }: { role?: Role }) {
   const perms = ROLES[role];
   const [equipment, setEquipment] = useState<EquipmentDto[]>([]);
@@ -358,12 +372,6 @@ export default function Equipment({ role = "Contractor" }: { role?: Role }) {
   const inputCls = "w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-[12px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]";
   const selectCls = "w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]";
   const labelCls = "text-[11px] uppercase text-[#8A95A5] mb-1 block";
-  const Section = ({ title, children }: { title: string; children: ReactNode }) => (
-    <div className="space-y-3">
-      <div className="text-[11px] uppercase tracking-wider text-[#FF6B1A] font-medium border-b border-[#222A35] pb-1">{title}</div>
-      {children}
-    </div>
-  );
 
   return (
     <div className="px-4 sm:px-7 py-5 sm:py-6 space-y-5">

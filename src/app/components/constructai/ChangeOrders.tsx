@@ -183,18 +183,37 @@ export default function ChangeOrders({ role }: { role: Role }) {
 }
 
 /* ───────── Form ───────── */
+
+// Labelled field wrapper.
+//
+// This MUST stay at module scope. It used to be declared inside COForm's body,
+// which gave it a new function identity on every render. React treats a changed
+// element type as a different component, so each keystroke unmounted every field
+// and mounted a fresh one — the focused <input> was destroyed mid-typing and you
+// could only enter one character at a time.
+const F = ({ label, children }: { label: string; children: any }) => (
+  <div>
+    <div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">{label}</div>
+    {children}
+  </div>
+);
+
 function COForm({ projects, initial, canApprove, onClose, onSaved }: { projects: { id: string; name: string }[]; initial: ChangeOrder; canApprove: boolean; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState<any>({
     projectId: initial.projectId || projects[0]?.id || "", number: initial.number || "", title: initial.title || "",
     area: initial.area || "", description: initial.description || "", status: initial.status || "drafted",
-    trigger: initial.trigger || "Design clarification", rfi: initial.rfi || "", costUSD: initial.costUSD || 0,
-    scheduleImpactDays: initial.scheduleImpactDays || 0, assignees: parseArr(initial.assignees),
+    trigger: initial.trigger || "Design clarification", rfi: initial.rfi || "",
+    // Numeric fields start EMPTY, not 0. Seeding them with 0 meant the field
+    // already held a character, so typing an amount produced "0500" (or "5000"
+    // with the caret left of the zero) and the user had to clear it first.
+    // `save` coerces "" back to 0, so nothing is lost.
+    costUSD: initial.costUSD || "",
+    scheduleImpactDays: initial.scheduleImpactDays || "", assignees: parseArr(initial.assignees),
     requestedBy: initial.requestedBy || "", submittedDate: initial.submittedDate || new Date().toISOString().slice(0, 10),
   });
   const set = (k: string, v: any) => setF((p: any) => ({ ...p, [k]: v }));
   const [saving, setSaving] = useState(false);
   const cls = "w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]";
-  const F = ({ label, children }: { label: string; children: any }) => (<div><div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">{label}</div>{children}</div>);
 
   const save = async () => {
     if (!f.title.trim()) return toast.error("Title is required");
@@ -226,8 +245,8 @@ function COForm({ projects, initial, canApprove, onClose, onSaved }: { projects:
             <F label="Trigger"><select value={f.trigger} onChange={(e) => set("trigger", e.target.value)} className={cls}>{TRIGGERS.map((t) => <option key={t}>{t}</option>)}</select></F>
             <F label="Linked RFI"><input value={f.rfi} onChange={(e) => set("rfi", e.target.value)} placeholder="RFI #" className={cls} /></F>
             <F label="Status"><select value={f.status} onChange={(e) => set("status", e.target.value)} className={cls}>{(Object.keys(STATUS_META) as COStatus[]).map((s) => <option key={s} value={s} disabled={(s === "approved" || s === "rejected") && !canApprove}>{STATUS_META[s].label}{(s === "approved" || s === "rejected") && !canApprove ? " (needs approver)" : ""}</option>)}</select></F>
-            <F label="Cost impact (USD)"><input type="number" value={f.costUSD} onChange={(e) => set("costUSD", e.target.value)} className={cls} /></F>
-            <F label="Schedule impact (days)"><input type="number" value={f.scheduleImpactDays} onChange={(e) => set("scheduleImpactDays", e.target.value)} className={cls} /></F>
+            <F label="Cost impact (USD)"><input type="number" inputMode="decimal" placeholder="0" value={f.costUSD} onChange={(e) => set("costUSD", e.target.value)} className={cls} /></F>
+            <F label="Schedule impact (days)"><input type="number" inputMode="numeric" placeholder="0" value={f.scheduleImpactDays} onChange={(e) => set("scheduleImpactDays", e.target.value)} className={cls} /></F>
             <F label="Requested by"><input value={f.requestedBy} onChange={(e) => set("requestedBy", e.target.value)} className={cls} /></F>
           </div>
           <MultiAssign value={f.assignees} onChange={(v) => set("assignees", v)} />

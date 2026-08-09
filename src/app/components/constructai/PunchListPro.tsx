@@ -314,6 +314,17 @@ function MiniAssignBulk({ onApply }: { onApply: (ids: string[]) => void }) {
 }
 
 /* ─────────────────────────── Create / edit form ─────────────────────────── */
+// Labelled field wrapper for PunchForm.
+//
+// This MUST stay at module scope. Declared inside PunchForm's body it got a new
+// function identity on every render, and React treats a changed element type as
+// a different component — so each keystroke unmounted every field and mounted a
+// fresh one, destroying the focused <input> mid-typing. You could only enter one
+// character at a time.
+const Field = ({ label, children }: { label: string; children: any }) => (
+  <div><div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">{label}</div>{children}</div>
+);
+
 export function PunchForm({ role, projects, initial, onClose, onSaved }: { role: Role; projects: { id: string; name: string }[]; initial: PunchItem; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState<any>({
     projectId: initial.projectId || projects[0]?.id || "", title: initial.title || "", description: initial.description || initial.desc || "",
@@ -344,10 +355,7 @@ export function PunchForm({ role, projects, initial, onClose, onSaved }: { role:
     setSaving(false);
   };
 
-  const Field = ({ label, children }: { label: string; children: any }) => (
-    <div><div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">{label}</div>{children}</div>
-  );
-  const inputCls = "w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]";
+  const inputCls ="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]";
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
