@@ -15,7 +15,7 @@ import { ROLES } from "./roles";
 import { useTeam, resolveName } from "./useTeam";
 import api, { type ChangeOrderActivityDto } from "../../services/api";
 import { useCurrency } from "./CurrencyContext";
-import { formatCurrency } from "./currency";
+import { CURRENCIES, USD_TO_KES, formatCurrency, fromKES, toKES } from "./currency";
 
 type COStatus = "drafted" | "pm_review" | "owner_approval" | "approved" | "rejected" | "void";
 interface ChangeOrder {
@@ -38,8 +38,8 @@ const parseArr = (s?: string): string[] => { try { return s ? JSON.parse(s) : []
 const nameOf = (id: string) => resolveName(id);
 // Costs are stored in USD. This printed a literal "$" regardless of the
 // workspace's selected currency, so the Change Orders screen showed dollars while
-// every other screen showed KSh for the same money.
-const USD_TO_KES = 130;
+// every other screen showed KSh for the same money. USD_TO_KES now comes from
+// currency.ts so this file and ChangeOrderDetail.tsx cannot drift apart.
 
 // Currency-aware money formatter, so change-order costs match the rest of the app.
 function useMoney() {
@@ -199,6 +199,13 @@ const F = ({ label, children }: { label: string; children: any }) => (
 );
 
 function COForm({ projects, initial, canApprove, onClose, onSaved }: { projects: { id: string; name: string }[]; initial: ChangeOrder; canApprove: boolean; onClose: () => void; onSaved: () => void }) {
+  // Costs are STORED in USD but every screen DISPLAYS the workspace currency.
+  // The form used to be labelled "Cost impact (USD)" while the list and detail
+  // showed KSh for the same record, so a Kenyan user typing 260000 meant
+  // shillings and silently recorded $260,000 — a 130x overstatement. The field
+  // is now denominated in the workspace currency and converted on the way in
+  // and out, so what you type is what every other screen shows.
+  const { currency } = useCurrency();
   const [f, setF] = useState<any>({
     projectId: initial.projectId || projects[0]?.id || "", number: initial.number || "", title: initial.title || "",
     area: initial.area || "", description: initial.description || "", status: initial.status || "drafted",
@@ -207,7 +214,9 @@ function COForm({ projects, initial, canApprove, onClose, onSaved }: { projects:
     // already held a character, so typing an amount produced "0500" (or "5000"
     // with the caret left of the zero) and the user had to clear it first.
     // `save` coerces "" back to 0, so nothing is lost.
-    costUSD: initial.costUSD || "",
+    //
+    // `cost` is held in the WORKSPACE currency; `save` converts it back to USD.
+    cost: initial.costUSD ? Math.round(fromKES(initial.costUSD * USD_TO_KES, currency)) : "",
     scheduleImpactDays: initial.scheduleImpactDays || "", assignees: parseArr(initial.assignees),
     requestedBy: initial.requestedBy || "", submittedDate: initial.submittedDate || new Date().toISOString().slice(0, 10),
   });
@@ -220,7 +229,15 @@ function COForm({ projects, initial, canApprove, onClose, onSaved }: { projects:
     if (!f.projectId) return toast.error("Pick a project");
     setSaving(true);
     try {
-      const payload = { ...f, costUSD: Number(f.costUSD) || 0, scheduleImpactDays: Number(f.scheduleImpactDays) || 0 };
+      // `cost` is what the user typed, in the workspace currency. Convert it to
+      // the KES base and then to the USD figure the record stores. `cost` itself
+      // must not go to the API — it is a display-only field.
+      const { cost, ...rest } = f;
+      const payload = {
+        ...rest,
+        costUSD: Math.round((toKES(Number(cost) || 0, currency) / USD_TO_KES) * 100) / 100,
+        scheduleImpactDays: Number(f.scheduleImpactDays) || 0,
+      };
       if (initial.id) await api.updateChangeOrder(initial.id, payload); else await api.createChangeOrder(payload);
       toast.success(initial.id ? "Change order updated" : "Change order created");
       onSaved();
@@ -245,7 +262,7 @@ function COForm({ projects, initial, canApprove, onClose, onSaved }: { projects:
             <F label="Trigger"><select value={f.trigger} onChange={(e) => set("trigger", e.target.value)} className={cls}>{TRIGGERS.map((t) => <option key={t}>{t}</option>)}</select></F>
             <F label="Linked RFI"><input value={f.rfi} onChange={(e) => set("rfi", e.target.value)} placeholder="RFI #" className={cls} /></F>
             <F label="Status"><select value={f.status} onChange={(e) => set("status", e.target.value)} className={cls}>{(Object.keys(STATUS_META) as COStatus[]).map((s) => <option key={s} value={s} disabled={(s === "approved" || s === "rejected") && !canApprove}>{STATUS_META[s].label}{(s === "approved" || s === "rejected") && !canApprove ? " (needs approver)" : ""}</option>)}</select></F>
-            <F label="Cost impact (USD)"><input type="number" inputMode="decimal" placeholder="0" value={f.costUSD} onChange={(e) => set("costUSD", e.target.value)} className={cls} /></F>
+            <F label={`Cost impact (${CURRENCIES[currency].code})`}><input type="number" inputMode="decimal" placeholder="0" value={f.cost} onChange={(e) => set("cost", e.target.value)} className={cls} /></F>
             <F label="Schedule impact (days)"><input type="number" inputMode="numeric" placeholder="0" value={f.scheduleImpactDays} onChange={(e) => set("scheduleImpactDays", e.target.value)} className={cls} /></F>
             <F label="Requested by"><input value={f.requestedBy} onChange={(e) => set("requestedBy", e.target.value)} className={cls} /></F>
           </div>

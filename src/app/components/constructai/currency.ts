@@ -42,6 +42,28 @@ export function formatCurrency(amountKES: number, currency: CurrencyCode = "KES"
   })}`;
 }
 
+// Shillings per dollar, derived from the rate table above rather than written
+// out again. Change-order costs are stored in USD while everything else is
+// measured in KES, and ChangeOrders.tsx / ChangeOrderDetail.tsx each used to
+// hardcode their own `USD_TO_KES = 130`. That disagreed with RATES.USD (0.0077,
+// i.e. ~129.87), so converting USD -> KES -> USD did not round-trip and a
+// $2,000 order redisplayed as $2,002 in a USD workspace.
+export const USD_TO_KES = 1 / RATES.USD;
+
+// Convert a KES base amount into the units of `currency`. Use this for INPUT
+// fields, where the user types a bare number and we need the value rather than
+// a formatted string — formatCurrency's output cannot be fed back into an
+// <input type="number">.
+export function fromKES(amountKES: number, currency: CurrencyCode = "KES"): number {
+  return amountKES * RATES[currency];
+}
+
+// Inverse of fromKES: take an amount the user typed in `currency` and express it
+// in the KES base every stored figure is measured against.
+export function toKES(amount: number, currency: CurrencyCode = "KES"): number {
+  return amount / RATES[currency];
+}
+
 // Format large numbers (e.g., millions)
 export function formatCompactCurrency(amountKES: number, currency: CurrencyCode = "KES"): string {
   const curr = CURRENCIES[currency];

@@ -6,7 +6,7 @@ import type { View } from "./Sidebar";
 import type { Role } from "./roles";
 import { ROLES } from "./roles";
 import { useCurrency } from "./CurrencyContext";
-import { formatCurrency } from "./currency";
+import { USD_TO_KES, formatCurrency } from "./currency";
 import api from "../../services/api";
 import { EmptyState } from "./EmptyState";
 
@@ -16,7 +16,9 @@ import { EmptyState } from "./EmptyState";
 // table held three fake orders with a fallback of `?? CHANGE_ORDERS["CO-1258"]`
 // — so opening ANY real change order displayed someone else's invented data for
 // "Midtown Medical", and it looked entirely genuine.
-const $toKES = (dollars: number) => Math.round(dollars * 130);
+// Shillings per dollar comes from currency.ts, so this screen and the Change
+// Orders list cannot disagree about what a stored USD figure is worth.
+const $toKES = (dollars: number) => Math.round(dollars * USD_TO_KES);
 
 
 // Backend status codes -> display label + style. Keyed on the real values the
@@ -107,8 +109,13 @@ export function ChangeOrderDetail({
   };
 
   const displayStatus = statusOverride ?? changeOrder.status;
-  const CO_AMOUNT = changeOrder.costKES;
-  const canApprove = perms.approveAny && CO_AMOUNT <= perms.approveLimit;
+  // ROLES[].approveLimit is denominated in USD (see RoleManager, which labels it
+  // "Max dollar value this role can approve"). This used to compare it against
+  // changeOrder.costKES — a shilling figure against a dollar ceiling — so every
+  // limit was effectively 130x too strict and a Project Manager with a $250k
+  // ceiling was refused at roughly $1,900. Compare dollars with dollars.
+  const CO_AMOUNT_USD = Number(row?.costUSD) || 0;
+  const canApprove = perms.approveAny && CO_AMOUNT_USD <= perms.approveLimit;
   const approveLimitLabel = perms.approveLimit === Infinity
     ? "∞"
     : formatCurrency($toKES(perms.approveLimit), currency);
@@ -266,8 +273,14 @@ export function ChangeOrderDetail({
                   <span className={`px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider border ${STATUS_STYLES[displayStatus] ?? STATUS_STYLES["Owner Approval"]}`}>
                     {displayStatus}
                   </span>
-                  <span className="px-2.5 py-1 rounded-full text-[10px] bg-[#EF4444]/15 text-[#EF4444] border border-[#EF4444]/30 uppercase tracking-wider">Schedule Impact</span>
-                  <span className="px-2.5 py-1 rounded-full text-[10px] bg-[#222A35] text-[#8A95A5] uppercase tracking-wider">Rev 3</span>
+                  {/* Only claim a schedule impact when this order actually has
+                      one. This pill used to render unconditionally, next to a
+                      hardcoded "Rev 3" badge shown on every change order — the
+                      revision number was invented and there is no revision
+                      model to read it from. */}
+                  {(Number(row?.scheduleImpactDays) || 0) !== 0 && (
+                    <span className="px-2.5 py-1 rounded-full text-[10px] bg-[#EF4444]/15 text-[#EF4444] border border-[#EF4444]/30 uppercase tracking-wider">Schedule Impact</span>
+                  )}
                 </div>
               </div>
               <div className="flex gap-2 shrink-0">
@@ -294,13 +307,16 @@ export function ChangeOrderDetail({
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6 pt-6 border-t border-[#222A35]">
               <div>
                 <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Cost Impact</div>
+                {/* "2.1% of contract" and "Critical path" sat under these two
+                    figures on every change order. Neither was computed: the
+                    percentage needs a contract value this screen never loads,
+                    and nothing here knows whether the delay touches the
+                    critical path. Both were invented and are removed. */}
                 <div className="text-[18px] sm:text-[20px] text-[#FF6B1A] mt-1 font-display">+{formatCurrency(changeOrder.costKES, currency)}</div>
-                <div className="text-[10px] text-[#8A95A5]">2.1% of contract</div>
               </div>
               <div>
                 <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Schedule Impact</div>
                 <div className="text-[18px] sm:text-[20px] text-white mt-1 font-display">{changeOrder.schedule}</div>
-                <div className="text-[10px] text-[#8A95A5]">Critical path</div>
               </div>
               <div>
                 <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Trigger</div>
@@ -328,46 +344,15 @@ export function ChangeOrderDetail({
             </p>
           </div>
 
-          {perms.financials && (
-          <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="text-[13px] text-white font-display">Budget Impact</div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[500px] text-[12px]">
-                <thead>
-                  <tr className="text-[10px] text-[#5B6675] uppercase tracking-wider border-b border-[#222A35]">
-                    <th className="text-left py-2">Code</th>
-                    <th className="text-left py-2">Item</th>
-                    <th className="text-right py-2">Original</th>
-                    <th className="text-right py-2">Revised</th>
-                    <th className="text-right py-2">Delta</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    { c: "15-700", i: "VAV Terminal Units (8 ea.)", o: "$0", r: "$186,400", d: "+$186,400" },
-                    { c: "15-820", i: "Branch ductwork & insulation", o: "$42,000", r: "$58,200", d: "+$16,200" },
-                    { c: "01-720", i: "Field labor (412 hrs)", o: "$0", r: "$67,400", d: "+$67,400" },
-                    { c: "01-450", i: "Accelerated freight", o: "$0", r: "$14,000", d: "+$14,000" },
-                  ].map((r) => (
-                    <tr key={r.c} className="border-b border-[#222A35]/60">
-                      <td className="py-2.5 font-mono text-[#8A95A5] text-[11px]">{r.c}</td>
-                      <td className="py-2.5 text-white">{r.i}</td>
-                      <td className="py-2.5 text-right text-[#8A95A5]">{r.o}</td>
-                      <td className="py-2.5 text-right text-white">{r.r}</td>
-                      <td className="py-2.5 text-right text-[#FF6B1A]">{r.d}</td>
-                    </tr>
-                  ))}
-                  <tr>
-                    <td colSpan={4} className="py-3 text-right text-[#8A95A5]">Net Impact</td>
-                    <td className="py-3 text-right text-[#FF6B1A] text-[15px] font-display">+$284,000</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-          )}
+          {/* A "Budget Impact" table used to sit here: five hardcoded rows
+              ("VAV Terminal Units (8 ea.) — $186,400", "Field labor (412 hrs)",
+              "Accelerated freight") totalling a fixed "+$284,000". It was
+              identical on every change order, priced in dollars inside a product
+              that bills in shillings, and bore no relation to the record on
+              screen. Change orders have no line-item cost breakdown model, so
+              rather than show invented figures to a quantity surveyor the panel
+              is removed until they do. The real cost impact is the "Cost Impact"
+              figure above, which comes from the record. */}
 
           {/* The attachments panel here was entirely fabricated: a fixed count
               of "14", four Unsplash stock photos, and Add/open buttons that did
