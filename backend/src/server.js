@@ -897,10 +897,24 @@ app.put('/api/projects/:projectId/assignments', auth, async (req, res) => {
     const project = await prisma.project.findUnique({ where: { id: projectId } });
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
+    // Validate every id BEFORE touching anything, so a bad one cannot leave the
+    // team half-written. Assignment.userId is a foreign key onto User.id; the
+    // project form used to send job-title strings ("Lead Architect"), which
+    // surfaced as a raw `Assignment_userId_fkey` violation. Name the offending
+    // role instead so the message is actionable.
+    const wanted = [];
     for (const entry of incoming) {
       const role = String(entry?.role || '').trim();
       if (!role) continue;
       const userId = entry?.userId && entry.userId !== 'None' ? String(entry.userId) : null;
+      if (userId) {
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+        if (!user) return res.status(400).json({ error: `No such teammate for ${role} — pick someone from your workspace, or set it to None` });
+      }
+      wanted.push({ role, userId });
+    }
+
+    for (const { role, userId } of wanted) {
       // Clear the role, then set it — keeps exactly one row per role.
       await prisma.assignment.deleteMany({ where: { projectId, role } });
       if (userId) await prisma.assignment.create({ data: { projectId, role, userId } });

@@ -8,7 +8,7 @@ import { ImageWithFallback } from "../figma/ImageWithFallback";
 import { useFileUpload } from "./useFileUpload";
 import { UploadTray } from "./UploadTray";
 import { refreshProjects } from "./useProjects";
-import { resolveName } from "./useTeam";
+import { resolveName, useTeam } from "./useTeam";
 import api, { absoluteFileUrl } from "../../services/api";
 import type { View } from "./Sidebar";
 import type { Role } from "./roles";
@@ -53,7 +53,12 @@ type ProjectForm = {
   lat?: number | null;
   lng?: number | null;
   description: string;
-  value: string;
+  // Contract value is split into a currency and an amount, exactly like exposure.
+  // It used to be one free-text field defaulting to "$0M", and fromDto then read
+  // it as dollars and multiplied by 130 — so a Kenyan user typing "50M" meaning
+  // shillings had a 6.5 BILLION shilling contract recorded against the project.
+  valueCurrency: string;
+  valueAmount: string;
   status: string;
   progress: number;
   changeOrders: number;
@@ -68,9 +73,56 @@ type ProjectForm = {
 
 const DEFAULT_PROJECT_IMG = "https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=800&q=80";
 
-const PM_OPTIONS = ["None", "Site Manager (You)", "Project Manager", "Assistant PM"];
-const ARCH_OPTIONS = ["None", "Lead Architect", "Consulting Architect", "Design Coordinator"];
-const QS_OPTIONS = ["None", "Lead QS", "Assistant QS", "Cost Controller"];
+// The PM / Architect / QS pickers used to offer these HARDCODED JOB TITLES:
+//
+//   PM_OPTIONS   = ["None", "Site Manager (You)", "Project Manager", "Assistant PM"]
+//   ARCH_OPTIONS = ["None", "Lead Architect", "Consulting Architect", …]
+//   QS_OPTIONS   = ["None", "Lead QS", "Assistant QS", "Cost Controller"]
+//
+// Assignment.userId is a foreign key onto User.id, so saving wrote the string
+// "Lead Architect" into a user reference and the database rejected it
+// (Assignment_userId_fkey). The Team section could therefore NEVER save — the
+// failure was simply swallowed. Reading was broken to match: the stored value is
+// a real user id, which matched none of these labels, so the dropdown showed the
+// wrong entry. Options now come from the workspace's actual members.
+const NO_MEMBER = "None";
+
+// Role picker backed by the workspace's real members. `value` is a User.id (or
+// "None"), which is what Assignment.userId requires.
+//
+// If a project references someone who has since left the workspace, their id would
+// match no option and the browser would silently show the first entry instead —
+// making it look as though the role were unset. That id gets its own option so the
+// current state is always visible.
+function MemberSelect({
+  label, value, onChange, members, dark,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  members: { id: string; name: string; role: string }[];
+  dark?: boolean;
+}) {
+  const known = members.some((m) => m.id === value);
+  const orphan = value && value !== NO_MEMBER && !known;
+  return (
+    <div>
+      <label className="text-[11px] text-[#8A95A5] block mb-1">{label}</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`w-full h-9 px-3 rounded-md ${dark ? "bg-[#0A0E14]" : "bg-[#11161D]"} border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]`}
+      >
+        <option value={NO_MEMBER}>Not assigned</option>
+        {members.map((m) => <option key={m.id} value={m.id}>{m.name}{m.role ? ` — ${m.role}` : ""}</option>)}
+        {orphan && <option value={value}>{resolveName(value)} (no longer in workspace)</option>}
+      </select>
+      {members.length === 0 && (
+        <div className="text-[10px] text-[#5B6675] mt-1">No teammates yet — invite people on the Team page.</div>
+      )}
+    </div>
+  );
+}
 
 // Projects come from the API only. A six-project demo seed used to stand in when
 // the backend was unreachable, which meant an outage showed a convincing but
@@ -131,6 +183,29 @@ const parseExposure = (exposure: string) => {
   return { currency, amount: amount || "0", sign };
 };
 
+// Contract value, split the same way but without a +/- sign.
+const parseValue = (value: string) => {
+  const trimmed = (value || "").trim();
+  const currencyMatch = trimmed.match(/^(KSh|KES|USD|EUR|GBP|AED|\$|€|£)/i);
+  const currency = normalizeCurrency(currencyMatch?.[0] ?? "$");
+  const amount = trimmed.replace(currencyMatch?.[0] ?? "", "").trim();
+  return { currency, amount: amount || "0" };
+};
+
+const formatValue = (currency: string, amount: string) => {
+  const trimmed = (amount || "").trim() || "0";
+  const spacer = currency.length > 1 ? " " : "";
+  return `${currency}${spacer}${trimmed}`;
+};
+
+// Convert a stored money string ("KSh 50M", "$2.4M") into shillings, using the
+// symbol the string actually carries. fromDto used to multiply EVERY value by 130
+// regardless of its currency, inflating shilling figures 130-fold.
+const moneyStringToKES = (money: string) => {
+  const { currency, amount } = parseValue(money || "0");
+  return Math.round(parseCompactValue(amount) * (CURRENCY_TO_KES[currency] ?? 1));
+};
+
 const formatExposure = (currency: string, amount: string, sign = "+") => {
   const trimmed = amount.trim() || "0";
   const spacer = currency.length > 1 ? " " : "";
@@ -179,6 +254,9 @@ export function Projects({
   // Start empty and show a loading state until the backend responds, so a fresh
   // workspace never flashes the seed/demo projects before the empty state. The
   // seed list is only used as an offline fallback (see the fetch's .catch).
+  // The workspace's real members, for the PM / Architect / QS pickers. These used
+  // to be hardcoded job titles, which the database rejected as user ids.
+  const team = useTeam();
   const [projects, setProjects] = useState<Project[]>([]);
   const [showNew, setShowNew] = useState(false);
   const [codeTouched, setCodeTouched] = useState(false);
@@ -186,7 +264,7 @@ export function Projects({
   const autoCode = (name: string) => name.trim() ? name.split(" ").filter(Boolean).map((w) => w[0]).join("").toUpperCase().slice(0, 4) + "-" + String(projects.length + 1).padStart(2, "0") : "";
   const [actionMenu, setActionMenu] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
-  const [form, setForm] = useState<ProjectForm>({ name: "", code: "", city: "", lat: null, lng: null, description: "", value: "", status: "Planning", progress: 0, changeOrders: 0, exposureCurrency: "KSh", exposureAmount: "0", images: [], pm: "None", architect: "None", qs: "None", checklist: { items: [] } });
+  const [form, setForm] = useState<ProjectForm>({ name: "", code: "", city: "", lat: null, lng: null, description: "", valueCurrency: "KSh", valueAmount: "", status: "Planning", progress: 0, changeOrders: 0, exposureCurrency: "KSh", exposureAmount: "0", images: [], pm: NO_MEMBER, architect: NO_MEMBER, qs: NO_MEMBER, checklist: { items: [] } });
   const [editForm, setEditForm] = useState<ProjectForm | null>(null);
   // Uploads for the New and Edit dialogs. Each appends only the URLs that
   // actually stored, so a partial failure keeps the successful images.
@@ -224,12 +302,13 @@ export function Projects({
       lng: p.lng ?? null,
       description: p.description ?? "",
       value: p.value,
-      valueKES: p.valueKES ?? parseCompactValue(p.value || "0") * 130,
+      // Convert using the currency the stored string carries, not a blanket x130.
+      valueKES: p.valueKES ?? moneyStringToKES(p.value || "0"),
       status: p.status,
       progress: p.progress,
       changeOrders: p.changeOrderCount ?? 0,
       exposure: p.exposure ?? "+$0",
-      exposureKES: p.exposureKES ?? Math.round(parseCompactValue(p.exposure || "0") * 130),
+      exposureKES: p.exposureKES ?? moneyStringToKES(p.exposure || "0"),
       // Fall back to the stock photo only for display; it is never written back,
       // so an unphotographed project doesn't acquire a fake image on next save.
       img: images[0] || DEFAULT_PROJECT_IMG,
@@ -313,6 +392,7 @@ export function Projects({
 
   const openEdit = (project: Project) => {
     const parsedExposure = parseExposure(project.exposure);
+    const parsedValue = parseValue(project.value);
     editImages.reset();
     setEditingProject(project);
     const normalizedChecklist: Checklist = {
@@ -326,7 +406,8 @@ export function Projects({
       code: project.code,
       city: project.city,
       description: project.description ?? "",
-      value: project.value,
+      valueCurrency: parsedValue.currency,
+      valueAmount: parsedValue.amount,
       status: project.status,
       progress: project.progress,
       changeOrders: project.changeOrders,
@@ -386,7 +467,7 @@ export function Projects({
         city: form.city.trim() || "—",
         lat: form.lat ?? null,
         lng: form.lng ?? null,
-        value: form.value.trim() || "$0M",
+        value: formatValue(form.valueCurrency, form.valueAmount),
         status: form.status,
         progress: form.progress || 0,
         exposure: formatExposure(form.exposureCurrency, form.exposureAmount),
@@ -400,7 +481,7 @@ export function Projects({
       // silent either, which is what Promise.allSettled did here.
       await saveTeam(pid, form, "created");
       await reloadProjects();
-      setForm({ name: "", code: "", city: "", lat: null, lng: null, description: "", value: "", status: "Planning", progress: 0, changeOrders: 0, exposureCurrency: "KSh", exposureAmount: "0", images: [], pm: "None", architect: "None", qs: "None", checklist: { items: [] } });
+      setForm({ name: "", code: "", city: "", lat: null, lng: null, description: "", valueCurrency: "KSh", valueAmount: "", status: "Planning", progress: 0, changeOrders: 0, exposureCurrency: "KSh", exposureAmount: "0", images: [], pm: NO_MEMBER, architect: NO_MEMBER, qs: NO_MEMBER, checklist: { items: [] } });
       newImages.reset();
       setShowNew(false);
       toast.success(`Project ${form.name.trim()} created`);
@@ -434,7 +515,7 @@ export function Projects({
         name: editForm.name.trim(),
         city: editForm.city.trim() || "—",
         description: editForm.description.trim(),
-        value: editForm.value.trim() || "$0M",
+        value: formatValue(editForm.valueCurrency, editForm.valueAmount),
         status: editForm.status,
         progress: Number.isFinite(editForm.progress) ? editForm.progress : editingProject.progress,
         exposure: formatExposure(editForm.exposureCurrency, editForm.exposureAmount),
@@ -933,7 +1014,23 @@ export function Projects({
                 </div>
                 <div>
                   <label className="text-[11px] text-[#8A95A5] block mb-1">Contract value</label>
-                  <input value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} placeholder="$50M" className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]" />
+                  <div className="flex gap-2">
+                    <select
+                      value={form.valueCurrency}
+                      onChange={(e) => setForm({ ...form, valueCurrency: e.target.value })}
+                      className="h-9 px-2 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]"
+                    >
+                      {CURRENCY_OPTIONS.map((currency) => (
+                        <option key={currency} value={currency}>{currency}</option>
+                      ))}
+                    </select>
+                    <input
+                      value={form.valueAmount}
+                      onChange={(e) => setForm({ ...form, valueAmount: e.target.value })}
+                      placeholder="50M"
+                      className="flex-1 h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]"
+                    />
+                  </div>
                 </div>
               </div>
               <div>
@@ -1015,24 +1112,9 @@ export function Projects({
                   These roles define who is responsible for the project. The PM runs day-to-day operations, the Architect handles design & drawings, and the QS manages budgets & cost control. They will be notified of project updates.
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="text-[11px] text-[#8A95A5] block mb-1">PM / Site lead</label>
-                    <select value={form.pm} onChange={(e) => setForm({ ...form, pm: e.target.value })} className="w-full h-9 px-3 rounded-md bg-[#11161D] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]">
-                      {PM_OPTIONS.map((o) => <option key={o}>{o}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-[#8A95A5] block mb-1">Architect</label>
-                    <select value={form.architect} onChange={(e) => setForm({ ...form, architect: e.target.value })} className="w-full h-9 px-3 rounded-md bg-[#11161D] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]">
-                      {ARCH_OPTIONS.map((o) => <option key={o}>{o}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-[#8A95A5] block mb-1">Quantity Surveyor</label>
-                    <select value={form.qs} onChange={(e) => setForm({ ...form, qs: e.target.value })} className="w-full h-9 px-3 rounded-md bg-[#11161D] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]">
-                      {QS_OPTIONS.map((o) => <option key={o}>{o}</option>)}
-                    </select>
-                  </div>
+                  <MemberSelect label="PM / Site lead" value={form.pm} onChange={(v) => setForm({ ...form, pm: v })} members={team} />
+                  <MemberSelect label="Architect" value={form.architect} onChange={(v) => setForm({ ...form, architect: v })} members={team} />
+                  <MemberSelect label="Quantity Surveyor" value={form.qs} onChange={(v) => setForm({ ...form, qs: v })} members={team} />
                 </div>
               </div>
               <div>
@@ -1174,7 +1256,23 @@ export function Projects({
                       </div>
                       <div>
                         <label className="text-[11px] text-[#8A95A5] block mb-1">Contract value</label>
-                        <input value={editForm.value} onChange={(e) => setEditForm({ ...editForm, value: e.target.value })} className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
+                        <div className="flex gap-2">
+                          <select
+                            value={editForm.valueCurrency}
+                            onChange={(e) => setEditForm({ ...editForm, valueCurrency: e.target.value })}
+                            className="h-9 px-2 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]"
+                          >
+                            {CURRENCY_OPTIONS.map((currency) => (
+                              <option key={currency} value={currency}>{currency}</option>
+                            ))}
+                          </select>
+                          <input
+                            value={editForm.valueAmount}
+                            onChange={(e) => setEditForm({ ...editForm, valueAmount: e.target.value })}
+                            placeholder="50M"
+                            className="flex-1 h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]"
+                          />
+                        </div>
                       </div>
                     </div>
                     <div>
@@ -1277,24 +1375,9 @@ export function Projects({
                 </button>
                 {expandedSections.team && (
                   <div className="p-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="text-[11px] text-[#8A95A5] block mb-1">PM / Site lead</label>
-                      <select value={editForm.pm} onChange={(e) => setEditForm({ ...editForm, pm: e.target.value })} className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]">
-                        {PM_OPTIONS.map((o) => <option key={o}>{o}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-[11px] text-[#8A95A5] block mb-1">Architect</label>
-                      <select value={editForm.architect} onChange={(e) => setEditForm({ ...editForm, architect: e.target.value })} className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]">
-                        {ARCH_OPTIONS.map((o) => <option key={o}>{o}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-[11px] text-[#8A95A5] block mb-1">Quantity Surveyor</label>
-                      <select value={editForm.qs} onChange={(e) => setEditForm({ ...editForm, qs: e.target.value })} className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]">
-                        {QS_OPTIONS.map((o) => <option key={o}>{o}</option>)}
-                      </select>
-                    </div>
+                    <MemberSelect dark label="PM / Site lead" value={editForm.pm} onChange={(v) => setEditForm({ ...editForm, pm: v })} members={team} />
+                    <MemberSelect dark label="Architect" value={editForm.architect} onChange={(v) => setEditForm({ ...editForm, architect: v })} members={team} />
+                    <MemberSelect dark label="Quantity Surveyor" value={editForm.qs} onChange={(v) => setEditForm({ ...editForm, qs: v })} members={team} />
                   </div>
                 )}
               </div>
