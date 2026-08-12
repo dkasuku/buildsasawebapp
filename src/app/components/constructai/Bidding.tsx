@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import { Plus, FileText, X, Trash2, Hammer, Share2, Award, Loader2, Link as LinkIcon, Calendar, Wallet, Mail, Phone, ThumbsUp, ThumbsDown, RotateCcw, Sparkles } from "lucide-react";
 import type { Role } from "./roles";
-import { ROLES, TRADES } from "./roles";
+import { ROLES, TRADES, canManageBids, canAwardBids } from "./roles";
 import api, { type BidPackageDto, type BidDto } from "../../services/api";
 import { useCurrency } from "./CurrencyContext";
 import { formatCurrency } from "./currency";
@@ -41,7 +41,11 @@ const fmtDate = (d?: string | null) => {
 
 export default function Bidding({ role = "Contractor" }: { role?: Role }) {
   const perms = ROLES[role];
-  const canManage = perms.manageTeam || perms.financials; // gate manage actions
+  // Tender administration vs awarding the contract. These used to be one loose
+  // check (`manageTeam || financials`) that disagreed with the API, so an
+  // Architect / QS saw buttons that always 403d. See roles.ts.
+  const canManage = canManageBids(role);
+  const canAward = canAwardBids(role);
   const { currency } = useCurrency();
 
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
@@ -196,12 +200,20 @@ export default function Bidding({ role = "Contractor" }: { role?: Role }) {
   };
 
   const award = async (id: string, bidId: string) => {
-    if (!canManage) return toast.error("Not allowed");
+    if (!canAward) return toast.error(`${role} cannot award a contract — ask a PM, Executive or the account owner`);
     setBusy(true);
     try {
       const pkg = await api.awardBid(id, bidId);
       setActive(pkg);
-      toast.success("Bid awarded");
+      // Say what the award actually did. It now also raises the subcontract and
+      // adds the winner to the directory, and a silent success left the user
+      // unsure whether anything downstream had happened.
+      const who = (pkg as any).awardedTo ? ` to ${(pkg as any).awardedTo}` : "";
+      toast.success(
+        (pkg as any).commitmentId
+          ? `Awarded${who} — subcontract created under Commitments`
+          : `Awarded${who}`,
+      );
       loadPackages();
     } catch (e: any) {
       toast.error(e?.message || "Could not award bid");
@@ -287,6 +299,21 @@ export default function Bidding({ role = "Contractor" }: { role?: Role }) {
             )}
           </div>
           <div className="text-[11px] text-[#8A95A5] mt-0.5">Publish tender packages and collect subcontractor bids</div>
+        </div>
+        {/* The five steps, and who does each. Nothing on this page said who a
+            tender goes to, how a subcontractor without an account is supposed to
+            reach it, or what awarding actually does — so the link-sharing step
+            (the whole point) was easy to miss entirely. */}
+        <div className="text-[10.5px] text-[#5B6675] leading-relaxed max-w-2xl lg:order-last lg:basis-full">
+          <span className="text-[#8A95A5]">How a tender runs:</span>{" "}
+          <span className="text-[#C2CAD6]">1.</span> You write the package — scope, trade, budget, deadline.{" "}
+          <span className="text-[#C2CAD6]">2.</span> Set it to <em>Open</em> and share the bid link; subcontractors need no account to open it.{" "}
+          <span className="text-[#C2CAD6]">3.</span> They submit their price and documents; bids arrive here and your team is emailed.{" "}
+          <span className="text-[#C2CAD6]">4.</span> Shortlist or decline as you review. Bids close automatically on the deadline.{" "}
+          <span className="text-[#C2CAD6]">5.</span> Award one — that raises the subcontract under Commitments, adds the winner to your Directory, and emails every bidder the outcome.
+          {!canAward && canManage && (
+            <span className="block mt-1 text-[#F5A623]">You can run tenders and shortlist, but awarding a contract needs a Project Manager, Executive or the account owner.</span>
+          )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className="h-9 bg-[#11161D] border border-[#222A35] rounded-md px-2 text-white text-[12px]">
@@ -449,7 +476,8 @@ export default function Bidding({ role = "Contractor" }: { role?: Role }) {
                         const isAwarded = active.awardedBidId === b.id || b.status === "awarded";
                         const isDeclined = b.status === "declined" || b.status === "rejected";
                         const isNew = b.status === "submitted";
-                        const canAward = canManage && !isAwarded && !isDeclined && (active.status === "open" || active.status === "closed");
+                        // Awarding is a separate permission from running the tender.
+                        const showAward = canAward && !isAwarded && !isDeclined && (active.status === "open" || active.status === "closed");
                         const rowBusy = bidBusyId === b.id;
                         const showDecline = declineFor === b.id;
                         const ghostBtn = "h-8 px-2.5 rounded-md border border-[#222A35] text-[11px] flex items-center gap-1.5 hover:border-[#FF6B1A]/60 disabled:opacity-60";
@@ -504,7 +532,7 @@ export default function Bidding({ role = "Contractor" }: { role?: Role }) {
                                   <>
                                     {b.status !== "shortlisted" && <button onClick={() => respondBid(active.id, b.id, "shortlisted")} disabled={rowBusy} className={`${ghostBtn} text-[#F5A623] hover:border-[#F5A623]/60`}>{rowBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ThumbsUp className="w-3.5 h-3.5" />} Shortlist</button>}
                                     <button onClick={() => { setDeclineFor(b.id); setDeclineReason(""); }} disabled={rowBusy} className={`${ghostBtn} text-[#EF4444] hover:border-[#EF4444]/60`}><ThumbsDown className="w-3.5 h-3.5" /> Decline</button>
-                                    {canAward && <button onClick={() => award(active.id, b.id)} disabled={busy || rowBusy} className="h-8 px-3 rounded-md bg-[#22C55E]/15 border border-[#22C55E]/40 text-[#22C55E] text-[11px] flex items-center gap-1.5 hover:bg-[#22C55E]/25 disabled:opacity-60"><Award className="w-3.5 h-3.5" /> Award</button>}
+                                    {showAward && <button onClick={() => award(active.id, b.id)} disabled={busy || rowBusy} className="h-8 px-3 rounded-md bg-[#22C55E]/15 border border-[#22C55E]/40 text-[#22C55E] text-[11px] flex items-center gap-1.5 hover:bg-[#22C55E]/25 disabled:opacity-60"><Award className="w-3.5 h-3.5" /> Award</button>}
                                   </>
                                 )}
                               </div>

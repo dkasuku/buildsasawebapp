@@ -1990,8 +1990,27 @@ app.delete('/api/projects/:projectId/bids/:id', auth, async (req, res) => {
 // so subcontractors can submit without an account, receives bids, and awards one.
 // Who may create/edit/delete/award a bid package. Mirrors the create-CO role
 // list (owners are Contractors/Executives here) plus the explicit Owner role.
-const CAN_MANAGE_BIDS = ['Contractor', 'Owner', 'Executive', 'Project Manager', 'Superintendent'];
+// MIRRORS BID_MANAGER_ROLES / BID_AWARDER_ROLES in
+// src/app/components/constructai/roles.ts. Keep them in step: the UI gates its
+// buttons on those lists and this gates the API. They previously disagreed, so an
+// Architect and a Quantity Surveyor were shown tender controls that always 403d.
+//
+// Running a tender (write, publish, log offline bids, shortlist, decline) is
+// tender administration — a QS or Architect does this in normal practice.
+const CAN_MANAGE_BIDS = ['Contractor', 'Owner', 'Executive', 'Project Manager', 'Superintendent', 'Quantity Surveyor', 'Architect'];
+// Awarding commits the company to a contract, so it stays with the principals.
+// A QS or Architect recommends; they do not sign.
+const CAN_AWARD_BIDS = ['Contractor', 'Owner', 'Executive', 'Project Manager', 'Superintendent'];
 const BID_PKG_FIELDS = ['projectId', 'title', 'trade', 'description', 'dueDate', 'status'];
+
+// Has the tender's deadline passed? dueDate is a plain "YYYY-MM-DD" string, so
+// bids are accepted up to the end of that day. No dueDate = no deadline.
+function isTenderClosed(dueDate) {
+  if (!dueDate) return false;
+  const end = new Date(`${String(dueDate).slice(0, 10)}T23:59:59.999Z`);
+  if (Number.isNaN(end.getTime())) return false; // unparseable: don't block anyone
+  return Date.now() > end.getTime();
+}
 const pickBidPackage = (b) => {
   const d = {};
   for (const f of BID_PKG_FIELDS) if (b[f] !== undefined) d[f] = b[f];
@@ -2084,16 +2103,63 @@ app.post('/api/bid-packages/:id/bids', auth, async (req, res) => {
 // Award a bid: marks the package awarded, the chosen bid awarded, the rest rejected.
 app.post('/api/bid-packages/:id/award', auth, async (req, res) => {
   try {
-    if (!hasRole(req, CAN_MANAGE_BIDS)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot award bids` });
+    if (!hasRole(req, CAN_AWARD_BIDS)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot award bids. Awarding a contract is limited to ${CAN_AWARD_BIDS.join(', ')}.` });
     const { bidId } = req.body || {};
     if (!bidId) return res.status(400).json({ error: 'bidId required' });
     const pkg = await prisma.bidPackage.findUnique({ where: { id: req.params.id }, include: { bids: true } });
     if (!pkg) return res.status(404).json({ error: 'Not found' });
-    if (!pkg.bids.some((b) => b.id === bidId)) return res.status(400).json({ error: 'That bid does not belong to this package' });
+    const winner = pkg.bids.find((b) => b.id === bidId);
+    if (!winner) return res.status(400).json({ error: 'That bid does not belong to this package' });
     for (const b of pkg.bids) {
-      await prisma.bid.update({ where: { id: b.id }, data: { status: b.id === bidId ? 'awarded' : 'rejected' } });
+      // Losing bids are marked 'declined', matching the /respond route. The two
+      // paths used to write different words ('rejected' here, 'declined' there)
+      // for the same outcome.
+      await prisma.bid.update({ where: { id: b.id }, data: { status: b.id === bidId ? 'awarded' : 'declined' } });
     }
     const updated = await prisma.bidPackage.update({ where: { id: pkg.id }, data: { awardedBidId: bidId, status: 'awarded' }, include: { bids: { orderBy: { createdAt: 'desc' } } } });
+
+    // Awarding used to end here: statuses changed, emails went out, and the winner
+    // existed nowhere else in the system. The tender dead-ended — nobody was
+    // actually engaged, there was no contract to invoice against, and the winning
+    // company was not even in the directory. An award now creates the two records
+    // the rest of the product needs:
+    //
+    //   1. a Commitment — the subcontract itself, which Financials tracks and
+    //      payment applications draw against;
+    //   2. a DirectoryContact — so the company is a real contact, not just a name
+    //      on a bid.
+    //
+    // Both are idempotent-ish and reported back rather than silently swallowed, so
+    // re-awarding does not stack duplicates and a failure is visible.
+    const vendorName = winner.subcontractor || winner.contactName || 'Awarded bidder';
+    let commitment = null;
+    let contact = null;
+    try {
+      const already = await prisma.commitment.findFirst({ where: { projectId: pkg.projectId, vendor: vendorName, scope: pkg.title } });
+      commitment = already || await prisma.commitment.create({ data: {
+        vendor: vendorName,
+        scope: pkg.title,
+        amount: String(winner.amount ?? 0),
+        due: pkg.dueDate || '',
+        contractValue: Number(winner.amount) || 0,
+        balanceRemaining: Number(winner.amount) || 0,
+        status: 'active',
+        projectId: pkg.projectId,
+      } });
+    } catch (e) { console.error('[BID] award -> commitment failed:', e && e.message); }
+    try {
+      const existing = winner.contactEmail
+        ? await prisma.directoryContact.findFirst({ where: { email: winner.contactEmail } })
+        : await prisma.directoryContact.findFirst({ where: { name: vendorName, category: 'Subcontractor' } });
+      contact = existing || await prisma.directoryContact.create({ data: {
+        name: vendorName,
+        company: vendorName,
+        role: winner.trade || pkg.trade || null,
+        category: 'Subcontractor',
+        phone: winner.contactPhone || null,
+        email: winner.contactEmail || null,
+      } });
+    } catch (e) { console.error('[BID] award -> directory contact failed:', e && e.message); }
     // Notify bidders of the outcome. Each send is isolated so one failure never
     // breaks the response or stops the others.
     const fmtKES = (n) => 'KSh ' + Number(n || 0).toLocaleString('en-KE');
@@ -2113,7 +2179,9 @@ app.post('/api/bid-packages/:id/award', auth, async (req, res) => {
         });
       } catch (e) { console.error('[BID] award outcome email failed:', e && e.message); }
     }
-    res.json(updated);
+    // Report what the award created so the UI can say so plainly, rather than the
+    // caller having to guess whether the follow-on records exist.
+    res.json({ ...updated, awardedTo: vendorName, commitmentId: commitment?.id || null, contactId: contact?.id || null });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2177,15 +2245,26 @@ app.get('/api/public/bids/:token', async (req, res) => {
       dueDate: pkg.dueDate,
       status: pkg.status,
       companyName,
+      // Told to the bidder up front, so a closed tender explains itself instead of
+      // presenting a form that will be refused on submit.
+      closed: isTenderClosed(pkg.dueDate),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Public: submit a bid against a shared package. Only when it's open.
+// Public: submit a bid against a shared package. Only when it's open AND the
+// deadline has not passed.
 app.post('/api/public/bids/:token', async (req, res) => {
   try {
     const pkg = await prisma.bidPackage.findUnique({ where: { publicToken: req.params.token } });
     if (!pkg || pkg.status !== 'open') return res.status(404).json({ error: 'This tender is not accepting bids.' });
+    // The deadline was stored and displayed but never enforced, so a tender could
+    // take bids indefinitely after the date it advertised. A late bid arriving
+    // after others have been opened is exactly the unfairness a deadline exists to
+    // prevent. Bids are accepted up to the END of the due date.
+    if (isTenderClosed(pkg.dueDate)) {
+      return res.status(409).json({ error: 'The deadline for this tender has passed, so it is no longer accepting bids.' });
+    }
     const b = req.body || {};
     const name = b.subcontractor || b.contactName;
     if (!name) return res.status(400).json({ error: 'Your name or company is required' });

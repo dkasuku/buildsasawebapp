@@ -80,6 +80,40 @@ export type Permissions = {
   canViewInspectionReports: boolean;
 };
 
+// ---------------------------------------------------------------------------
+// Bidding / tendering permissions
+// ---------------------------------------------------------------------------
+// Bidding.tsx used to gate its manage buttons on `manageTeam || financials`,
+// which did NOT match the backend's allow-list. An Architect and a Quantity
+// Surveyor both pass that test, so both were shown "New tender", "Share bid
+// link", "Award" and "Delete" — and every one of those calls came back 403.
+// Two roles out of fourteen had a screen full of buttons that could not work.
+//
+// The two capabilities are now separate and explicit, because they are different
+// decisions:
+//
+//   RUN the tender  — write the package, publish the link, log offline bids,
+//                     shortlist and decline. This is tender administration; a QS
+//                     or Architect does it in normal practice, so both are
+//                     included (which is what the old UI already implied).
+//
+//   AWARD the work  — commit the company to a contract. Reserved to the
+//                     principals. A QS or Architect recommends; they do not sign.
+//
+// IMPORTANT: these two lists are mirrored in backend/src/server.js as
+// CAN_MANAGE_BIDS and CAN_AWARD_BIDS. Change one, change the other, or the UI
+// will offer an action the API rejects — which is the bug this replaced.
+export const BID_MANAGER_ROLES: Role[] = [
+  "Contractor", "Owner", "Executive", "Project Manager", "Superintendent",
+  "Quantity Surveyor", "Architect",
+];
+export const BID_AWARDER_ROLES: Role[] = [
+  "Contractor", "Owner", "Executive", "Project Manager", "Superintendent",
+];
+
+export const canManageBids = (role: Role) => BID_MANAGER_ROLES.includes(role);
+export const canAwardBids = (role: Role) => BID_AWARDER_ROLES.includes(role);
+
 export const ROLES: Record<Role, Permissions> = {
   Contractor: {
     views: ["dashboard", "billing", "projects", "schedule","change-order", "change-orders", "plans", "tasks", "documents", "daily-log", "attendance", "punch-list", "commitments", "financials", "reports", "team", "mobile-create", "field-view", "inbox", "announcements", "observations", "action-plans", "coordination", "correspondence", "crews", "directory", "company-docs", "role-manager", "bidding", "invoicing", "inspections", "checklists", "safety-incidents", "equipment", "buildflex-ai"],

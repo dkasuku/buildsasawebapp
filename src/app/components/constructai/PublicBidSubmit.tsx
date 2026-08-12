@@ -17,6 +17,8 @@ type PublicPkg = {
   dueDate?: string | null;
   status: string;
   companyName?: string | null;
+  /** Set by the API when the advertised deadline has passed. */
+  closed?: boolean;
 };
 
 const fmtDate = (d?: string | null) => {
@@ -45,6 +47,15 @@ export function PublicBidSubmit({ token, theme }: { token: string; theme?: "dark
         if (!alive) return;
         if (r.status && r.status !== "open") {
           setError("This tender is not open for bids.");
+          setStatus("error");
+          return;
+        }
+        // Say so before the bidder fills the form in. The deadline used to be
+        // displayed but not enforced, so a late bidder typed out a whole bid and
+        // only then found out — or worse, it was accepted after the others had
+        // been opened.
+        if (r.closed) {
+          setError(`The deadline for this tender passed on ${fmtDate(r.dueDate) ?? "the advertised date"}, so it is no longer accepting bids.`);
           setStatus("error");
           return;
         }

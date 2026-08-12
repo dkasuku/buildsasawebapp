@@ -965,10 +965,12 @@ export const api = {
   deleteBidPackage: (id: string) => http(`/api/bid-packages/${id}`, { method: "DELETE" }),
   shareBidPackage: (id: string) => http<{ token: string; url: string }>(`/api/bid-packages/${id}/share`, { method: "POST" }),
   addPackageBid: (id: string, payload: Partial<BidDto>) => http<BidDto>(`/api/bid-packages/${id}/bids`, { method: "POST", body: JSON.stringify(payload) }),
-  awardBid: (id: string, bidId: string) => http<BidPackageDto>(`/api/bid-packages/${id}/award`, { method: "POST", body: JSON.stringify({ bidId }) }),
+  // Awarding also raises the subcontract (Commitment) and adds the winner to the
+  // Directory; the response reports what it created so the UI can say so.
+  awardBid: (id: string, bidId: string) => http<BidPackageDto & { awardedTo?: string; commitmentId?: string | null; contactId?: string | null }>(`/api/bid-packages/${id}/award`, { method: "POST", body: JSON.stringify({ bidId }) }),
   respondToBid: (packageId: string, bidId: string, payload: { status: string; reason?: string }) => http<BidDto>(`/api/bid-packages/${packageId}/bids/${bidId}/respond`, { method: "POST", body: JSON.stringify(payload) }),
   // Public tender link (no auth needed; http() still sends a token if present — harmless)
-  getPublicBidPackage: (token: string) => http<{ title: string; trade?: string | null; description?: string | null; budgetKES?: number | null; dueDate?: string | null; status: string; companyName?: string | null }>(`/api/public/bids/${token}`),
+  getPublicBidPackage: (token: string) => http<{ title: string; trade?: string | null; description?: string | null; budgetKES?: number | null; dueDate?: string | null; status: string; companyName?: string | null; closed?: boolean }>(`/api/public/bids/${token}`),
   submitPublicBid: (token: string, payload: { subcontractor?: string; contactName?: string; contactEmail?: string; contactPhone?: string; trade?: string; amount: number; notes?: string; fileUrl?: string }) => http<{ ok: boolean; id?: string }>(`/api/public/bids/${token}`, { method: "POST", body: JSON.stringify(payload) }),
   // Invoices
   getInvoices: (projectId: string) => http<InvoiceDto[]>(`/api/projects/${projectId}/invoices`),
