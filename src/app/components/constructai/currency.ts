@@ -1,4 +1,11 @@
-export type CurrencyCode = "KES" | "USD" | "EUR" | "GBP" | "NGN";
+// Exactly two currencies are supported: Kenyan Shillings and US Dollars.
+//
+// EUR, GBP and NGN used to be offered here and in the exposure picker. Every rate
+// was a hardcoded guess, none of the three matched a market this product sells
+// into, and each extra symbol was one more way for a figure to be displayed in a
+// unit nobody intended. Adding a currency means adding a real rate source, not a
+// line in this table.
+export type CurrencyCode = "KES" | "USD";
 
 export interface Currency {
   code: CurrencyCode;
@@ -10,18 +17,16 @@ export interface Currency {
 export const CURRENCIES: Record<CurrencyCode, Currency> = {
   KES: { code: "KES", symbol: "KSh", name: "Kenyan Shilling", locale: "en-KE" },
   USD: { code: "USD", symbol: "$", name: "US Dollar", locale: "en-US" },
-  EUR: { code: "EUR", symbol: "€", name: "Euro", locale: "de-DE" },
-  GBP: { code: "GBP", symbol: "£", name: "British Pound", locale: "en-GB" },
-  NGN: { code: "NGN", symbol: "₦", name: "Nigerian Naira", locale: "en-NG" },
 };
+
+// Every supported currency, for building pickers. Iterate this rather than
+// hardcoding a list, so a picker cannot drift out of step with what is supported.
+export const CURRENCY_CODES: CurrencyCode[] = ["KES", "USD"];
 
 // Conversion rates (example rates - in production, these would come from an API)
 const RATES: Record<CurrencyCode, number> = {
   KES: 1,
   USD: 0.0077,    // 1 KES = 0.0077 USD (~130 KES per USD)
-  EUR: 0.0071,    // 1 KES = 0.0071 EUR
-  GBP: 0.0060,    // 1 KES = 0.0060 GBP
-  NGN: 11.8,      // 1 KES = 11.8 NGN
 };
 
 // Base amounts are stored in KES (smallest unit)
@@ -29,16 +34,15 @@ export function formatCurrency(amountKES: number, currency: CurrencyCode = "KES"
   const curr = CURRENCIES[currency];
   const rate = RATES[currency];
   const converted = amountKES * rate;
-  
-  // Format based on currency
-  if (currency === "KES" || currency === "NGN") {
-    // No decimals for KES/NGN typically
+
+  // Shillings are not shown with cents.
+  if (currency === "KES") {
     return `${curr.symbol}${Math.round(converted).toLocaleString(curr.locale)}`;
   }
-  
-  return `${curr.symbol}${converted.toLocaleString(curr.locale, { 
-    minimumFractionDigits: 0, 
-    maximumFractionDigits: 2 
+
+  return `${curr.symbol}${converted.toLocaleString(curr.locale, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
   })}`;
 }
 
@@ -64,6 +68,13 @@ export function toKES(amount: number, currency: CurrencyCode = "KES"): number {
   return amount / RATES[currency];
 }
 
+// Round to the precision that currency is actually quoted in: whole shillings,
+// dollars-and-cents. Use this when putting a converted figure INTO an input, so a
+// shilling field never shows "259740.26" and a dollar field never loses its cents.
+export function roundForCurrency(amount: number, currency: CurrencyCode = "KES"): number {
+  return currency === "KES" ? Math.round(amount) : Math.round(amount * 100) / 100;
+}
+
 // Format large numbers (e.g., millions)
 export function formatCompactCurrency(amountKES: number, currency: CurrencyCode = "KES"): string {
   const curr = CURRENCIES[currency];
@@ -82,27 +93,14 @@ export function formatCompactCurrency(amountKES: number, currency: CurrencyCode 
   return formatCurrency(amountKES, currency);
 }
 
-// Detect currency based on location/timezone
+// Pick a sensible starting currency from the browser's timezone. Only KES and USD
+// exist, so this is a two-way choice: East Africa gets shillings, everywhere else
+// starts on dollars. The user can switch at any time.
 export function detectCurrency(): CurrencyCode {
   try {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    
-    // Kenya timezones
-    if (timezone.includes("Nairobi") || timezone.includes("Mombasa")) {
-      return "KES";
-    }
-    
-    // Nigeria timezones
-    if (timezone.includes("Lagos") || timezone.includes("Abuja")) {
-      return "NGN";
-    }
-    
-    // European timezones
-    if (timezone.includes("London")) return "GBP";
-    if (timezone.includes("Berlin") || timezone.includes("Paris") || timezone.includes("Madrid")) return "EUR";
-    
-    // Default to KES (Kenyan Shillings) as requested
-    return "KES";
+    if (/Nairobi|Mombasa|Kampala|Dar_es_Salaam|Kigali/i.test(timezone)) return "KES";
+    return "USD";
   } catch {
     return "KES";
   }

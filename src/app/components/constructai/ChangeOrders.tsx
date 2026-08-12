@@ -15,7 +15,7 @@ import { ROLES } from "./roles";
 import { useTeam, resolveName } from "./useTeam";
 import api, { type ChangeOrderActivityDto } from "../../services/api";
 import { useCurrency } from "./CurrencyContext";
-import { CURRENCIES, USD_TO_KES, formatCurrency, fromKES, toKES } from "./currency";
+import { CURRENCIES, USD_TO_KES, formatCurrency, fromKES, toKES, roundForCurrency } from "./currency";
 
 type COStatus = "drafted" | "pm_review" | "owner_approval" | "approved" | "rejected" | "void";
 interface ChangeOrder {
@@ -216,7 +216,10 @@ function COForm({ projects, initial, canApprove, onClose, onSaved }: { projects:
     // `save` coerces "" back to 0, so nothing is lost.
     //
     // `cost` is held in the WORKSPACE currency; `save` converts it back to USD.
-    cost: initial.costUSD ? Math.round(fromKES(initial.costUSD * USD_TO_KES, currency)) : "",
+    // Round to 2dp, not to a whole unit. Rounding to an integer silently dropped
+    // the cents off a dollar figure every time the form was reopened, so editing
+    // an unrelated field turned $1,538.46 into $1,538.
+    cost: initial.costUSD ? roundForCurrency(fromKES(initial.costUSD * USD_TO_KES, currency), currency) : "",
     scheduleImpactDays: initial.scheduleImpactDays || "", assignees: parseArr(initial.assignees),
     requestedBy: initial.requestedBy || "", submittedDate: initial.submittedDate || new Date().toISOString().slice(0, 10),
   });

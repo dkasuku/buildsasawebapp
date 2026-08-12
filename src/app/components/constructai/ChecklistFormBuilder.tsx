@@ -8,7 +8,7 @@
 
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, ArrowLeft, ChevronUp, ChevronDown, GripVertical, AlertTriangle, Loader2, Send, Square, Pencil, Sparkles, Check, Hash, Layers, SquarePen } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, ChevronUp, ChevronDown, GripVertical, AlertTriangle, Loader2, Send, Square, Pencil, Sparkles, Check, Hash, Layers, SquarePen, IndentIncrease, IndentDecrease } from "lucide-react";
 import { TRADES } from "./roles";
 import { aiErrorText } from "./AiAssistantPanel";
 import api, { type ChecklistTemplateDto } from "../../services/api";
@@ -36,12 +36,20 @@ type Item = {
   corrOption: string;
   corrActions: string;
   policy: string;
+  // Which item this one hangs under, by `id`. null = top level.
+  //
+  // The builder had no notion of sub-questions at all: it parsed a template into a
+  // FLAT list and saved a flat list. So a template built with sub-questions lost
+  // every parent/child link the moment someone opened it here and pressed Save —
+  // the nesting silently collapsed and looked like it had never been stored.
+  parentId: string | null;
 };
 
 const newItem = (): Item => ({
   id: `i-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
   group: "", caption: "", type: "yes_no", required: false, defaultAnswer: "",
   photo: "No", options: "Yes|No", corrOption: "", corrActions: "", policy: "",
+  parentId: null,
 });
 
 const VALID_TYPES = QTYPES.map((q) => q.v);
@@ -51,8 +59,11 @@ const optionsToStr = (v: any): string => {
   return "";
 };
 // Map a stored/AI item (new or legacy shape) into an editable builder row.
+// `id` keeps the stored tempId so the parent references below still resolve.
 const toItem = (a: any): Item => ({
   ...newItem(),
+  id: a.tempId || a.id || `i-${Math.random().toString(36).slice(2, 10)}`,
+  parentId: a.parentId ?? a.parentTempId ?? null,
   group: a.questionGroup || a.group || "",
   caption: a.caption || a.question || a.title || "",
   type: VALID_TYPES.includes(a.questionType) ? a.questionType : "yes_no",
@@ -91,7 +102,22 @@ export default function ChecklistFormBuilder({ onClose, onSaved, initial }: { on
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
 
   const patch = (id: string, p: Partial<Item>) => setItems((arr) => arr.map((it) => (it.id === id ? { ...it, ...p } : it)));
-  const remove = (id: string) => setItems((arr) => (arr.length > 1 ? arr.filter((it) => it.id !== id) : arr));
+  // Removing a parent promotes its children rather than orphaning them against an
+  // id that no longer exists.
+  const remove = (id: string) => setItems((arr) => (arr.length > 1
+    ? arr.filter((it) => it.id !== id).map((it) => (it.parentId === id ? { ...it, parentId: null } : it))
+    : arr));
+
+  // Nest this row under the nearest preceding TOP-LEVEL row. Only one level of
+  // nesting is offered, which is what the fill and detail views render.
+  const indent = (idx: number) => setItems((arr) => {
+    if (idx === 0) return arr;
+    let parent: Item | undefined;
+    for (let i = idx - 1; i >= 0; i--) { if (!arr[i].parentId) { parent = arr[i]; break; } }
+    if (!parent) return arr;
+    return arr.map((it, i) => (i === idx ? { ...it, parentId: parent!.id } : it));
+  });
+  const outdent = (idx: number) => setItems((arr) => arr.map((it, i) => (i === idx ? { ...it, parentId: null } : it)));
   const move = (idx: number, dir: -1 | 1) => setItems((arr) => {
     const next = [...arr]; const j = idx + dir;
     if (j < 0 || j >= next.length) return arr;
@@ -177,7 +203,17 @@ export default function ChecklistFormBuilder({ onClose, onSaved, initial }: { on
     if (!filled.length) return toast.error("Add at least one item with a question");
     if (filled.find((it) => !it.group.trim())) return toast.error("Every item needs a question group");
 
+    // Emit tempId + parentId so the hierarchy survives the round-trip. The
+    // from-template endpoint resolves these tempIds to real question ids in two
+    // passes when a checklist is created from this template.
+    //
+    // A child whose parent has no caption (so was filtered out of `filled`) would
+    // otherwise point at a parent that never gets written — it is re-parented to
+    // the top level rather than left dangling.
+    const keptIds = new Set(filled.map((it) => it.id));
     const payloadItems = filled.map((it, i) => ({
+      tempId: it.id,
+      parentId: it.parentId && keptIds.has(it.parentId) ? it.parentId : null,
       question: it.caption.trim(),
       questionType: it.type,
       required: it.required,
@@ -268,15 +304,22 @@ export default function ChecklistFormBuilder({ onClose, onSaved, initial }: { on
             <div className="space-y-3">
               {items.map((it, idx) => {
                 const opts = it.options.split("|").map((s) => s.trim()).filter(Boolean);
+                const nested = !!it.parentId;
+                const parentCaption = nested ? (items.find((p) => p.id === it.parentId)?.caption.trim() || "the item above") : "";
                 return (
-                  <div key={it.id} className="group rounded-lg border border-[#222A35] bg-[#11161D] hover:border-[#2C3744] transition-colors">
+                  <div key={it.id} className={`group rounded-lg border bg-[#11161D] hover:border-[#2C3744] transition-colors ${nested ? "border-[#222A35] border-l-2 border-l-[#FF6B1A]/50 ml-6" : "border-[#222A35]"}`}>
                     {/* row header */}
                     <div className="flex items-center gap-2.5 px-3 h-10 border-b border-[#222A35]">
                       <GripVertical className="w-3.5 h-3.5 text-[#3A4350] shrink-0" />
                       <span className="font-mono text-[11px] text-[#5B6675] tabular-nums shrink-0">{String(idx + 1).padStart(2, "0")}</span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#222A35] text-[#8A95A5] shrink-0">{typeLabel(it.type)}</span>
+                      {nested && <span className="text-[10px] text-[#FF6B1A] truncate shrink-0" title={`Sub-question of "${parentCaption}"`}>↳ sub-question</span>}
                       {it.group.trim() && <span className="text-[10px] text-[#8A95A5] truncate">· {it.group.trim()}</span>}
                       <div className="ml-auto flex items-center gap-1 opacity-50 group-hover:opacity-100 transition-opacity">
+                        {/* Indent makes this a sub-question of the row above; outdent
+                            returns it to the top level. */}
+                        <button onClick={() => indent(idx)} disabled={idx === 0 || nested} title="Make this a sub-question of the item above" className="h-7 w-7 flex items-center justify-center rounded text-[#8A95A5] hover:text-white hover:bg-[#161C24] disabled:opacity-30"><IndentIncrease className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => outdent(idx)} disabled={!nested} title="Move back to a top-level question" className="h-7 w-7 flex items-center justify-center rounded text-[#8A95A5] hover:text-white hover:bg-[#161C24] disabled:opacity-30"><IndentDecrease className="w-3.5 h-3.5" /></button>
                         <button onClick={() => move(idx, -1)} disabled={idx === 0} className="h-7 w-7 flex items-center justify-center rounded text-[#8A95A5] hover:text-white hover:bg-[#161C24] disabled:opacity-30"><ChevronUp className="w-3.5 h-3.5" /></button>
                         <button onClick={() => move(idx, 1)} disabled={idx === items.length - 1} className="h-7 w-7 flex items-center justify-center rounded text-[#8A95A5] hover:text-white hover:bg-[#161C24] disabled:opacity-30"><ChevronDown className="w-3.5 h-3.5" /></button>
                         <button onClick={() => remove(it.id)} className="h-7 w-7 flex items-center justify-center rounded text-[#EF4444] hover:bg-[#EF4444]/10"><Trash2 className="w-3.5 h-3.5" /></button>

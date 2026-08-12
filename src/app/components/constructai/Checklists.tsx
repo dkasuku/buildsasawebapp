@@ -113,6 +113,24 @@ const QTYPE_LABEL: Record<string, string> = {
 const TRADES = ["General","Electrical","Plumbing","HVAC","Carpentry","Painting","Masonry","Roofing","Drywall","Concrete","Landscaping"];
 const CATEGORIES = ["safety","quality","pre-handover","custom"];
 
+// How many DISTINCT questions have a non-blank answer.
+//
+// Completion used to be computed as `responses.length / questions.length`, both
+// here and in Tasks & Trades. `responses` holds one row PER USER PER QUESTION, so
+// a checklist assigned to three people who each answered all ten questions
+// reported 30/10 = 300% complete; blank placeholder rows counted as answers too.
+// Counting distinct answered questions keeps the figure inside 0-100 and makes it
+// mean what the label says. Exported so both screens share one definition rather
+// than drifting apart again.
+export function answeredQuestionCount(c: ChecklistDto): number {
+  const ids = new Set((c.responses || []).filter((r) => (r.value || "").trim() !== "").map((r) => r.questionId));
+  return ids.size;
+}
+export function checklistProgress(c: ChecklistDto): number {
+  if (!c.questions.length) return 0;
+  return Math.min(100, Math.round((answeredQuestionCount(c) / c.questions.length) * 100));
+}
+
 // Module-scope so every sub-component (Detail/Fill modals) can use it.
 type QNode = { q: ChecklistQuestionDto; number: string; depth: number };
 function buildQuestionTree(questions: ChecklistQuestionDto[]): QNode[] {
@@ -191,7 +209,7 @@ export default function Checklists({ role, aiDraft, onConsumeAiDraft }: { role: 
     catch { return assignedTo; }
   }
   function opts(s?: string|null) { if (!s) return []; try { return JSON.parse(s); } catch { return []; } }
-  function progress(c: ChecklistDto) { return c.questions.length ? Math.round((c.responses?.length || 0) / c.questions.length * 100) : 0; }
+  const progress = checklistProgress;
 
   async function fromTemplate(id: string) {
     try { const r = await api.createChecklistFromTemplate(id, {}); toast.success(`Created "${r.title}"`); setTab("checklists"); loadData(); }
@@ -214,10 +232,22 @@ export default function Checklists({ role, aiDraft, onConsumeAiDraft }: { role: 
     catch { toast.error("Assignment failed"); }
   }
 
-  async function onSubmit(chkId: string, questions: ChecklistQuestionDto[], answers: Record<string,string>) {
-    const responses = questions.map((q) => ({ questionId: q.id, value: answers[q.id] || "" }));
-    try { await api.submitChecklist(chkId, responses); toast.success("Submitted"); loadData(); }
-    catch { toast.error("Submit failed"); }
+  // Only send questions that were actually answered. Sending every question
+  // stored a blank response for each skipped one, which counted as "answered"
+  // and pushed the completion figure to 100% on a barely-filled checklist.
+  // Returns whether the save succeeded so the fill form can stay open on failure.
+  async function onSubmit(chkId: string, questions: ChecklistQuestionDto[], answers: Record<string,string>): Promise<boolean> {
+    const responses = questions
+      .filter((q) => (answers[q.id] || "").trim() !== "")
+      .map((q) => ({ questionId: q.id, value: answers[q.id] }));
+    if (!responses.length) { toast.error("Answer at least one question before submitting"); return false; }
+    try {
+      await api.submitChecklist(chkId, responses);
+      toast.success("Submitted");
+      loadData();
+      return true;
+    }
+    catch (e: any) { toast.error(e?.message || "Submit failed"); return false; }
   }
 
   async function setStatus(id: string, status: string) {
@@ -233,8 +263,18 @@ export default function Checklists({ role, aiDraft, onConsumeAiDraft }: { role: 
     catch { toast.error("Failed"); }
   }
 
+  // Send parentId explicitly so a sub-question stays a sub-question. Editing one
+  // used to drop it to the top level, because this payload omitted parentId and
+  // the API treated the omission as "clear it".
   async function updQ(chkId: string, q: ChecklistQuestionDto) {
-    try { await api.updateChecklistQuestion(chkId, q.id, { question: q.question, questionType: q.questionType, required: q.required, position: q.position, options: q.options || "[]" }); toast.success("Updated"); const r = await api.getChecklist(chkId); setDetail(r); loadData(); }
+    try {
+      await api.updateChecklistQuestion(chkId, q.id, {
+        question: q.question, questionType: q.questionType, required: q.required,
+        position: q.position, options: q.options || "[]", parentId: q.parentId ?? null,
+      });
+      toast.success("Updated");
+      const r = await api.getChecklist(chkId); setDetail(r); loadData();
+    }
     catch { toast.error("Failed"); }
   }
 
@@ -320,11 +360,25 @@ export default function Checklists({ role, aiDraft, onConsumeAiDraft }: { role: 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1"><span className={`text-[10px] px-1.5 py-0.5 rounded border ${st.bg} ${st.text} ${st.border}`}>{st.label}</span>{c.source==="template" && <span className="text-[10px] text-[#5B6675]">from template</span>}{c.source==="upload" && <span className="text-[10px] text-[#5B6675]">from CSV</span>}</div>
                 <div className="text-[13px] font-medium text-white truncate">{c.title}</div>
-                <div className="text-[11px] text-[#8A95A5] flex items-center gap-2 mt-0.5"><span>{c.questions.length} questions</span><span className="w-1 h-1 rounded-full bg-[#222A35]" /><span>{pct}% complete</span>{c.assignedTo && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><Users className="w-3 h-3" /><span>{names(c.assignedTo)}</span></>}{c.dueDate && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><Clock className="w-3 h-3" /><span>{new Date(c.dueDate).toLocaleDateString()}</span></>}</div>
+                {/* Two DIFFERENT percentages exist on a checklist and were easy to
+                    confuse. "Answered" is QA completion — how much of the form has
+                    been filled in. "Field progress" is the assignee's own estimate
+                    of how far the physical work has got. They are labelled
+                    explicitly so nobody reads one as the other. */}
+                <div className="text-[11px] text-[#8A95A5] flex items-center gap-2 mt-0.5 flex-wrap">
+                  <span>{answeredQuestionCount(c)} of {c.questions.length} answered ({pct}%)</span>
+                  {typeof c.reportedProgress === "number" && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><span>Field progress {c.reportedProgress}%</span></>}
+                  {c.assignedTo && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><Users className="w-3 h-3" /><span>{names(c.assignedTo)}</span></>}
+                  {c.submittedBy && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><span>Submitted by {resolveName(c.submittedBy)}{c.submittedAt ? ` · ${new Date(c.submittedAt).toLocaleDateString()}` : ""}</span></>}
+                  {c.dueDate && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><Clock className="w-3 h-3" /><span>{new Date(c.dueDate).toLocaleDateString()}</span></>}
+                </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {c.status==="draft" && canAssign && <button onClick={()=>setAssign(c)} className="h-8 px-2.5 bg-[#222A35] rounded-lg text-[11px] text-white hover:bg-[#3B82F6]/20 flex items-center gap-1"><UserCheck className="w-3.5 h-3.5" /> Assign</button>}
-                {(c.status==="assigned"||c.status==="in_progress") && canFill && <button onClick={()=>setFill(c)} className="h-8 px-2.5 bg-[#FF6B1A]/10 border border-[#FF6B1A]/30 rounded-lg text-[11px] text-[#FF6B1A] hover:bg-[#FF6B1A]/20 flex items-center gap-1"><PenTool className="w-3.5 h-3.5" /> Fill</button>}
+                {/* "rejected" belongs here too. A rejected checklist previously had
+                    no Fill button, so the reviewer's rejection was a dead end —
+                    the assignee could never correct and resubmit it. */}
+                {(c.status==="assigned"||c.status==="in_progress"||c.status==="rejected") && canFill && <button onClick={()=>setFill(c)} className="h-8 px-2.5 bg-[#FF6B1A]/10 border border-[#FF6B1A]/30 rounded-lg text-[11px] text-[#FF6B1A] hover:bg-[#FF6B1A]/20 flex items-center gap-1"><PenTool className="w-3.5 h-3.5" /> {c.status==="rejected" ? "Redo" : "Fill"}</button>}
                 {c.status==="submitted" && canAssign && <><button onClick={()=>setStatus(c.id,"approved")} className="h-8 px-2.5 bg-[#22C55E]/10 border border-[#22C55E]/30 rounded-lg text-[11px] text-[#22C55E] hover:bg-[#22C55E]/20 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Approve</button><button onClick={()=>setStatus(c.id,"rejected")} className="h-8 px-2.5 bg-[#EF4444]/10 border border-[#EF4444]/30 rounded-lg text-[11px] text-[#EF4444] hover:bg-[#EF4444]/20 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Reject</button></>}
                 <button onClick={()=>setDetail(c)} className="h-8 w-8 flex items-center justify-center bg-[#222A35] rounded-lg text-[#8A95A5] hover:text-white"><Eye className="w-3.5 h-3.5" /></button>
                 {canCreate && <button onClick={()=>delChk(c.id)} className="h-8 w-8 flex items-center justify-center bg-[#222A35] rounded-lg text-[#EF4444] hover:bg-[#EF4444]/10"><Trash2 className="w-3.5 h-3.5" /></button>}
@@ -607,9 +661,30 @@ export function AssignModal({ checklist, onClose, onAssign }: { checklist: Check
   );
 }
 
-export function FillModal({ checklist, onClose, onSubmit }: { checklist: ChecklistDto; onClose: () => void; onSubmit: (id: string, questions: ChecklistQuestionDto[], answers: Record<string,string>) => void }) {
-  const [answers, setAnswers] = useState<Record<string,string>>({});
+export function FillModal({ checklist, onClose, onSubmit }: { checklist: ChecklistDto; onClose: () => void; onSubmit: (id: string, questions: ChecklistQuestionDto[], answers: Record<string,string>) => Promise<boolean> }) {
+  // Pre-load whatever this checklist already holds, so re-opening a part-filled
+  // or rejected checklist shows the previous answers instead of a blank form and
+  // the filler only has to correct what was wrong.
+  const [answers, setAnswers] = useState<Record<string,string>>(() => {
+    const seed: Record<string,string> = {};
+    (checklist.responses || []).forEach((r) => { if (r.value) seed[r.questionId] = r.value; });
+    return seed;
+  });
   const [busy, setBusy] = useState(false);
+  const [missing, setMissing] = useState<string[]>([]);
+
+  // Required questions must actually be answered. Submit used to fire regardless,
+  // so a checklist could be marked "submitted" with every required item blank.
+  const submit = async () => {
+    const blank = checklist.questions.filter((q) => q.required && !(answers[q.id] || "").trim()).map((q) => q.id);
+    setMissing(blank);
+    if (blank.length) { toast.error(`${blank.length} required question${blank.length>1?"s":""} still blank`); return; }
+    setBusy(true);
+    const ok = await onSubmit(checklist.id, checklist.questions, answers);
+    setBusy(false);
+    if (ok) onClose(); // keep the form open (and the typing) if the save failed
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"><div className="bg-[#11161D] border border-[#222A35] rounded-xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-5">
       <div className="flex items-center justify-between mb-4"><h3 className="text-[15px] font-semibold text-white flex items-center gap-2"><PenTool className="w-4 h-4 text-[#FF6B1A]" /> Fill Checklist</h3><button onClick={onClose} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button></div>
@@ -631,14 +706,19 @@ export function FillModal({ checklist, onClose, onSubmit }: { checklist: Checkli
           return (
             <div key={q.id}>
             {showGroup && <div className="text-[11px] uppercase tracking-wider text-[#FF6B1A] font-semibold mt-1 mb-1.5">{group}</div>}
-            <div className={`bg-[#0A0E14] border border-[#222A35] rounded-lg p-3 ${depth > 0 ? "ml-6 border-l-2 border-l-[#FF6B1A]/40" : ""}`}>
+            <div className={`bg-[#0A0E14] border rounded-lg p-3 ${missing.includes(q.id) ? "border-[#EF4444]" : "border-[#222A35]"} ${depth > 0 ? "ml-6 border-l-2 border-l-[#FF6B1A]/40" : ""}`}>
               <div className="text-[12px] text-white mb-1.5">{number}. {q.question} {q.required && <span className="text-[#EF4444]">*</span>}</div>
               {q.questionType==="text" && <input value={val} onChange={(e)=>setAnswers({...answers,[q.id]:e.target.value})} placeholder={qq.defaultAnswer||""} className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-lg px-3 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]" />}
               {q.questionType==="number" && <input type="number" value={val} onChange={(e)=>setAnswers({...answers,[q.id]:e.target.value})} placeholder={qq.defaultAnswer||""} className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-lg px-3 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]" />}
               {q.questionType==="date" && <input type="date" value={val} onChange={(e)=>setAnswers({...answers,[q.id]:e.target.value})} className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-lg px-3 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]" />}
+              {/* A pass_fail question used to render "Yes"/"No" buttons, so it
+                  stored "No" where the template's corrective trigger was "Fail"
+                  — the corrective action never fired and the recorded answer did
+                  not match the question that was asked. Each type now offers its
+                  own wording. */}
               {(q.questionType==="yes_no" || q.questionType==="pass_fail") && (
                 <div className="flex gap-2">
-                  {["Yes","No"].map((opt)=>(
+                  {(q.questionType==="pass_fail" ? ["Pass","Fail"] : ["Yes","No"]).map((opt)=>(
                     <button key={opt} onClick={()=>setAnswers({...answers,[q.id]:opt})} className={`flex-1 h-8 rounded-lg text-[11px] font-medium border ${val===opt?"bg-[#FF6B1A]/20 border-[#FF6B1A] text-[#FF6B1A]":"bg-[#11161D] border-[#222A35] text-[#8A95A5]"}`}>{opt}</button>
                   ))}
                 </div>
@@ -683,7 +763,11 @@ export function FillModal({ checklist, onClose, onSubmit }: { checklist: Checkli
         });
         })()}
       </div>
-      <div className="flex justify-end gap-2 mt-5"><button onClick={onClose} className="h-9 px-4 bg-[#222A35] rounded-lg text-[12px] text-white">Cancel</button><button onClick={()=>{setBusy(true);onSubmit(checklist.id,checklist.questions,answers);setBusy(false);onClose();}} disabled={busy} className="h-9 px-4 bg-[#FF6B1A] text-black rounded-lg text-[12px] font-medium flex items-center gap-1.5 disabled:opacity-50">{busy?<Loader2 className="w-3.5 h-3.5 animate-spin" />:<CheckCircle2 className="w-3.5 h-3.5" />} Submit</button></div>
+      <div className="flex items-center justify-end gap-2 mt-5">
+        <div className="mr-auto text-[11px] text-[#8A95A5]">{Object.values(answers).filter((v)=>(v||"").trim()).length} of {checklist.questions.length} answered</div>
+        <button onClick={onClose} className="h-9 px-4 bg-[#222A35] rounded-lg text-[12px] text-white">Cancel</button>
+        <button onClick={submit} disabled={busy} className="h-9 px-4 bg-[#FF6B1A] text-black rounded-lg text-[12px] font-medium flex items-center gap-1.5 disabled:opacity-50">{busy?<Loader2 className="w-3.5 h-3.5 animate-spin" />:<CheckCircle2 className="w-3.5 h-3.5" />} Submit</button>
+      </div>
     </div></div>
   );
 }
@@ -691,27 +775,63 @@ export function FillModal({ checklist, onClose, onSubmit }: { checklist: Checkli
 export function DetailModal({ checklist, onClose, onAddQ, onUpdQ, onDelQ, canEdit }: { checklist: ChecklistDto; onClose: () => void; onAddQ: (id: string, parentId?: string | null) => void; onUpdQ: (id: string, q: ChecklistQuestionDto) => void; onDelQ: (chkId: string, qid: string) => void; canEdit: boolean }) {
   const [editingQ, setEditingQ] = useState<string|null>(null);
   const [editVal, setEditVal] = useState<{question:string;questionType:string;required:boolean;options:string}>({question:"",questionType:"text",required:false,options:""});
+  useTeam(); // so submitter ids resolve to names
+
+  // One row per person who has answered anything, with how much they answered
+  // and when they last did.
+  const submitters = (() => {
+    const by = new Map<string, { userId: string; answered: number; last: string }>();
+    (checklist.responses || []).forEach((r) => {
+      if (!(r.value || "").trim()) return;
+      const cur = by.get(r.userId) || { userId: r.userId, answered: 0, last: r.updatedAt || r.createdAt };
+      cur.answered += 1;
+      if ((r.updatedAt || r.createdAt) > cur.last) cur.last = r.updatedAt || r.createdAt;
+      by.set(r.userId, cur);
+    });
+    return [...by.values()].sort((a, b) => (a.last < b.last ? 1 : -1));
+  })();
   // Roll-up of every item whose answer triggered its corrective option.
+  // Check EVERY response, not just the first. With `.find()`, if one assignee
+  // recorded a pass and another recorded the failing answer, the corrective
+  // action went unflagged purely because of row order.
   const flagged = (checklist.questions as any[])
-    .map((q) => {
-      const resp = checklist.responses?.find((r) => r.questionId === q.id);
+    .flatMap((q) => {
       const actions = (() => { try { return JSON.parse(q.correctiveActions || "[]"); } catch { return []; } })();
-      const triggered = q.correctiveOption && resp && resp.value === q.correctiveOption;
-      return triggered ? { question: q.question, group: q.questionGroup || "", answer: resp!.value, actions: actions as string[] } : null;
-    })
-    .filter(Boolean) as { question: string; group: string; answer: string; actions: string[] }[];
+      if (!q.correctiveOption) return [];
+      return (checklist.responses || [])
+        .filter((r) => r.questionId === q.id && r.value === q.correctiveOption)
+        .map((r) => ({ question: q.question, group: q.questionGroup || "", answer: r.value, by: r.userId, actions: actions as string[] }));
+    }) as { question: string; group: string; answer: string; by: string; actions: string[] }[];
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"><div className="bg-[#11161D] border border-[#222A35] rounded-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto p-5">
       <div className="flex items-center justify-between mb-4"><h3 className="text-[15px] font-semibold text-white flex items-center gap-2"><Eye className="w-4 h-4 text-[#FF6B1A]" /> Checklist Detail</h3><button onClick={onClose} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button></div>
       <div className="text-[13px] text-white mb-1">{checklist.title}</div>
-      <div className="text-[11px] text-[#8A95A5] mb-4">{checklist.questions.length} questions · Status: {checklist.status}</div>
+      <div className="text-[11px] text-[#8A95A5] mb-3">{checklist.questions.length} questions · Status: {checklist.status}</div>
+
+      {/* Who has submitted, and when. The assigner previously had no way to see
+          this: the detail view showed a single unattributed "Answer:" per
+          question, so with several assignees you could not tell whose answer you
+          were looking at or whether everyone had responded. */}
+      {submitters.length > 0 && (
+        <div className="mb-4 rounded-lg border border-[#222A35] bg-[#0A0E14] p-3">
+          <div className="text-[11px] uppercase tracking-wider text-[#8A95A5] mb-2">Submissions · {submitters.length}</div>
+          <div className="space-y-1">
+            {submitters.map((s) => (
+              <div key={s.userId} className="flex items-center justify-between gap-2 text-[11px]">
+                <span className="text-white truncate">{resolveName(s.userId)}</span>
+                <span className="text-[#8A95A5] shrink-0">{s.answered} of {checklist.questions.length} answered · {new Date(s.last).toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {flagged.length > 0 && (
         <div className="mb-4 rounded-lg border border-[#F5A623]/40 bg-[#F5A623]/10 p-3">
           <div className="text-[12px] text-[#F5A623] font-semibold flex items-center gap-1.5 mb-2"><AlertTriangle className="w-3.5 h-3.5" /> {flagged.length} corrective action{flagged.length>1?"s":""} flagged</div>
           <div className="space-y-2">
             {flagged.map((f, i) => (
               <div key={i} className="text-[11px]">
-                <div className="text-white">{f.group && <span className="text-[#8A95A5]">{f.group} · </span>}{f.question} <span className="text-[#F5A623]">→ {f.answer}</span></div>
+                <div className="text-white">{f.group && <span className="text-[#8A95A5]">{f.group} · </span>}{f.question} <span className="text-[#F5A623]">→ {f.answer}</span> <span className="text-[#5B6675]">({resolveName(f.by)})</span></div>
                 {f.actions.length > 0 && <ul className="text-[#C2CAD6] list-disc pl-4 mt-0.5 space-y-0.5">{f.actions.map((a,j)=><li key={j}>{a}</li>)}</ul>}
               </div>
             ))}
@@ -729,7 +849,10 @@ export function DetailModal({ checklist, onClose, onAddQ, onUpdQ, onDelQ, canEdi
           if (depth === 0) lastGroup = group;
           const isEdit = editingQ === q.id;
           const o = (()=>{try{return JSON.parse(q.options||"[]");}catch{return[];}})();
-          const resp = checklist.responses?.find((r)=>r.questionId===q.id);
+          // EVERY answer to this question, attributed. `.find()` returned just the
+          // first one, so with multiple assignees the assigner saw one anonymous
+          // answer and no hint that others existed.
+          const resps = (checklist.responses || []).filter((r)=>r.questionId===q.id && (r.value||"").trim()!=="");
           return (
             <div key={q.id}>
             {showGroup && <div className="text-[11px] uppercase tracking-wider text-[#FF6B1A] font-semibold mt-1 mb-1.5">{group}</div>}
@@ -752,7 +875,16 @@ export function DetailModal({ checklist, onClose, onAddQ, onUpdQ, onDelQ, canEdi
                   <div className="flex-1 min-w-0">
                     <div className="text-[12px] text-white">{number}. {q.question} {q.required && <span className="text-[#EF4444]">*</span>}</div>
                     <div className="text-[10px] text-[#8A95A5] mt-0.5">{QTYPE_LABEL[q.questionType]||q.questionType} {o.length ? `· options: ${o.join(", ")}` : ""}</div>
-                    {resp && <div className="text-[11px] text-[#22C55E] mt-1">Answer: {resp.value}</div>}
+                    {resps.length > 0 && (
+                      <div className="mt-1 space-y-0.5">
+                        {resps.map((r) => (
+                          <div key={r.id} className="text-[11px] text-[#22C55E]">
+                            {r.value}
+                            <span className="text-[#5B6675]"> — {resolveName(r.userId)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {qq.policy && <div className="text-[10px] text-[#5B6675] mt-1 flex items-center gap-1"><FileText className="w-3 h-3 shrink-0" /> Ref: {qq.policy}</div>}
                     {canEdit && depth < 3 && (
                       <button onClick={()=>onAddQ(checklist.id,q.id)} className="mt-1.5 text-[10px] text-[#FF6B1A] hover:underline flex items-center gap-0.5"><Plus className="w-3 h-3" /> Add sub-question</button>

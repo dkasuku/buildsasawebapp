@@ -10,7 +10,7 @@ import { api } from "../../services/api";
 import type { ChecklistDto, FormTemplateDto, ChecklistTemplateDto } from "../../services/api";
 import { EmptyState } from "./EmptyState";
 import { useProjects } from "./useProjects";
-import { useTeam } from "./useTeam";
+import { useTeam, resolveName } from "./useTeam";
 import { warnSaveFailed } from "./saveFeedback";
 
 // Trigger a real file download in the browser. Every "Download" button on this
@@ -930,14 +930,19 @@ export function DigitizedForms({ role }: { role: Role }) {
               ) : (
                 <ol className="space-y-1.5">
                   {(viewChecklist.questions ?? []).map((qn, i) => {
-                    // Show the submitted answer next to the question when one exists.
-                    const answer = (viewChecklist.responses ?? []).find((r) => r.questionId === qn.id)?.value;
+                    // EVERY submitted answer, attributed. `.find()` showed only the
+                    // first responder's answer, so with several assignees the rest
+                    // were invisible and you could not tell whose you were reading.
+                    const answers = (viewChecklist.responses ?? []).filter((r) => r.questionId === qn.id && (r.value || "").trim() !== "");
                     return (
                       <li key={qn.id ?? i} className="text-[11.5px] text-[#C2CAD6] flex gap-2">
                         <span className="text-[#5B6675] shrink-0">{i + 1}.</span>
                         <span className="min-w-0">
                           {qn.question}{qn.required && <span className="text-[#EF4444]"> *</span>}
-                          <span className="block text-[10px] text-[#5B6675]">{qn.questionType}{answer ? ` · answered: ${answer}` : ""}</span>
+                          <span className="block text-[10px] text-[#5B6675]">{qn.questionType}</span>
+                          {answers.map((a) => (
+                            <span key={a.id} className="block text-[10px] text-[#22C55E]">{a.value} <span className="text-[#5B6675]">— {resolveName(a.userId)}</span></span>
+                          ))}
                         </span>
                       </li>
                     );

@@ -861,6 +861,12 @@ export const api = {
   getProjectExpenses: (projectId: string) => http<ExpenseDto[]>(`/api/projects/${projectId}/expenses`),
   createProject: (data: Partial<ProjectDto>) => http<ProjectDto>("/api/projects", { method: "POST", body: JSON.stringify(data) }),
   createAssignment: (projectId: string, role: string, userId: string) => http(`/api/projects/${projectId}/assignments`, { method: "POST", body: JSON.stringify({ role, userId }) }),
+  // Replace the holder of each role sent. Use this instead of createAssignment
+  // when saving a project's Team section: POST only ever adds a row, so editing a
+  // role left the previous holder in place and the change never showed up.
+  // A userId of "None"/null clears that role.
+  setAssignments: (projectId: string, assignments: { role: string; userId: string | null }[]) =>
+    http<{ id: string; role: string; userId: string }[]>(`/api/projects/${projectId}/assignments`, { method: "PUT", body: JSON.stringify({ assignments }) }),
   createMessage: (projectId: string, text: string, attachment?: string) => http(`/api/projects/${projectId}/messages`, { method: "POST", body: JSON.stringify({ text, attachment }) }),
   createLedgerEntry: (projectId: string, payload: Omit<LedgerEntryDto, "id">) => http(`/api/projects/${projectId}/ledger`, { method: "POST", body: JSON.stringify(payload) }),
   createExpense: (projectId: string, payload: Omit<ExpenseDto, "id">) => http(`/api/projects/${projectId}/expenses`, { method: "POST", body: JSON.stringify(payload) }),

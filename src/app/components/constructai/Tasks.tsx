@@ -12,11 +12,15 @@ import type { Role } from "./roles";
 import { ROLES, TRADE_COLOR } from "./roles";
 import { useTeam, resolveName } from "./useTeam";
 import api, { type ChecklistDto, type ChecklistTemplateDto, type ChecklistQuestionDto, type ProjectDto } from "../../services/api";
-import { STATUS_META, AssignModal, FillModal, DetailModal } from "./Checklists";
+import { STATUS_META, AssignModal, FillModal, DetailModal, answeredQuestionCount, checklistProgress } from "./Checklists";
 import { EmptyState } from "./EmptyState";
 
 // Sort within a trade so the things needing attention float up.
 const STATUS_RANK: Record<string, number> = { submitted: 0, in_progress: 1, assigned: 2, draft: 3, rejected: 4, approved: 5 };
+
+// Statuses an assignee can still work on. "rejected" is included so a reviewer
+// sending something back is not a dead end.
+const isFillable = (status: string) => status === "assigned" || status === "in_progress" || status === "rejected";
 
 export function Tasks({ role = "Contractor" }: { role?: Role }) {
   const perms = ROLES[role];
@@ -53,7 +57,10 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
   // Trade comes from the checklist's own field (set on create); fall back to the
   // source template for older checklists created before the field existed.
   const tradeOf = (c: ChecklistDto) => c.trade || templates.find((t) => t.id === c.templateId)?.trade || "Unassigned";
-  const pct = (c: ChecklistDto) => (c.questions.length ? Math.round(((c.responses?.length || 0) / c.questions.length) * 100) : 0);
+  // Shared with the Checklists module. This was its own copy of the same broken
+  // formula (responses.length / questions.length), which exceeded 100% as soon as
+  // more than one person was assigned.
+  const pct = checklistProgress;
   const names = (assignedTo?: string | null) => {
     if (!assignedTo) return "";
     try { const ids: string[] = JSON.parse(assignedTo); return ids.map((id) => resolveName(id)).join(", "); } catch { return assignedTo; }
@@ -111,9 +118,15 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
     if (!userIds.length) return;
     try { await api.assignChecklist(id, userIds); toast.success("Assigned"); loadData(); } catch { toast.error("Assignment failed"); }
   }
-  async function onSubmit(id: string, questions: ChecklistQuestionDto[], answers: Record<string, string>) {
-    const responses = questions.map((qq) => ({ questionId: qq.id, value: answers[qq.id] || "" }));
-    try { await api.submitChecklist(id, responses); toast.success("Submitted"); loadData(); } catch { toast.error("Submit failed"); }
+  // Only send answered questions, and report success so the fill form can stay
+  // open (with the typing intact) when the save fails.
+  async function onSubmit(id: string, questions: ChecklistQuestionDto[], answers: Record<string, string>): Promise<boolean> {
+    const responses = questions
+      .filter((qq) => (answers[qq.id] || "").trim() !== "")
+      .map((qq) => ({ questionId: qq.id, value: answers[qq.id] }));
+    if (!responses.length) { toast.error("Answer at least one question before submitting"); return false; }
+    try { await api.submitChecklist(id, responses); toast.success("Submitted"); loadData(); return true; }
+    catch (e: any) { toast.error(e?.message || "Submit failed"); return false; }
   }
   async function setStatus(id: string, status: string) {
     try { await api.updateChecklist(id, { status }); toast.success("Status updated"); loadData(); } catch { toast.error("Update failed"); }
@@ -138,12 +151,28 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
 
   return (
     <div className="px-4 sm:px-7 py-5 sm:py-6 space-y-5 max-w-[1400px] mx-auto">
+      {/* What this page is. The screen opened straight onto four unlabelled stat
+          tiles, so it was not obvious that "Tasks & Trades" is the assignment
+          board for checklists and forms rather than a separate to-do list. */}
+      <div>
+        <h2 className="text-[15px] text-white font-display flex items-center gap-2"><ClipboardList className="w-4 h-4 text-[#FF6B1A]" /> Tasks &amp; Trades</h2>
+        <p className="text-[12px] text-[#8A95A5] mt-1 max-w-3xl">
+          Every checklist and form you have handed out, grouped by trade. Assign work here, watch it come back, then approve it.
+          Forms themselves are built under <span className="text-[#C2CAD6]">Checklists</span>.
+        </p>
+        <p className="text-[11px] text-[#5B6675] mt-1.5 max-w-3xl">
+          Two different percentages appear below. <span className="text-[#8A95A5]">Answered</span> is how much of the form has been
+          filled in. <span className="text-[#FF6B1A]">Work done</span> is the assignee&apos;s own estimate of site progress — a form
+          can be fully answered while the work is half finished, and the other way round.
+        </p>
+      </div>
+
       {/* Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard label="In view" value={stats.total} icon={<ClipboardList className="w-4 h-4" />} tint="#8A95A5" />
-        <StatCard label="Awaiting completion" value={stats.awaiting} icon={<Clock className="w-4 h-4" />} tint="#3B82F6" />
-        <StatCard label="Needs review" value={stats.review} icon={<AlertTriangle className="w-4 h-4" />} tint="#8B5CF6" />
-        <StatCard label="Avg completion" value={`${stats.avg}%`} icon={<CheckCircle2 className="w-4 h-4" />} tint="#22C55E" />
+        <StatCard label="Assignments in view" value={stats.total} icon={<ClipboardList className="w-4 h-4" />} tint="#8A95A5" />
+        <StatCard label="Out with the team" value={stats.awaiting} icon={<Clock className="w-4 h-4" />} tint="#3B82F6" />
+        <StatCard label="Waiting on your review" value={stats.review} icon={<AlertTriangle className="w-4 h-4" />} tint="#8B5CF6" />
+        <StatCard label="Avg answered" value={`${stats.avg}%`} icon={<CheckCircle2 className="w-4 h-4" />} tint="#22C55E" />
       </div>
 
       {/* PM-confirmed project progress roll-up (field progress reported by crews) */}
@@ -209,7 +238,8 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
                   <span className="w-2.5 h-2.5 rounded-sm" style={{ background: color }} />
                   <span className="text-[13px] text-white font-medium">{trade}</span>
                   <span className="text-[10px] tabular-nums px-1.5 py-0.5 rounded-full bg-[#222A35] text-[#8A95A5]">{list.length}</span>
-                  <div className="ml-auto flex items-center gap-2 w-32">
+                  <div className="ml-auto flex items-center gap-2 w-44" title={`Average of how much of each form has been answered across ${active.length} active ${trade} assignment${active.length === 1 ? "" : "s"}`}>
+                    <span className="text-[10px] text-[#5B6675] shrink-0">answered</span>
                     <div className="flex-1 h-1.5 rounded-full bg-[#222A35] overflow-hidden"><div className="h-full rounded-full" style={{ width: `${avg}%`, background: color }} /></div>
                     <span className="text-[10px] tabular-nums text-[#8A95A5] w-8 text-right">{avg}%</span>
                   </div>
@@ -225,21 +255,24 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
                           <div className="text-[13px] font-medium text-white truncate">{c.title}</div>
                           <div className="text-[11px] text-[#8A95A5] flex flex-wrap items-center gap-2 mt-0.5">
                             <span>{c.questions.length} questions</span>
-                            <span className="w-1 h-1 rounded-full bg-[#222A35]" /><span>{p}% answered</span>
-                            {c.reportedProgress != null && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><span className="text-[#FF6B1A]">{c.reportedProgress}% field</span></>}
+                            <span className="w-1 h-1 rounded-full bg-[#222A35]" /><span>{answeredQuestionCount(c)} of {c.questions.length} answered ({p}%)</span>
+                            {c.reportedProgress != null && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><span className="text-[#FF6B1A]">work done {c.reportedProgress}%</span></>}
                             {c.assignedTo && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><Users className="w-3 h-3" /><span className="truncate">{names(c.assignedTo)}</span></>}
                             {c.dueDate && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><Clock className="w-3 h-3" /><span>{new Date(c.dueDate).toLocaleDateString()}</span></>}
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           {c.status === "draft" && canAssign && <button onClick={() => setAssign(c)} className="h-8 px-2.5 bg-[#222A35] rounded-lg text-[11px] text-white hover:bg-[#3B82F6]/20 flex items-center gap-1"><UserCheck className="w-3.5 h-3.5" /> Assign</button>}
-                          {(c.status === "assigned" || c.status === "in_progress") && canFill && (
-                            <select value={c.reportedProgress ?? ""} onChange={(e) => reportProgress(c.id, Number(e.target.value))} title="Report how far the actual work is" className="h-8 bg-[#0A0E14] border border-[#222A35] rounded-lg px-1.5 text-[11px] text-[#C2CAD6] focus:outline-none focus:border-[#FF6B1A]">
-                              <option value="" disabled>Field %…</option>
+                          {/* "rejected" is fillable too. Without it, a reviewer's
+                              rejection was a dead end — the assignee had no way to
+                              correct the form and send it back. */}
+                          {isFillable(c.status) && canFill && (
+                            <select value={c.reportedProgress ?? ""} onChange={(e) => reportProgress(c.id, Number(e.target.value))} title="Report how far the actual work is on site" className="h-8 bg-[#0A0E14] border border-[#222A35] rounded-lg px-1.5 text-[11px] text-[#C2CAD6] focus:outline-none focus:border-[#FF6B1A]">
+                              <option value="" disabled>Work done…</option>
                               {[0, 10, 25, 50, 75, 90, 100].map((v) => <option key={v} value={v}>{v}%</option>)}
                             </select>
                           )}
-                          {(c.status === "assigned" || c.status === "in_progress") && canFill && <button onClick={() => setFill(c)} className="h-8 px-2.5 bg-[#FF6B1A]/10 border border-[#FF6B1A]/30 rounded-lg text-[11px] text-[#FF6B1A] hover:bg-[#FF6B1A]/20 flex items-center gap-1"><PenTool className="w-3.5 h-3.5" /> Fill</button>}
+                          {isFillable(c.status) && canFill && <button onClick={() => setFill(c)} className="h-8 px-2.5 bg-[#FF6B1A]/10 border border-[#FF6B1A]/30 rounded-lg text-[11px] text-[#FF6B1A] hover:bg-[#FF6B1A]/20 flex items-center gap-1"><PenTool className="w-3.5 h-3.5" /> {c.status === "rejected" ? "Redo" : "Fill"}</button>}
                           {c.status === "submitted" && canAssign && <><button onClick={() => setStatus(c.id, "approved")} className="h-8 px-2.5 bg-[#22C55E]/10 border border-[#22C55E]/30 rounded-lg text-[11px] text-[#22C55E] hover:bg-[#22C55E]/20 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Approve</button><button onClick={() => setStatus(c.id, "rejected")} className="h-8 px-2.5 bg-[#EF4444]/10 border border-[#EF4444]/30 rounded-lg text-[11px] text-[#EF4444] hover:bg-[#EF4444]/20 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Reject</button></>}
                           <button onClick={() => setDetail(c)} title="View" className="h-8 w-8 flex items-center justify-center bg-[#222A35] rounded-lg text-[#8A95A5] hover:text-white"><Eye className="w-3.5 h-3.5" /></button>
                         </div>

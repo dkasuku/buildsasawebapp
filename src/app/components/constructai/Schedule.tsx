@@ -13,6 +13,7 @@ import { ROLES, TRADES } from "./roles";
 import { useTeam, resolveName } from "./useTeam";
 import api, { type ScheduleItemDto, type ProjectDto, type ChecklistDto } from "../../services/api";
 import { EmptyState } from "./EmptyState";
+import { checklistProgress } from "./Checklists";
 
 const DAY = 86400000;
 const STATUS: Record<string, { label: string; bar: string }> = {
@@ -73,7 +74,10 @@ export function Schedule({ role = "Contractor" }: { role?: Role }) {
     name: c.title,
     start: c.createdAt,
     end: c.dueDate as string,
-    percent: c.reportedProgress != null ? c.reportedProgress : (c.questions?.length ? Math.round(((c.responses?.length || 0) / c.questions.length) * 100) : 0),
+    // Third copy of the same broken completion formula, now shared. Dividing raw
+    // response rows by question count exceeded 100% as soon as more than one
+    // person was assigned, which drew an over-long bar on the timeline.
+    percent: c.reportedProgress != null ? c.reportedProgress : checklistProgress(c),
   })), [checklists]);
 
   // Timeline scale across every dated thing in view.

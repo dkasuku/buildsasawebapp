@@ -877,6 +877,40 @@ app.post('/api/projects/:projectId/assignments', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Set a project's team in one call: for each role sent, replace whoever held it.
+//
+// The project form used to POST a fresh assignment per role on every save. Because
+// POST only ever CREATES, changing the PM left the old PM row in place and added a
+// second one. The UI reads a role with `assignments.find(a => a.role === 'PM')`,
+// which returned the ORIGINAL row — so the newly picked member never appeared and
+// the Team section looked like it had not saved. Nor could a member be removed,
+// since there was no path that deleted anything.
+//
+// Body: { assignments: [{ role, userId }] }. A null/empty/"None" userId clears
+// that role. Roles absent from the payload are left untouched.
+app.put('/api/projects/:projectId/assignments', auth, async (req, res) => {
+  try {
+    const projectId = req.params.projectId;
+    const incoming = Array.isArray(req.body?.assignments) ? req.body.assignments : null;
+    if (!incoming) return res.status(400).json({ error: 'assignments array required' });
+
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    for (const entry of incoming) {
+      const role = String(entry?.role || '').trim();
+      if (!role) continue;
+      const userId = entry?.userId && entry.userId !== 'None' ? String(entry.userId) : null;
+      // Clear the role, then set it — keeps exactly one row per role.
+      await prisma.assignment.deleteMany({ where: { projectId, role } });
+      if (userId) await prisma.assignment.create({ data: { projectId, role, userId } });
+    }
+
+    const rows = await prisma.assignment.findMany({ where: { projectId } });
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.put('/api/projects/:projectId/assignments/:assignmentId', auth, async (req, res) => {
   try {
     const { role, userId } = req.body;
@@ -3122,10 +3156,24 @@ app.post('/api/checklists/:id/questions', auth, async (req, res) => {
 });
 app.put('/api/checklists/:id/questions/:questionId', auth, async (req, res) => {
   try {
+    // PATCH semantics: only touch fields the caller actually sent.
+    //
+    // This used to assign `parentId: parentId || null` unconditionally. The
+    // editor does not send parentId, so every edit wrote null and PROMOTED a
+    // sub-question to a top-level question — the nesting silently vanished and
+    // it looked like the edit had not saved at all. Same hazard for the other
+    // columns: an omitted field must stay as it is, not be blanked.
     const { question, questionType, required, position, options, parentId } = req.body;
+    const data = {};
+    if (question !== undefined) data.question = question;
+    if (questionType !== undefined) data.questionType = questionType;
+    if (required !== undefined) data.required = !!required;
+    if (position !== undefined) data.position = position;
+    if (options !== undefined) data.options = typeof options === 'string' ? options : JSON.stringify(options || []);
+    if (parentId !== undefined) data.parentId = parentId || null;
     const row = await prisma.checklistQuestion.update({
       where: { id: req.params.questionId },
-      data: { question, questionType, required: !!required, position, options: typeof options === 'string' ? options : JSON.stringify(options || []), parentId: parentId || null },
+      data,
     });
     res.json(row);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -3493,8 +3541,19 @@ app.post('/api/form-templates', auth, async (req, res) => {
 });
 app.put('/api/form-templates/:id', auth, async (req, res) => {
   try {
+    // PATCH semantics, same reasoning as the checklist-question route: this used
+    // to write every column unconditionally, so a partial update (renaming a
+    // template, say) blanked its description, category and — worst of all — its
+    // `fields`, destroying the form's questions.
     const { name, description, category, source, fields, projectId } = req.body;
-    const row = await prisma.formTemplate.update({ where: { id: req.params.id }, data: { name, description, category, source, fields: typeof fields === 'string' ? fields : JSON.stringify(fields), projectId: projectId || null } });
+    const data = {};
+    if (name !== undefined) data.name = name;
+    if (description !== undefined) data.description = description;
+    if (category !== undefined) data.category = category;
+    if (source !== undefined) data.source = source;
+    if (fields !== undefined) data.fields = typeof fields === 'string' ? fields : JSON.stringify(fields);
+    if (projectId !== undefined) data.projectId = projectId || null;
+    const row = await prisma.formTemplate.update({ where: { id: req.params.id }, data });
     res.json(row);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

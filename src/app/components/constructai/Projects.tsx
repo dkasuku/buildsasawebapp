@@ -78,7 +78,9 @@ const QS_OPTIONS = ["None", "Lead QS", "Assistant QS", "Cost Controller"];
 
 const TABS = ["All", "Active", "At Risk", "Planning", "Closing", "Archived"];
 const STATUS_FILTERS = ["On Track", "At Risk", "Planning", "Closing", "Archived"];
-const CURRENCY_OPTIONS = ["KSh", "$", "€", "£", "AED"];
+// Shillings and dollars only. €, £ and AED were selectable here with hardcoded,
+// unmaintained conversion rates behind them.
+const CURRENCY_OPTIONS = ["KSh", "$"];
 
 const statusColor = (s: string) =>
   s === "On Track" ? "bg-[#22C55E]/15 text-[#22C55E] border-[#22C55E]/30"
@@ -109,14 +111,13 @@ const parseCompactValue = (value: string) => {
   return Number.isFinite(amount) ? amount : 0;
 };
 
+// Historic rows may still carry €, £ or AED in their exposure string, so those are
+// still RECOGNISED when parsing an existing value — they map onto one of the two
+// supported symbols rather than being kept, and can no longer be chosen.
 const normalizeCurrency = (value: string) => {
   const upper = value.toUpperCase();
-  if (upper === "KES" || upper === "KSH") return "KSh";
-  if (upper === "USD") return "$";
-  if (upper === "EUR") return "€";
-  if (upper === "GBP") return "£";
-  if (upper === "AED") return "AED";
-  if (["$", "€", "£", "KSh", "AED"].includes(value)) return value;
+  if (upper === "KES" || upper === "KSH" || value === "KSh") return "KSh";
+  // Everything else — USD, and the retired EUR/GBP/AED — resolves to dollars.
   return "$";
 };
 
@@ -143,6 +144,9 @@ const formatExposure = (currency: string, amount: string, sign = "+") => {
 const IN_PROGRESS_STATUSES = ["On Track", "At Risk", "Planning", "Active", "In Progress"];
 const HEALTHY_STATUSES = ["On Track", "Closing", "Active", "In Progress"];
 
+// KSh and $ are the only currencies a user can pick. The retired symbols stay in
+// this table so historic rows that still hold them convert to a real figure
+// instead of silently falling back to 1:1.
 const CURRENCY_TO_KES: Record<string, number> = {
   "KSh": 1,
   "$": 130,
@@ -345,6 +349,28 @@ export function Projects({
   // swallowed any error — so a rejected save (duplicate code, offline, validation)
   // still showed "Project created" and a card that vanished on the next reload.
   const [saving, setSaving] = useState(false);
+
+  // Persist the Team section. Every role is sent — including the ones left on
+  // "None", so clearing a role actually removes the member rather than leaving
+  // the previous holder attached. A failure here is reported instead of swallowed:
+  // the old code used Promise.allSettled and then said "Project updated", so a
+  // rejected team save looked exactly like a successful one.
+  const saveTeam = async (
+    pid: string,
+    src: { pm: string; architect: string; qs: string },
+    verb: "created" | "updated",
+  ) => {
+    try {
+      await api.setAssignments(pid, [
+        { role: "PM", userId: src.pm === "None" ? null : src.pm },
+        { role: "Architect", userId: src.architect === "None" ? null : src.architect },
+        { role: "QS", userId: src.qs === "None" ? null : src.qs },
+      ]);
+    } catch (e: any) {
+      toast.error(`Project ${verb}, but the team could not be saved — ${e?.message || "unknown error"}`, { duration: 8000 });
+    }
+  };
+
   const createProject = async () => {
     if (!form.name.trim()) return toast.error("Project name is required");
     if (saving) return;
@@ -368,14 +394,11 @@ export function Projects({
         images,
       } as any);
       const pid = (created as any).id;
-      // Team assignments are best-effort: the project itself is already saved, so
-      // a failure here must not read as "the project wasn't created".
-      const assignments = [
-        form.pm !== "None" ? api.createAssignment(pid, "PM", form.pm) : Promise.resolve(),
-        form.architect !== "None" ? api.createAssignment(pid, "Architect", form.architect) : Promise.resolve(),
-        form.qs !== "None" ? api.createAssignment(pid, "QS", form.qs) : Promise.resolve(),
-      ];
-      await Promise.allSettled(assignments);
+      // One call that sets each role, so re-saving replaces the holder instead of
+      // stacking duplicate rows. The project itself is already stored, so a team
+      // failure must not read as "the project wasn't created" — but it must not be
+      // silent either, which is what Promise.allSettled did here.
+      await saveTeam(pid, form, "created");
       await reloadProjects();
       setForm({ name: "", code: "", city: "", lat: null, lng: null, description: "", value: "", status: "Planning", progress: 0, changeOrders: 0, exposureCurrency: "KSh", exposureAmount: "0", images: [], pm: "None", architect: "None", qs: "None", checklist: { items: [] } });
       newImages.reset();
@@ -417,12 +440,7 @@ export function Projects({
         exposure: formatExposure(editForm.exposureCurrency, editForm.exposureAmount),
         images,
       } as any);
-      const editAssignments = [
-        editForm.pm !== "None" ? api.createAssignment(pid, "PM", editForm.pm) : Promise.resolve(),
-        editForm.architect !== "None" ? api.createAssignment(pid, "Architect", editForm.architect) : Promise.resolve(),
-        editForm.qs !== "None" ? api.createAssignment(pid, "QS", editForm.qs) : Promise.resolve(),
-      ];
-      await Promise.allSettled(editAssignments);
+      await saveTeam(pid, editForm, "updated");
       await reloadProjects();
       setEditingProject(null);
       setEditForm(null);
