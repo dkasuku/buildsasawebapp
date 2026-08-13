@@ -701,6 +701,13 @@ model Checklist {
   category    String?  // trade or custom category
   trade       String?  // copied from the source template (General, Electrical, Plumbing, ...)
   reportedProgress Int? // contractor self-reported field % (0-100); separate from QA completion (answered/total)
+  // WHO said the work was that far along, and when. The figure had no
+  // attribution: it was set by any teammate who could fill checklists, shown to
+  // managers as fact, then averaged into the project's headline progress bar —
+  // so an anonymous number drove the number the client sees, with no way to ask
+  // the person who reported it.
+  reportedProgressBy String?   // userId who last reported field progress
+  reportedProgressAt DateTime? // when they reported it
   source      String   // ai | manual | upload | template
   status      String   @default("draft") // draft | assigned | in_progress | submitted | approved | rejected
   assigned    Boolean  @default(false)

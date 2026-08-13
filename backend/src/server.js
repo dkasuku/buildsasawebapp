@@ -3191,7 +3191,10 @@ app.post('/api/checklists/:id/progress', auth, requireRole(CAN_FILL_CHECKLISTS),
     pct = Math.max(0, Math.min(100, Math.round(pct)));
     const existing = await prisma.checklist.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Not found' });
-    const data = { reportedProgress: pct };
+    // Stamp WHO reported it and WHEN. Without this the figure was anonymous, yet
+    // it is averaged into the project's headline progress — a manager confirming
+    // that roll-up had no way to tell whose estimate they were signing off.
+    const data = { reportedProgress: pct, reportedProgressBy: req.user.sub, reportedProgressAt: new Date() };
     if (existing.status === 'assigned' && pct > 0) data.status = 'in_progress';
     const row = await prisma.checklist.update({ where: { id: req.params.id }, data });
     res.json(row);

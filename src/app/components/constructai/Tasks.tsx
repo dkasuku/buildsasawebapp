@@ -22,6 +22,11 @@ const STATUS_RANK: Record<string, number> = { submitted: 0, in_progress: 1, assi
 // sending something back is not a dead end.
 const isFillable = (status: string) => status === "assigned" || status === "in_progress" || status === "rejected";
 
+// Label for work whose TRADE is not set. It used to say "Unassigned", which on a
+// screen that also shows who each item is assigned to reads as "nobody is working
+// on these" — even when every row underneath had an assignee.
+const NO_TRADE = "No trade set";
+
 export function Tasks({ role = "Contractor" }: { role?: Role }) {
   const perms = ROLES[role];
   const canManage = perms.canCreateInspection || perms.isWorkspaceOwner;
@@ -56,7 +61,11 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
 
   // Trade comes from the checklist's own field (set on create); fall back to the
   // source template for older checklists created before the field existed.
-  const tradeOf = (c: ChecklistDto) => c.trade || templates.find((t) => t.id === c.templateId)?.trade || "Unassigned";
+  // Falls back to "No trade set", NOT "Unassigned". The groups here are TRADES,
+  // but a group headed "Unassigned" sitting above rows that clearly show an
+  // assignee reads as "nobody is working on these" — two different meanings of
+  // the same word on one screen.
+  const tradeOf = (c: ChecklistDto) => c.trade || templates.find((t) => t.id === c.templateId)?.trade || NO_TRADE;
   // Shared with the Checklists module. This was its own copy of the same broken
   // formula (responses.length / questions.length), which exceeded 100% as soon as
   // more than one person was assigned.
@@ -97,20 +106,24 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
   // assignments that have a reported value). This is a *suggestion* a manager
   // confirms — it does not auto-write to the project.
   const projectRollup = useMemo(() => {
-    const byProject = new Map<string, number[]>();
+    const byProject = new Map<string, { pct: number; by: string | null }[]>();
     for (const c of checklists) {
       if (!c.projectId || c.reportedProgress == null) continue;
       if (!byProject.has(c.projectId)) byProject.set(c.projectId, []);
-      byProject.get(c.projectId)!.push(c.reportedProgress);
+      byProject.get(c.projectId)!.push({ pct: c.reportedProgress, by: c.reportedProgressBy ?? null });
     }
     return projects
       .map((p) => {
         const vals = byProject.get(p.id) || [];
         if (!vals.length) return null;
-        const suggested = Math.round(vals.reduce((s, v) => s + v, 0) / vals.length);
-        return { id: p.id, name: p.name, current: p.progress ?? 0, suggested, count: vals.length };
+        const suggested = Math.round(vals.reduce((s, v) => s + v.pct, 0) / vals.length);
+        // Who these estimates came from. Confirming this figure rewrites the
+        // project's headline progress — the number the client sees — so the
+        // manager doing it should know whose word they are putting their name to.
+        const reporters = [...new Set(vals.map((v) => v.by).filter(Boolean) as string[])];
+        return { id: p.id, name: p.name, current: p.progress ?? 0, suggested, count: vals.length, reporters };
       })
-      .filter(Boolean) as { id: string; name: string; current: number; suggested: number; count: number }[];
+      .filter(Boolean) as { id: string; name: string; current: number; suggested: number; count: number; reporters: string[] }[];
   }, [checklists, projects]);
 
   // Actions (same lifecycle as the Checklists module).
@@ -188,7 +201,10 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
               <div key={r.id} className="px-4 py-3 flex items-center gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="text-[12.5px] text-white truncate">{r.name}</div>
-                  <div className="text-[11px] text-[#8A95A5] mt-0.5">Reported {r.suggested}% from {r.count} assignment{r.count > 1 ? "s" : ""} · project bar at {r.current}%</div>
+                  <div className="text-[11px] text-[#8A95A5] mt-0.5">
+                    Reported {r.suggested}% from {r.count} assignment{r.count > 1 ? "s" : ""} · project bar at {r.current}%
+                    {r.reporters.length > 0 && <span className="text-[#5B6675]"> · by {r.reporters.map(resolveName).join(", ")}</span>}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 w-40">
                   <div className="flex-1 h-1.5 rounded-full bg-[#222A35] overflow-hidden"><div className="h-full rounded-full bg-[#FF6B1A]" style={{ width: `${r.suggested}%` }} /></div>
@@ -256,7 +272,18 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
                           <div className="text-[11px] text-[#8A95A5] flex flex-wrap items-center gap-2 mt-0.5">
                             <span>{c.questions.length} questions</span>
                             <span className="w-1 h-1 rounded-full bg-[#222A35]" /><span>{answeredQuestionCount(c)} of {c.questions.length} answered ({p}%)</span>
-                            {c.reportedProgress != null && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><span className="text-[#FF6B1A]">work done {c.reportedProgress}%</span></>}
+                            {/* Say who reported it. The figure used to appear with no
+                                author at all, while feeding the project roll-up a
+                                manager signs off. */}
+                            {c.reportedProgress != null && (
+                              <>
+                                <span className="w-1 h-1 rounded-full bg-[#222A35]" />
+                                <span className="text-[#FF6B1A]">
+                                  work done {c.reportedProgress}%
+                                  {c.reportedProgressBy && <span className="text-[#8A95A5]"> — {resolveName(c.reportedProgressBy)}{c.reportedProgressAt ? `, ${new Date(c.reportedProgressAt).toLocaleDateString()}` : ""}</span>}
+                                </span>
+                              </>
+                            )}
                             {c.assignedTo && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><Users className="w-3 h-3" /><span className="truncate">{names(c.assignedTo)}</span></>}
                             {c.dueDate && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><Clock className="w-3 h-3" /><span>{new Date(c.dueDate).toLocaleDateString()}</span></>}
                           </div>
@@ -267,7 +294,7 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
                               rejection was a dead end — the assignee had no way to
                               correct the form and send it back. */}
                           {isFillable(c.status) && canFill && (
-                            <select value={c.reportedProgress ?? ""} onChange={(e) => reportProgress(c.id, Number(e.target.value))} title="Report how far the actual work is on site" className="h-8 bg-[#0A0E14] border border-[#222A35] rounded-lg px-1.5 text-[11px] text-[#C2CAD6] focus:outline-none focus:border-[#FF6B1A]">
+                            <select value={c.reportedProgress ?? ""} onChange={(e) => reportProgress(c.id, Number(e.target.value))} title="Report how far the physical work has actually got on site. Recorded against your name and rolled up to the project." className="h-8 bg-[#0A0E14] border border-[#222A35] rounded-lg px-1.5 text-[11px] text-[#C2CAD6] focus:outline-none focus:border-[#FF6B1A]">
                               <option value="" disabled>Work done…</option>
                               {[0, 10, 25, 50, 75, 90, 100].map((v) => <option key={v} value={v}>{v}%</option>)}
                             </select>

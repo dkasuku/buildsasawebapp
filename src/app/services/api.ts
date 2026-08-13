@@ -621,6 +621,8 @@ export type ChecklistDto = {
   category?: string | null;
   trade?: string | null;
   reportedProgress?: number | null; // contractor self-reported field % (0-100)
+  reportedProgressBy?: string | null; // userId who last reported it
+  reportedProgressAt?: string | null; // when they reported it
   source: string;
   status: string; // draft | assigned | in_progress | submitted | approved | rejected
   assigned: boolean;
