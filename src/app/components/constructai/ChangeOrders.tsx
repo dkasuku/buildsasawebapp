@@ -76,11 +76,24 @@ function MultiAssign({ value, onChange, label = "Assignees" }: { value: string[]
   );
 }
 
-export default function ChangeOrders({ role }: { role: Role }) {
+// `openId` opens a specific change order's panel on arrival — how the Dashboard,
+// global search and notifications now deep-link into a single change order.
+//
+// There used to be a SECOND, full-page detail screen (ChangeOrderDetail.tsx) for
+// exactly that job: two views of the same record, with different fields, different
+// layouts and different bugs. The full page was the one still rendering invented
+// figures. One record now has one detail view.
+export default function ChangeOrders({ role, openId, onConsumeOpenId }: { role: Role; openId?: string | null; onConsumeOpenId?: () => void }) {
   const fmt = useMoney();
   const perms = ROLES[role];
   const canCreate = perms.createCO || perms.approveAny;
   const canApprove = perms.approveAny;
+  // The per-role approval CEILING. This check lived only in the full-page detail
+  // screen; consolidating onto this panel would have dropped it, letting a PM with
+  // a $250k limit approve any amount. approveLimit is a USD figure, so it is
+  // compared against costUSD — comparing it against the KSh figure was the bug
+  // that made every limit ~130x too strict.
+  const approveLimit = perms.approveLimit;
   const [items, setItems] = useState<ChangeOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
@@ -99,6 +112,19 @@ export default function ChangeOrders({ role }: { role: Role }) {
     setLoading(false);
   };
   useEffect(() => { api.getProjects().then((p) => setProjects(p.map((x) => ({ id: x.id, name: x.name })))).catch(() => {}); }, []);
+
+  // Deep-link: pull the requested change order and open its panel. Consumed so
+  // navigating away and back does not reopen it.
+  useEffect(() => {
+    if (!openId) return;
+    let alive = true;
+    api.getChangeOrder(openId)
+      .then((co) => { if (alive && co) setDetail(co as any); })
+      .catch(() => { if (alive) toast.error("That change order could not be opened"); })
+      .finally(() => { if (alive) onConsumeOpenId?.(); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId]);
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [filters.projectId, filters.status]);
 
   const projName = (id: string) => projects.find((p) => p.id === id)?.name || "—";
@@ -177,7 +203,7 @@ export default function ChangeOrders({ role }: { role: Role }) {
       </div>
 
       {showForm && <COForm projects={projects} initial={showForm} canApprove={canApprove} onClose={() => setShowForm(null)} onSaved={() => { setShowForm(null); load(); }} />}
-      {detail && <CODetail co={detail} projName={projName} canCreate={canCreate} canApprove={canApprove} onClose={() => setDetail(null)} onEdit={() => { setShowForm(detail); setDetail(null); }} onChanged={(updated) => { setDetail(updated); load(); }} />}
+      {detail && <CODetail co={detail} projName={projName} canCreate={canCreate} canApprove={canApprove} approveLimit={approveLimit} role={role} onClose={() => setDetail(null)} onEdit={() => { setShowForm(detail); setDetail(null); }} onChanged={(updated) => { setDetail(updated); load(); }} />}
     </div>
   );
 }
@@ -281,9 +307,14 @@ function COForm({ projects, initial, canApprove, onClose, onSaved }: { projects:
 }
 
 /* ───────── Detail ───────── */
-function CODetail({ co, projName, canCreate, canApprove, onClose, onEdit, onChanged }: { co: ChangeOrder; projName: (id: string) => string; canCreate: boolean; canApprove: boolean; onClose: () => void; onEdit: () => void; onChanged: (c: ChangeOrder) => void }) {
+function CODetail({ co, projName, canCreate, canApprove, approveLimit, role, onClose, onEdit, onChanged }: { co: ChangeOrder; projName: (id: string) => string; canCreate: boolean; canApprove: boolean; approveLimit: number; role: Role; onClose: () => void; onEdit: () => void; onChanged: (c: ChangeOrder) => void }) {
   const fmt = useMoney();
+  const { currency } = useCurrency();
   const asg = parseArr(co.assignees);
+  // Both sides in USD: approveLimit is a dollar ceiling and costUSD is the stored
+  // dollar amount. The label is converted for display only.
+  const withinLimit = (Number(co.costUSD) || 0) <= approveLimit;
+  const limitLabel = approveLimit === Infinity ? "no limit" : formatCurrency(Math.round(approveLimit * USD_TO_KES), currency);
   const [activity, setActivity] = useState<ChangeOrderActivityDto[]>([]);
   const [comment, setComment] = useState("");
   const [posting, setPosting] = useState(false);
@@ -334,7 +365,15 @@ function CODetail({ co, projName, canCreate, canApprove, onClose, onEdit, onChan
           <div className="flex flex-wrap gap-1.5">
             {co.status === "drafted" && canCreate && <button onClick={() => setStatus("pm_review")} className="text-[11px] px-2.5 py-1.5 rounded-md border border-[#3B82F6]/30 text-[#3B82F6]">Submit for PM review</button>}
             {co.status === "pm_review" && canCreate && <button onClick={() => setStatus("owner_approval")} className="text-[11px] px-2.5 py-1.5 rounded-md border border-[#FF6B1A]/30 text-[#FF6B1A]">Send for owner approval</button>}
-            {canApprove && co.status !== "approved" && <button onClick={() => setStatus("approved")} className="text-[11px] px-2.5 py-1.5 rounded-md border border-[#22C55E]/30 text-[#22C55E]">Approve</button>}
+            {canApprove && co.status !== "approved" && (
+              <button
+                onClick={() => withinLimit
+                  ? setStatus("approved")
+                  : toast.error(`${role} can approve up to ${limitLabel} — this change order is ${fmt(co.costUSD)}. Ask someone with a higher limit.`)}
+                title={withinLimit ? undefined : `Above your approval limit of ${limitLabel}`}
+                className={`text-[11px] px-2.5 py-1.5 rounded-md border ${withinLimit ? "border-[#22C55E]/30 text-[#22C55E]" : "border-[#222A35] text-[#5B6675] cursor-not-allowed"}`}
+              >Approve</button>
+            )}
             {canApprove && co.status !== "rejected" && <button onClick={() => setStatus("rejected")} className="text-[11px] px-2.5 py-1.5 rounded-md border border-[#EF4444]/30 text-[#EF4444]">Reject</button>}
           </div>
           {co.description && <p className="text-[13px] text-[#C2CAD6]">{co.description}</p>}

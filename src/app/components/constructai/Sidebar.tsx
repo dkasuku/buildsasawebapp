@@ -12,7 +12,6 @@ export type View =
   // Per-project dashboard. Reached from a project card, never from the nav, so
   // it is deliberately absent from NAV below.
   | "project-detail"
-  | "change-order"
   | "change-orders"
   | "plans"
   | "tasks"
@@ -42,9 +41,7 @@ export type View =
   | "safety-incidents"
   | "equipment"
   | "attendance"
-  | "buildflex-ai"
-  | "forms"
-  | "checklists"
+  | "buildflex-ai"  | "checklists"
   | "billing";
 
 type NavItem = { key: View; label: string; icon: any };
@@ -90,7 +87,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { key: "inspections", label: "Inspections", icon: ClipboardCheck },
       { key: "safety-incidents", label: "Safety Incidents", icon: ShieldAlert },
-      { key: "forms", label: "Digitized Forms", icon: FileDigit },
     ],
   },
   {

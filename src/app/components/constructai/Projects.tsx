@@ -778,19 +778,14 @@ export function Projects({
               onClick={() => openProject(p)}
               className="text-left rounded-xl border border-[#222A35] bg-[#11161D] overflow-visible hover:border-[#FF6B1A]/50 transition group relative"
             >
-              {/* The cover is CONTAINED, not cropped, so the whole photo is visible
-                  — a site photo framed by the person who took it should not have its
-                  top and bottom cut away by the card. A blurred copy of the same
-                  photo fills the leftover space so the letterboxing reads as
-                  deliberate instead of looking like a broken image. */}
+              {/* The cover FILLS the image area edge to edge.
+                  This was briefly object-contain so that no part of a photo was
+                  cropped, but portrait and square uploads then sat as a narrow
+                  strip with wide empty margins, which read as a broken card in a
+                  grid. Filling is the right trade: a little of the photo is lost
+                  at the edges, and every card looks like every other card. */}
               <div className="relative h-[140px] overflow-hidden rounded-t-xl bg-[#0A0E14]">
-                <ImageWithFallback
-                  src={cover}
-                  alt=""
-                  aria-hidden="true"
-                  className="absolute inset-0 w-full h-full object-cover scale-110 blur-xl opacity-40"
-                />
-                <ImageWithFallback src={cover} alt={p.name} className="relative w-full h-full object-contain group-hover:scale-105 transition duration-500" />
+                <ImageWithFallback src={cover} alt={p.name} className="w-full h-full object-cover object-center group-hover:scale-105 transition duration-500" />
                 {/* One scrim, bottom-weighted. There used to be a second full-height
                     gradient stacked under this one, which muddied dark photos while
                     still leaving the title thin on light ones. */}
@@ -831,7 +826,7 @@ export function Projects({
                     <button
                       type="button"
                       onClick={() => {
-                        setView("change-order");
+                        setView("change-orders");
                         toast(`Opened change orders for ${p.name}`);
                         setActionMenu(null);
                       }}
@@ -963,7 +958,7 @@ export function Projects({
             <div className="text-[13px] text-white font-display">Recent Activity</div>
             <div className="text-[11px] text-[#8A95A5]">Latest change orders</div>
           </div>
-          <button onClick={() => setView("change-order")} className="text-[11px] text-[#FF6B1A] hover:underline">View all</button>
+          <button onClick={() => setView("change-orders")} className="text-[11px] text-[#FF6B1A] hover:underline">View all</button>
         </div>
         {recentCOs && recentCOs.length === 0 ? (
           <div className="px-5 py-10 text-center">
@@ -989,7 +984,7 @@ export function Projects({
                   .map((co) => {
                     const display = CO_STATUS_DISPLAY[co.status] ?? { label: co.status ?? "—", color: "#5B6675" };
                     return (
-                      <tr key={co.id ?? co.number} onClick={() => setView("change-order")} className="border-t border-[#222A35] hover:bg-[#161C24] cursor-pointer">
+                      <tr key={co.id ?? co.number} onClick={() => setView("change-orders")} className="border-t border-[#222A35] hover:bg-[#161C24] cursor-pointer">
                         <td className="px-5 py-3 text-white">{projectNameById[co.projectId] ?? "—"}</td>
                         <td className="px-3 py-3 text-[#8A95A5] font-mono text-[11px]">{co.number ?? "—"}</td>
                         <td className="px-3 py-3 text-[#8A95A5]">{co.title ?? "—"}</td>

@@ -22,7 +22,6 @@ const CL = read('src/app/components/constructai/Checklists.tsx');
 const TK = read('src/app/components/constructai/Tasks.tsx');
 const PJ = read('src/app/components/constructai/Projects.tsx');
 const CO = read('src/app/components/constructai/ChangeOrders.tsx');
-const COD = read('src/app/components/constructai/ChangeOrderDetail.tsx');
 const CUR = read('src/app/components/constructai/currency.ts');
 const ROLES = read('src/app/components/constructai/roles.ts');
 const BID = read('src/app/components/constructai/Bidding.tsx');
@@ -61,8 +60,7 @@ ok('change-order cost field follows the workspace currency', /Cost impact \(\$\{
 ok('hardcoded "(USD)" label gone', !/label="Cost impact \(USD\)"/.test(CO));
 ok('USD_TO_KES has one definition', /export const USD_TO_KES = 1 \/ RATES\.USD/.test(CUR));
 ok('ChangeOrders imports it', /USD_TO_KES[^;]*from "\.\/currency"/.test(CO));
-ok('ChangeOrderDetail imports it', /USD_TO_KES[^;]*from "\.\/currency"/.test(COD));
-ok('no file redefines the rate', !/const USD_TO_KES = 130/.test(CO + COD));
+ok('no file redefines the rate', !/const USD_TO_KES = 130/.test(CO));
 eq('only KSh and $ are offered', (PJ.match(/const CURRENCY_OPTIONS = \[(.*?)\]/)?.[1] || '').replace(/\s|"/g, '').split(','), ['KSh', '$']);
 
 /* --------------------------------------------------------------- approval --
@@ -70,16 +68,21 @@ eq('only KSh and $ are offered', (PJ.match(/const CURRENCY_OPTIONS = \[(.*?)\]/)
  * Comparing it against a KSh amount made every limit ~130x too strict.
  */
 group('Approval limits compare like with like');
-ok('change-order approval compares USD to USD', /const CO_AMOUNT_USD = Number\(row\?\.costUSD\) \|\| 0/.test(COD));
-ok('KSh-vs-USD comparison gone', !/CO_AMOUNT = changeOrder\.costKES;[\s\S]{0,120}<= perms\.approveLimit/.test(COD));
+// The ceiling lived only in the deleted full-page screen; consolidating without
+// porting it would have let a PM with a $250k limit approve any amount.
+ok('ceiling is enforced on the surviving panel', /const withinLimit = \(Number\(co\.costUSD\) \|\| 0\) <= approveLimit/.test(CO));
+ok('refusal names the limit', /can approve up to \$\{limitLabel\}/.test(CO));
+ok('limit is passed into the panel', /approveLimit=\{approveLimit\}/.test(CO));
 
 /* ------------------------------------------------------------ fabricated --
  * Invented figures shown as though they were the record's own.
  */
-group('No fabricated data on the change-order screen');
-for (const s of ['VAV Terminal Units', '+$284,000', '2.1% of contract', 'Rev 3']) {
-  ok(`"${s}" is not rendered`, !new RegExp(`children:\\s*"${s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`).test(COD) && !COD.includes(`>${s}<`));
-}
+group('One change order has one detail view');
+ok('full-page duplicate removed', !exists('src/app/components/constructai/ChangeOrderDetail.tsx'));
+ok('no dangling import', !/ChangeOrderDetail/.test(read('src/app/App.tsx')));
+ok('no role still lists the retired view', !/"change-order"/.test(ROLES));
+ok('deep-link opens the surviving panel', /openId=\{activeChangeOrderId\}/.test(read('src/app/App.tsx')));
+ok('demo seed id gone', !/useState\("CO-1258"\)/.test(read('src/app/App.tsx')));
 
 /* ------------------------------------------------------------- percentage --
  * responses holds one row PER USER PER QUESTION, so responses/questions
@@ -186,6 +189,19 @@ ok('no dangling PunchList import', !/from "\.\/components\/constructai\/PunchLis
 group('Public tender page and API types are in step');
 ok('public package reports closed state', /closed\?: boolean/.test(API));
 ok('assignChecklist takes a project', /assignChecklist: \(id: string, userIds: string\[\], projectId\?: string \| null\)/.test(API));
+
+
+/* --------------------------------------------------------- one forms area --
+ * Digitized Forms duplicated what Checklists already did (authoring, public
+ * sharing, responses) over a parallel FormTemplate store, so the same job had
+ * two homes and users had to guess which one was real.
+ */
+group('Forms and checklists have one home');
+ok('Digitized Forms retired', !exists('src/app/components/constructai/DigitizedForms.tsx'));
+ok('no dangling import', !/DigitizedForms/.test(read('src/app/App.tsx')));
+ok('nav entry gone', !/"forms"/.test(read('src/app/components/constructai/Sidebar.tsx')));
+ok('no role still lists it', !/"forms"/.test(ROLES));
+ok('public responses reachable from the template card', /title="Public link responses"/.test(CL));
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

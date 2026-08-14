@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import {
   Plus, Search, X, Trash2, ClipboardList, CheckCircle2, Clock, AlertTriangle,
   UploadCloud, Users, Eye, Loader2, FileText, ArrowRight, UserCheck,
-  Sparkles, Filter, PenTool, FileUp, Link2
+  Sparkles, Filter, PenTool, FileUp, Link2, Inbox
 } from "lucide-react";
 import type { Role } from "./roles";
 import { ROLES } from "./roles";
@@ -386,6 +386,12 @@ export default function Checklists({ role, aiDraft, onConsumeAiDraft }: { role: 
                 <button onClick={() => fromTemplate(t.id)} className="flex-1 h-8 bg-[#FF6B1A] text-black rounded-lg text-[11px] font-medium flex items-center justify-center gap-1 hover:bg-[#FF6B1A]/90"><ArrowRight className="w-3 h-3" /> Use Template</button>
                 <button onClick={() => setPreviewTpl(t as any)} title="Preview" className="h-8 w-8 flex items-center justify-center bg-[#222A35] rounded-lg text-[#8A95A5] hover:text-white"><Eye className="w-3.5 h-3.5" /></button>
                 {canCreate && <button onClick={() => setShareTpl(t as any)} title="Share link" className="h-8 w-8 flex items-center justify-center bg-[#222A35] rounded-lg text-[#8A95A5] hover:text-white"><Link2 className="w-3.5 h-3.5" /></button>}
+                {/* Public-link responses are a SEPARATE store from an assigned
+                    checklist's answers: they arrive with no checklist, no project
+                    and no assignee, so they never appear in a checklist's own
+                    submissions. Reaching them used to mean opening the Share
+                    dialog first, which made them easy to forget entirely. */}
+                {canCreate && <button onClick={() => setResponsesTpl(t as any)} title="Public link responses" className="h-8 w-8 flex items-center justify-center bg-[#222A35] rounded-lg text-[#8A95A5] hover:text-white"><Inbox className="w-3.5 h-3.5" /></button>}
                 {canCreate && <button onClick={() => setEditTpl(t as any)} title="Edit in Form Builder" className="h-8 w-8 flex items-center justify-center bg-[#222A35] rounded-lg text-[#8A95A5] hover:text-white"><PenTool className="w-3.5 h-3.5" /></button>}
                 {canCreate && <button onClick={() => delTmpl(t.id)} className="h-8 w-8 flex items-center justify-center bg-[#222A35] rounded-lg text-[#EF4444] hover:bg-[#EF4444]/10"><Trash2 className="w-3.5 h-3.5" /></button>}
               </div>

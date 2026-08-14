@@ -108,7 +108,7 @@ export function Topbar({
 
   const searchIndex: SearchHit[] = [
     ...projects.map((p) => ({ type: "Project", label: p.code ? `${p.code} · ${p.name}` : p.name, target: "projects" })),
-    ...changeOrders.map((c) => ({ type: "CO", label: `${c.number ?? "CO"} · ${c.title ?? "Untitled"}`, target: "change-order", coId: c.id })),
+    ...changeOrders.map((c) => ({ type: "CO", label: `${c.number ?? "CO"} · ${c.title ?? "Untitled"}`, target: "change-orders", coId: c.id })),
     ...team.map((m) => ({ type: "People", label: `${m.name} · ${m.role}`, target: "team" })),
   ];
 
@@ -126,7 +126,7 @@ export function Topbar({
       t: `${c.number ?? "CO"} · ${c.title ?? "Untitled"}`,
       s: `${String(c.status ?? "").replace(/_/g, " ") || "updated"} · ${relativeTime(c.updatedAt ?? c.createdAt)}`,
       c: CO_DOT[c.status] ?? "#5B6675",
-      target: "change-order",
+      target: "change-orders",
       coId: c.id as string | undefined,
     }));
 
@@ -166,7 +166,7 @@ export function Topbar({
                   <button
                     key={`${r.type}-${r.coId ?? r.label}-${ri}`}
                     onMouseDown={() => {
-                      if (r.target === "change-order" && r.coId) {
+                      if (r.target === "change-orders" && r.coId) {
                         onOpenChangeOrder(r.coId);
                       } else {
                         onNavigate(r.target);
@@ -313,7 +313,7 @@ export function Topbar({
                   key={i}
                   onClick={() => {
                     setShowNotifs(false);
-                    if (n.target === "change-order" && n.coId) {
+                    if (n.target === "change-orders" && n.coId) {
                       onOpenChangeOrder(n.coId);
                     } else {
                       onNavigate(n.target);

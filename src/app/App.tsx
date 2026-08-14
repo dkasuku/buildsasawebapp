@@ -11,7 +11,6 @@ import { ErrorBoundary } from "./components/constructai/ErrorBoundary";
 import { Dashboard } from "./components/constructai/Dashboard";
 import { Projects } from "./components/constructai/Projects";
 import { ProjectDetail } from "./components/constructai/ProjectDetail";
-import { ChangeOrderDetail } from "./components/constructai/ChangeOrderDetail";
 import { MobileCreate } from "./components/constructai/MobileCreate";
 import { FieldView } from "./components/constructai/FieldView";
 import { Reports } from "./components/constructai/Reports";
@@ -39,7 +38,6 @@ import Inventory from "./components/constructai/Inventory";
 import Attendance from "./components/constructai/Attendance";
 import BuildflexAI from "./components/constructai/BuildflexAI";
 import Checklists from "./components/constructai/Checklists";
-import { DigitizedForms } from "./components/constructai/DigitizedForms";
 import Observations from "./components/constructai/Observations";
 import ActionPlans from "./components/constructai/ActionPlans";
 import Coordination from "./components/constructai/Coordination";
@@ -61,7 +59,6 @@ const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }
   dashboard: { title: "Dashboard", subtitle: "Executive overview" },
   projects: { title: "Projects", subtitle: "Your sites and jobs" },
   "project-detail": { title: "Project", subtitle: "Dashboard, progress & everything linked to it" },
-  "change-order": { title: "Change Order", subtitle: "Detailed review & approvals" },
   "change-orders": { title: "Change Orders", subtitle: "Cost & schedule impact · approvals" },
   billing: { title: "Billing & Plan", subtitle: "Subscription & payments" },
   plans: { title: "Plans & Drawings", subtitle: "Architectural sheets & sharing" },
@@ -93,9 +90,7 @@ const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }
   "safety-incidents": { title: "Safety Incidents", subtitle: "OSHA-style incident reporting and tracking" },
   equipment: { title: "Inventory", subtitle: "Materials, equipment, tools & stock levels" },
   attendance: { title: "Attendance", subtitle: "Check in/out, breaks, leaves & time tracking" },
-  "buildflex-ai": { title: "Buildsasa AI", subtitle: "AI assistant for reports & building expertise" },
-  forms: { title: "Digitized Forms", subtitle: "Uploaded forms, daily reports, timesheets, and RFIs" },
-};
+  "buildflex-ai": { title: "Buildsasa AI", subtitle: "AI assistant for reports & building expertise" },};
 
 export default function App() {
   const [view, setView] = useState<View>(() => {
@@ -165,8 +160,9 @@ export default function App() {
     window.addEventListener("buildflex:open-settings", open);
     return () => window.removeEventListener("buildflex:open-settings", open);
   }, []);
-  const [activeChangeOrderId, setActiveChangeOrderId] = useState("CO-1258");
-  const [activeChangeOrderStatus, setActiveChangeOrderStatus] = useState<string | null>(null);
+  // No seed id. This used to default to "CO-1258", a demo record, so any route
+  // that navigated without an id opened someone else's invented change order.
+  const [activeChangeOrderId, setActiveChangeOrderId] = useState<string | null>(null);
   const [returnView, setReturnView] = useState<View>("dashboard");
   // Which project the detail dashboard is showing. Set by drilling into a card.
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -270,13 +266,13 @@ export default function App() {
     } catch { /* noop */ }
   }, []);
 
-  const openChangeOrder = (id: string, status?: string) => {
+  // Deep-link straight into the Change Orders list with that record's panel open.
+  // This used to switch to a separate full-page detail screen — a second view of
+  // the same record, and the one still rendering invented figures.
+  const openChangeOrder = (id: string) => {
     setActiveChangeOrderId(id);
-    setActiveChangeOrderStatus(status ?? null);
-    setReturnView((prev) => (view === "change-order" ? prev : view));
-    setView("change-order");
+    setView("change-orders");
     setDrawerOpen(false);
-    toast.success(`Opening ${id}`);
   };
 
   // Password-reset deep link: /?reset=TOKEN (works whether or not signed in)
@@ -341,7 +337,7 @@ export default function App() {
   const allowed = visibleViewsFor(ROLES[role].views);
   const effectiveView: View = allowed.includes(view) ? view : ((allowed[0] ?? "dashboard") as View);
   const meta = TITLES[effectiveView as Exclude<View, "login">];
-  const backTarget: View = returnView === "change-order" ? "dashboard" : returnView;
+  const backTarget: View = returnView;
   const backMeta = TITLES[backTarget as Exclude<View, "login">];
   // Block (after due date) on an overdue invoice, or when a configured workspace
   // has no active plan. Stays dormant until Paystack is configured so local
@@ -447,18 +443,7 @@ export default function App() {
                 <Projects setView={setView} role={role} onOpenProject={openProject} />
               )
             )}
-            {effectiveView === "change-order" && (
-              <ChangeOrderDetail
-                key={activeChangeOrderId}
-                setView={setView}
-                role={role}
-                changeOrderId={activeChangeOrderId}
-                statusOverride={activeChangeOrderStatus ?? undefined}
-                onBack={() => setView(backTarget)}
-                backLabel={backMeta?.title ?? "Dashboard"}
-              />
-            )}
-            {effectiveView === "change-orders" && <ChangeOrders role={role} />}
+            {effectiveView === "change-orders" && <ChangeOrders role={role} openId={activeChangeOrderId} onConsumeOpenId={() => setActiveChangeOrderId(null)} />}
             {effectiveView === "billing" && <Billing role={role} />}
             {effectiveView === "plans" && <Plans role={role} />}
             {effectiveView === "tasks" && <Tasks role={role} />}
@@ -490,7 +475,6 @@ export default function App() {
             {effectiveView === "equipment" && <Inventory role={role} />}
             {effectiveView === "attendance" && <Attendance role={role} />}
             {effectiveView === "buildflex-ai" && <BuildflexAI role={role} messages={aiMessages} setMessages={setAiMessages} onOpenForm={openAiForm} />}
-            {effectiveView === "forms" && <DigitizedForms role={role} />}
             </ErrorBoundary>
           </div>
         </div>

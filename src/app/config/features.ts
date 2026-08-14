@@ -22,8 +22,7 @@ import type { View } from "../components/constructai/Sidebar";
 export const CORE_VIEWS: View[] = [
   "dashboard",
   "projects",
-  "checklists",
-  "forms",
+  "checklists",
   "buildflex-ai",
   "team",
   "billing",
@@ -65,7 +64,6 @@ export function isViewVisible(v: View): boolean {
   if (v === "login") return true;
   if (UNFINISHED_VIEWS.includes(v)) return false; // never ship an unfinished screen
   if (!simpleModeEnabled()) return true; // all features visible by default
-  if (v === "change-order") return CORE_VIEWS.includes("change-orders");
   if (v === "project-detail") return CORE_VIEWS.includes("projects");
   return CORE_VIEWS.includes(v);
 }
