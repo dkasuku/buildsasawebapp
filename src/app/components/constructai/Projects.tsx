@@ -784,7 +784,7 @@ export function Projects({
                   strip with wide empty margins, which read as a broken card in a
                   grid. Filling is the right trade: a little of the photo is lost
                   at the edges, and every card looks like every other card. */}
-              <div className="relative h-[140px] overflow-hidden rounded-t-xl bg-[#0A0E14]">
+              <div className="relative aspect-[16/9] overflow-hidden rounded-t-xl bg-[#0A0E14]">
                 <ImageWithFallback src={cover} alt={p.name} className="w-full h-full object-cover object-center group-hover:scale-105 transition duration-500" />
                 {/* One scrim, bottom-weighted. There used to be a second full-height
                     gradient stacked under this one, which muddied dark photos while
