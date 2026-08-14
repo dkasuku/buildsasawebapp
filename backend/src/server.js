@@ -3251,7 +3251,18 @@ app.post('/api/checklists/:id/submit', auth, requireRole(CAN_FILL_CHECKLISTS), a
     // the submission the field team just made.
     try {
       const submitter = await prisma.user.findUnique({ where: { id: req.user.sub }, select: { name: true } });
-      const watcherIds = [...new Set([checklist.createdBy].filter(Boolean))];
+      // Everyone with a reason to know: whoever created the checklist, plus the
+      // project's PM and site lead. Notifying only the creator meant a checklist
+      // raised by one person and managed by another came back to someone who was
+      // not watching for it. The submitter is excluded — they know.
+      const pmIds = checklist.projectId
+        ? (await prisma.assignment.findMany({
+            where: { projectId: checklist.projectId, role: { in: ['PM', 'Superintendent'] } },
+            select: { userId: true },
+          })).map((a) => a.userId)
+        : [];
+      const watcherIds = [...new Set([checklist.createdBy, ...pmIds].filter(Boolean))]
+        .filter((id) => id !== req.user.sub);
       const watchers = watcherIds.length
         ? await prisma.user.findMany({ where: { id: { in: watcherIds } }, select: { email: true } })
         : [];

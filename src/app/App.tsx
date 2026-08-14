@@ -21,7 +21,6 @@ import { Schedule } from "./components/constructai/Schedule";
 import Financials from "./components/constructai/Financials";
 import { Documents } from "./components/constructai/Documents";
 import { DailyLog } from "./components/constructai/DailyLog";
-import { PunchList } from "./components/constructai/PunchList";
 import PunchListPro from "./components/constructai/PunchListPro";
 import ChangeOrders from "./components/constructai/ChangeOrders";
 import Billing from "./components/constructai/Billing";
