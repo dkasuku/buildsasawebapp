@@ -3166,11 +3166,18 @@ app.delete('/api/checklists/:id', auth, async (req, res) => {
 // Assign checklist to users
 app.post('/api/checklists/:id/assign', auth, requireRole(CAN_ASSIGN_TASKS), async (req, res) => {
   try {
-    const { userIds } = req.body;
+    const { userIds, projectId } = req.body;
     if (!Array.isArray(userIds) || userIds.length === 0) return res.status(400).json({ error: 'userIds array required' });
+    // The project is set as part of assigning, in the same write. It used to be
+    // settable only at creation time from one of the two entry points, so most
+    // checklists ended up with no project — which silently excluded them from the
+    // project progress roll-up and from the project's own dashboard.
+    // `undefined` leaves it alone; `null` clears it.
+    const data = { assigned: true, assignedTo: JSON.stringify(userIds), status: 'assigned' };
+    if (projectId !== undefined) data.projectId = projectId || null;
     const row = await prisma.checklist.update({
       where: { id: req.params.id },
-      data: { assigned: true, assignedTo: JSON.stringify(userIds), status: 'assigned' },
+      data,
     });
     notifyAssignment(userIds, {
       subject: 'You have been assigned a checklist',
@@ -3236,6 +3243,34 @@ app.post('/api/checklists/:id/submit', auth, requireRole(CAN_FILL_CHECKLISTS), a
       where: { id: req.params.id },
       data: { status: 'submitted', submittedAt: new Date(), submittedBy: req.user.sub },
     });
+
+    // Tell the person who is waiting for it. A submission previously changed a
+    // status and nothing else — whoever created or assigned the checklist had no
+    // idea it had come back, so completed work sat unreviewed until someone
+    // happened to open the page. Best-effort: an email failure must never fail
+    // the submission the field team just made.
+    try {
+      const submitter = await prisma.user.findUnique({ where: { id: req.user.sub }, select: { name: true } });
+      const watcherIds = [...new Set([checklist.createdBy].filter(Boolean))];
+      const watchers = watcherIds.length
+        ? await prisma.user.findMany({ where: { id: { in: watcherIds } }, select: { email: true } })
+        : [];
+      const answered = created.filter((r) => String(r.value || '').trim() !== '').length;
+      for (const w of watchers) {
+        if (!w.email) continue;
+        try {
+          await sendEmail({
+            to: w.email,
+            subject: `${submitter?.name || 'Someone'} submitted "${checklist.title}"`,
+            html: emailShell(
+              'A checklist came back',
+              `<p><strong>${submitter?.name || 'Someone'}</strong> submitted <strong>${checklist.title}</strong> with ${answered} answer${answered === 1 ? '' : 's'}. It is waiting for your review.</p>${button(APP_URL, 'Review it')}`
+            ),
+          });
+        } catch (e) { console.error('[CHECKLIST] submit notify failed:', e && e.message); }
+      }
+    } catch (e) { console.error('[CHECKLIST] submit notify lookup failed:', e && e.message); }
+
     res.json({ checklist: updatedChecklist, responses: created });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

@@ -1044,7 +1044,9 @@ export const api = {
   createChecklist: (payload: { title: string; description?: string; category?: string; trade?: string; source?: string; questions?: { question: string; questionType: string; required?: boolean; position?: number; options?: string | string[]; parentId?: string | null }[]; assignee?: string; assignedTo?: string[]; templateId?: string; dueDate?: string; projectId?: string }) => http<ChecklistDto>("/api/checklists", { method: "POST", body: JSON.stringify(payload) }),
   updateChecklist: (id: string, payload: Partial<Pick<ChecklistDto, "title" | "description" | "category" | "trade" | "status" | "assigned" | "assignee" | "assignedTo" | "templateId" | "dueDate" | "projectId">>) => http<ChecklistDto>(`/api/checklists/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteChecklist: (id: string) => http(`/api/checklists/${id}`, { method: "DELETE" }),
-  assignChecklist: (id: string, userIds: string[]) => http<ChecklistDto>(`/api/checklists/${id}/assign`, { method: "POST", body: JSON.stringify({ userIds }) }),
+  // The project is set as part of assigning, in one write. Pass null to clear it.
+  // Omit it to leave whatever the checklist already has.
+  assignChecklist: (id: string, userIds: string[], projectId?: string | null) => http<ChecklistDto>(`/api/checklists/${id}/assign`, { method: "POST", body: JSON.stringify(projectId === undefined ? { userIds } : { userIds, projectId }) }),
   setChecklistProgress: (id: string, progress: number) => http<ChecklistDto>(`/api/checklists/${id}/progress`, { method: "POST", body: JSON.stringify({ progress }) }),
   submitChecklist: (id: string, responses: { questionId: string; value: string }[]) => http<{ checklist: ChecklistDto; responses: ChecklistResponseDto[] }>(`/api/checklists/${id}/submit`, { method: "POST", body: JSON.stringify({ responses }) }),
   createChecklistQuestion: (checklistId: string, payload: { question: string; questionType: string; required?: boolean; position?: number; options?: string | string[]; parentId?: string | null }) => http<ChecklistQuestionDto>(`/api/checklists/${checklistId}/questions`, { method: "POST", body: JSON.stringify(payload) }),

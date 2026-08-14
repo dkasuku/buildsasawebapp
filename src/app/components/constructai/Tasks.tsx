@@ -12,7 +12,7 @@ import type { Role } from "./roles";
 import { ROLES, TRADE_COLOR } from "./roles";
 import { useTeam, resolveName } from "./useTeam";
 import api, { type ChecklistDto, type ChecklistTemplateDto, type ChecklistQuestionDto, type ProjectDto } from "../../services/api";
-import { STATUS_META, AssignModal, FillModal, DetailModal, answeredQuestionCount, checklistProgress } from "./Checklists";
+import { STATUS_META, AssignModal, FillModal, DetailModal, answeredQuestionCount, checklistProgress, assigneeSummary } from "./Checklists";
 import { EmptyState } from "./EmptyState";
 
 // Sort within a trade so the things needing attention float up.
@@ -41,6 +41,7 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
   const [q, setQ] = useState("");
   const [tradeFilter, setTradeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [projectFilter, setProjectFilter] = useState("");
 
   const [assign, setAssign] = useState<ChecklistDto | null>(null);
   const [fill, setFill] = useState<ChecklistDto | null>(null);
@@ -70,17 +71,18 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
   // formula (responses.length / questions.length), which exceeded 100% as soon as
   // more than one person was assigned.
   const pct = checklistProgress;
-  const names = (assignedTo?: string | null) => {
-    if (!assignedTo) return "";
-    try { const ids: string[] = JSON.parse(assignedTo); return ids.map((id) => resolveName(id)).join(", "); } catch { return assignedTo; }
-  };
+  const projName = (id?: string | null) => projects.find((p) => p.id === id)?.name || "";
+
 
   const filtered = useMemo(() => checklists.filter((c) => {
     if (q && !c.title.toLowerCase().includes(q.toLowerCase())) return false;
     if (tradeFilter && tradeOf(c) !== tradeFilter) return false;
     if (statusFilter && c.status !== statusFilter) return false;
+    // "__none" finds the orphans, which are the ones missing from the roll-up.
+    if (projectFilter === "__none" && c.projectId) return false;
+    if (projectFilter && projectFilter !== "__none" && c.projectId !== projectFilter) return false;
     return true;
-  }), [checklists, templates, q, tradeFilter, statusFilter]);
+  }), [checklists, templates, q, tradeFilter, statusFilter, projectFilter]);
 
   // Group filtered checklists by trade, sorted with attention-needed first.
   const groups = useMemo(() => {
@@ -99,6 +101,10 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
     const avg = active.length ? Math.round(active.reduce((s, c) => s + pct(c), 0) / active.length) : 0;
     return { total: filtered.length, awaiting, review, done, avg };
   }, [filtered]);
+
+  // Assignments with no project. These are invisible to the roll-up and to every
+  // project dashboard, so the count is surfaced rather than left to be noticed.
+  const orphanCount = useMemo(() => checklists.filter((c) => !c.projectId && c.status !== "draft").length, [checklists]);
 
   const tradeOptions = useMemo(() => Array.from(new Set([...templates.map((t) => t.trade), ...checklists.map(tradeOf)])).filter(Boolean).sort(), [templates, checklists]);
 
@@ -127,9 +133,17 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
   }, [checklists, projects]);
 
   // Actions (same lifecycle as the Checklists module).
-  async function onAssign(id: string, userIds: string[]) {
-    if (!userIds.length) return;
-    try { await api.assignChecklist(id, userIds); toast.success("Assigned"); loadData(); } catch { toast.error("Assignment failed"); }
+  // The project is chosen in the same dialog as the people, and saved in the same
+  // write. It used to be settable only when creating from a template, so anything
+  // assigned from here kept whatever project it was born with — usually none.
+  async function onAssign(id: string, userIds: string[], projectId: string | null): Promise<boolean> {
+    if (!userIds.length) return false;
+    try {
+      await api.assignChecklist(id, userIds, projectId);
+      toast.success(`Assigned to ${userIds.length} ${userIds.length === 1 ? "person" : "people"}`);
+      loadData();
+      return true;
+    } catch (e: any) { toast.error(e?.message || "Assignment failed"); return false; }
   }
   // Only send answered questions, and report success so the fill form can stay
   // open (with the typing intact) when the save fails.
@@ -188,6 +202,20 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
         <StatCard label="Avg answered" value={`${stats.avg}%`} icon={<CheckCircle2 className="w-4 h-4" />} tint="#22C55E" />
       </div>
 
+      {/* Orphans are silently excluded from the roll-up below, so say so. Work
+          reported on a checklist with no project reaches nothing, and previously
+          there was no way to notice — the figure just never moved. */}
+      {orphanCount > 0 && projectFilter !== "__none" && (
+        <div className="rounded-xl border border-[#F5A623]/40 bg-[#F5A623]/10 px-4 py-3 flex items-center gap-3">
+          <AlertTriangle className="w-4 h-4 text-[#F5A623] shrink-0" />
+          <div className="text-[12px] text-[#E6EAF0] flex-1">
+            {orphanCount} assignment{orphanCount === 1 ? " is" : "s are"} not linked to a project, so progress reported on {orphanCount === 1 ? "it" : "them"} will not roll up.
+            {canAssign && <span className="text-[#8A95A5]"> Open Assign on each to pick one.</span>}
+          </div>
+          <button onClick={() => setProjectFilter("__none")} className="h-8 px-3 rounded-md border border-[#F5A623]/40 text-[11px] text-[#F5A623] hover:bg-[#F5A623]/10 shrink-0">Show them</button>
+        </div>
+      )}
+
       {/* PM-confirmed project progress roll-up (field progress reported by crews) */}
       {canManage && projectRollup.length > 0 && (
         <div className="rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden">
@@ -229,6 +257,11 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search forms & checklists…" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-lg pl-9 pr-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
         </div>
         <select value={tradeFilter} onChange={(e) => setTradeFilter(e.target.value)} className="h-9 bg-[#11161D] border border-[#222A35] rounded-lg px-2 text-[12px] text-white"><option value="">All trades</option>{tradeOptions.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+        <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className="h-9 bg-[#11161D] border border-[#222A35] rounded-lg px-2 text-[12px] text-white">
+          <option value="">All projects</option>
+          {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          <option value="__none">⚠ No project</option>
+        </select>
         <div className="flex items-center gap-1.5"><Filter className="w-4 h-4 text-[#5B6675]" />
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 bg-[#11161D] border border-[#222A35] rounded-lg px-2 text-[12px] text-white">
             <option value="">All statuses</option><option value="draft">Draft</option><option value="assigned">Assigned</option><option value="in_progress">In Progress</option><option value="submitted">Submitted</option><option value="approved">Approved</option><option value="rejected">Rejected</option>
@@ -267,7 +300,11 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
                     return (
                       <div key={c.id} className="p-4 hover:bg-[#161D27] transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1"><span className={`text-[10px] px-1.5 py-0.5 rounded border ${st.bg} ${st.text} ${st.border}`}>{st.label}</span>{c.category && <span className="text-[10px] text-[#5B6675]">{c.category}</span>}</div>
+                          <div className="flex items-center gap-2 mb-1 flex-wrap"><span className={`text-[10px] px-1.5 py-0.5 rounded border ${st.bg} ${st.text} ${st.border}`}>{st.label}</span>
+                            {c.projectId
+                              ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#222A35] text-[#8A95A5]">{projName(c.projectId) || "Project"}</span>
+                              : <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#F5A623]/15 text-[#F5A623] border border-[#F5A623]/30" title="Progress reported here will not roll up to any project">No project</span>}
+                            {c.category && <span className="text-[10px] text-[#5B6675]">{c.category}</span>}</div>
                           <div className="text-[13px] font-medium text-white truncate">{c.title}</div>
                           <div className="text-[11px] text-[#8A95A5] flex flex-wrap items-center gap-2 mt-0.5">
                             <span>{c.questions.length} questions</span>
@@ -284,7 +321,9 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
                                 </span>
                               </>
                             )}
-                            {c.assignedTo && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><Users className="w-3 h-3" /><span className="truncate">{names(c.assignedTo)}</span></>}
+                            {(() => { const a = assigneeSummary(c.assignedTo); return a.count > 0 ? (
+                              <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><Users className="w-3 h-3" /><span className="truncate" title={a.full}>{a.count} assigned · {a.label}</span></>
+                            ) : null; })()}
                             {c.dueDate && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><Clock className="w-3 h-3" /><span>{new Date(c.dueDate).toLocaleDateString()}</span></>}
                           </div>
                         </div>
@@ -314,7 +353,7 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
       )}
 
       {pickOpen && <TemplatePickModal templates={templates} projects={projects} onClose={() => setPickOpen(false)} onPick={assignFromTemplate} />}
-      {assign && <AssignModal checklist={assign} onClose={() => setAssign(null)} onAssign={onAssign} />}
+      {assign && <AssignModal checklist={assign} projects={projects} onClose={() => setAssign(null)} onAssign={onAssign} />}
       {fill && <FillModal checklist={fill} onClose={() => setFill(null)} onSubmit={onSubmit} />}
       {detail && <DetailModal checklist={detail} onClose={() => setDetail(null)} onAddQ={() => {}} onUpdQ={() => {}} onDelQ={() => {}} canEdit={false} />}
     </div>

@@ -131,6 +131,30 @@ export function checklistProgress(c: ChecklistDto): number {
   return Math.min(100, Math.round((answeredQuestionCount(c) / c.questions.length) * 100));
 }
 
+/** The assignee ids on a checklist, tolerating the JSON-string column. */
+export function assigneeIds(assignedTo?: string | null): string[] {
+  if (!assignedTo) return [];
+  try { const v = JSON.parse(assignedTo); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+
+// Assignees as "Asha Mwangi, John Kamau +3" plus the full list for a tooltip.
+//
+// Both screens used to render `ids.map(resolveName).join(", ")`, which for a
+// crew of eight produced a line of names wider than the card that truncated
+// mid-name — you could not tell how many people were on it, which is the thing
+// you actually want at a glance.
+export function assigneeSummary(assignedTo?: string | null): { count: number; label: string; full: string } {
+  const ids = assigneeIds(assignedTo);
+  const names = ids.map(resolveName).filter(Boolean);
+  const shown = names.slice(0, 2).join(", ");
+  const extra = names.length - Math.min(2, names.length);
+  return {
+    count: names.length,
+    label: extra > 0 ? `${shown} +${extra}` : shown,
+    full: names.join(", "),
+  };
+}
+
 // Module-scope so every sub-component (Detail/Fill modals) can use it.
 type QNode = { q: ChecklistQuestionDto; number: string; depth: number };
 function buildQuestionTree(questions: ChecklistQuestionDto[]): QNode[] {
@@ -168,6 +192,9 @@ export default function Checklists({ role, aiDraft, onConsumeAiDraft }: { role: 
   const [detail, setDetail] = useState<ChecklistDto|null>(null);
   const [fill, setFill] = useState<ChecklistDto|null>(null);
   const [assign, setAssign] = useState<ChecklistDto|null>(null);
+  // Projects, so the Assign dialog can link the checklist to one.
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  const [projectFilter, setProjectFilter] = useState("");
 
   useEffect(() => { loadData(); }, [statusFilter]);
 
@@ -182,12 +209,14 @@ export default function Checklists({ role, aiDraft, onConsumeAiDraft }: { role: 
   async function loadData() {
     setLoading(true);
     try {
-      const [tRes, cRes] = await Promise.all([
+      const [tRes, cRes, pRes] = await Promise.all([
         api.getChecklistTemplates(),
         api.getChecklists(statusFilter ? { status: statusFilter } : undefined),
+        api.getProjects().catch(() => []),
       ]);
       setTemplates(Array.isArray(tRes) ? tRes : []);
       setChecklists(Array.isArray(cRes) ? cRes : []);
+      setProjects((Array.isArray(pRes) ? pRes : []).map((x: any) => ({ id: x.id, name: x.name })));
     } catch (e: any) { console.error("loadData error:", e); toast.error(e?.message || "Failed to load data"); }
     setLoading(false);
   }
@@ -199,20 +228,35 @@ export default function Checklists({ role, aiDraft, onConsumeAiDraft }: { role: 
 
   const fc = useMemo(() => {
     const q = search.toLowerCase();
-    return checklists.filter((c) => c.title.toLowerCase().includes(q) || (c.category||"").toLowerCase().includes(q));
-  }, [checklists, search]);
+    return checklists.filter((c) => {
+      if (q && !(c.title.toLowerCase().includes(q) || (c.category||"").toLowerCase().includes(q))) return false;
+      // "__none" surfaces the orphans — the ones excluded from every project
+      // roll-up — so they can be found and linked rather than sitting invisible.
+      if (projectFilter === "__none") return !c.projectId;
+      if (projectFilter) return c.projectId === projectFilter;
+      return true;
+    });
+  }, [checklists, search, projectFilter]);
 
   useTeam(); // load real users so assignee names resolve + re-render when ready
-  function names(assignedTo?: string|null) {
-    if (!assignedTo) return "";
-    try { const ids: string[] = JSON.parse(assignedTo); return ids.map((id) => resolveName(id)).join(", "); }
-    catch { return assignedTo; }
-  }
+  const projName = (id?: string | null) => projects.find((p) => p.id === id)?.name || "";
+
   function opts(s?: string|null) { if (!s) return []; try { return JSON.parse(s); } catch { return []; } }
   const progress = checklistProgress;
 
+  // Create from a template, then go STRAIGHT into Assign — which is where the
+  // project and the people are chosen. This call used to pass `{}` and stop,
+  // producing a checklist with no project and nobody on it, and nothing prompted
+  // for either. Chaining into Assign makes the linked, assigned state the default
+  // outcome rather than something you have to remember to go back and do.
   async function fromTemplate(id: string) {
-    try { const r = await api.createChecklistFromTemplate(id, {}); toast.success(`Created "${r.title}"`); setTab("checklists"); loadData(); }
+    try {
+      const r = await api.createChecklistFromTemplate(id, {});
+      toast.success(`Created "${r.title}" — now choose a project and who does it`);
+      setTab("checklists");
+      await loadData();
+      setAssign(r);
+    }
     catch { toast.error("Failed to create from template"); }
   }
 
@@ -226,10 +270,15 @@ export default function Checklists({ role, aiDraft, onConsumeAiDraft }: { role: 
   async function delTmpl(id: string) { if (!confirm("Delete template?")) return; try { await api.deleteChecklistTemplate(id); toast.success("Deleted"); loadData(); } catch { toast.error("Delete failed"); } }
   async function delChk(id: string) { if (!confirm("Delete checklist?")) return; try { await api.deleteChecklist(id); toast.success("Deleted"); loadData(); } catch { toast.error("Delete failed"); } }
 
-  async function onAssign(chkId: string, userIds: string[]) {
-    if (!userIds.length) return;
-    try { await api.assignChecklist(chkId, userIds); toast.success("Assigned"); loadData(); }
-    catch { toast.error("Assignment failed"); }
+  async function onAssign(chkId: string, userIds: string[], projectId: string | null): Promise<boolean> {
+    if (!userIds.length) return false;
+    try {
+      await api.assignChecklist(chkId, userIds, projectId);
+      toast.success(`Assigned to ${userIds.length} ${userIds.length === 1 ? "person" : "people"}`);
+      loadData();
+      return true;
+    }
+    catch (e: any) { toast.error(e?.message || "Assignment failed"); return false; }
   }
 
   // Only send questions that were actually answered. Sending every question
@@ -306,9 +355,14 @@ export default function Checklists({ role, aiDraft, onConsumeAiDraft }: { role: 
       <div className="flex flex-col sm:flex-row gap-3 mb-5">
         <div className="relative flex-1"><Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#5B6675]" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-lg pl-9 pr-3 text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]" /></div>
         {tab==="checklists" && (
-          <div className="flex items-center gap-2"><Filter className="w-4 h-4 text-[#5B6675]" />
+          <div className="flex items-center gap-2 flex-wrap"><Filter className="w-4 h-4 text-[#5B6675]" />
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 bg-[#11161D] border border-[#222A35] rounded-lg px-2 text-[12px] text-white">
               <option value="">All Statuses</option><option value="draft">Draft</option><option value="assigned">Assigned</option><option value="in_progress">In Progress</option><option value="submitted">Submitted</option><option value="approved">Approved</option><option value="rejected">Rejected</option>
+            </select>
+            <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className="h-9 bg-[#11161D] border border-[#222A35] rounded-lg px-2 text-[12px] text-white">
+              <option value="">All projects</option>
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              <option value="__none">⚠ No project</option>
             </select>
           </div>
         )}
@@ -358,7 +412,13 @@ export default function Checklists({ role, aiDraft, onConsumeAiDraft }: { role: 
           : <div className="divide-y divide-[#222A35]">{fc.map((c) => { const st = STATUS_META[c.status]||STATUS_META.draft; const pct = progress(c); return (
             <div key={c.id} className="p-4 hover:bg-[#161D27] transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1"><span className={`text-[10px] px-1.5 py-0.5 rounded border ${st.bg} ${st.text} ${st.border}`}>{st.label}</span>{c.source==="template" && <span className="text-[10px] text-[#5B6675]">from template</span>}{c.source==="upload" && <span className="text-[10px] text-[#5B6675]">from CSV</span>}</div>
+                <div className="flex items-center gap-2 mb-1 flex-wrap"><span className={`text-[10px] px-1.5 py-0.5 rounded border ${st.bg} ${st.text} ${st.border}`}>{st.label}</span>
+                  {/* An unlinked checklist is excluded from the project roll-up and from
+                      every project dashboard, so it needs to be visible, not silent. */}
+                  {c.projectId
+                    ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#222A35] text-[#8A95A5]">{projName(c.projectId) || "Project"}</span>
+                    : <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#F5A623]/15 text-[#F5A623] border border-[#F5A623]/30">No project</span>}
+                  {c.source==="template" && <span className="text-[10px] text-[#5B6675]">from template</span>}{c.source==="upload" && <span className="text-[10px] text-[#5B6675]">from CSV</span>}</div>
                 <div className="text-[13px] font-medium text-white truncate">{c.title}</div>
                 {/* Two DIFFERENT percentages exist on a checklist and were easy to
                     confuse. "Answered" is QA completion — how much of the form has
@@ -368,13 +428,18 @@ export default function Checklists({ role, aiDraft, onConsumeAiDraft }: { role: 
                 <div className="text-[11px] text-[#8A95A5] flex items-center gap-2 mt-0.5 flex-wrap">
                   <span>{answeredQuestionCount(c)} of {c.questions.length} answered ({pct}%)</span>
                   {typeof c.reportedProgress === "number" && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><span>Field progress {c.reportedProgress}%</span></>}
-                  {c.assignedTo && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><Users className="w-3 h-3" /><span>{names(c.assignedTo)}</span></>}
+                  {(() => { const a = assigneeSummary(c.assignedTo); return a.count > 0 ? (
+                    <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><Users className="w-3 h-3" /><span title={a.full}>{a.count} assigned · {a.label}</span></>
+                  ) : null; })()}
                   {c.submittedBy && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><span>Submitted by {resolveName(c.submittedBy)}{c.submittedAt ? ` · ${new Date(c.submittedAt).toLocaleDateString()}` : ""}</span></>}
                   {c.dueDate && <><span className="w-1 h-1 rounded-full bg-[#222A35]" /><Clock className="w-3 h-3" /><span>{new Date(c.dueDate).toLocaleDateString()}</span></>}
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {c.status==="draft" && canAssign && <button onClick={()=>setAssign(c)} className="h-8 px-2.5 bg-[#222A35] rounded-lg text-[11px] text-white hover:bg-[#3B82F6]/20 flex items-center gap-1"><UserCheck className="w-3.5 h-3.5" /> Assign</button>}
+                {/* Available after the first assignment too: this is the only place a
+                    project can be set, so restricting it to drafts left an unlinked
+                    checklist permanently unlinked. */}
+                {canAssign && c.status!=="approved" && <button onClick={()=>setAssign(c)} className="h-8 px-2.5 bg-[#222A35] rounded-lg text-[11px] text-white hover:bg-[#3B82F6]/20 flex items-center gap-1"><UserCheck className="w-3.5 h-3.5" /> {c.status==="draft" ? "Assign" : "Reassign"}</button>}
                 {/* "rejected" belongs here too. A rejected checklist previously had
                     no Fill button, so the reviewer's rejection was a dead end —
                     the assignee could never correct and resubmit it. */}
@@ -404,7 +469,7 @@ export default function Checklists({ role, aiDraft, onConsumeAiDraft }: { role: 
       {tmplOpen && <NewTemplateModal onClose={()=>setTmplOpen(false)} onCreate={createTmpl} />}
 
       {/* Assign Modal */}
-      {assign && <AssignModal checklist={assign} onClose={()=>setAssign(null)} onAssign={onAssign} />}
+      {assign && <AssignModal checklist={assign} projects={projects} onClose={()=>setAssign(null)} onAssign={onAssign} />}
 
       {/* Fill Modal */}
       {fill && <FillModal checklist={fill} onClose={()=>setFill(null)} onSubmit={onSubmit} />}
@@ -639,16 +704,74 @@ function NewTemplateModal({ onClose, onCreate }: { onClose: () => void; onCreate
   );
 }
 
-export function AssignModal({ checklist, onClose, onAssign }: { checklist: ChecklistDto; onClose: () => void; onAssign: (id: string, userIds: string[]) => void }) {
-  const [sel, setSel] = useState<string[]>([]);
+// Assigning is where a checklist gets BOTH its people and its project.
+//
+// The project used to be settable in exactly one place — a dropdown on Tasks &
+// Trades' "Assign a form" modal that defaulted to "No project" — while the
+// Checklists page's "Use Template" button passed `{}` and never asked. An
+// unlinked checklist is silently broken: the project roll-up skips it, so
+// reported site progress never reaches the project, and it never appears on that
+// project's dashboard. Putting the project here means every route into an
+// assignment goes past it, and re-opening Assign is also how you repair one.
+export function AssignModal({ checklist, projects, onClose, onAssign }: {
+  checklist: ChecklistDto;
+  projects: { id: string; name: string }[];
+  onClose: () => void;
+  onAssign: (id: string, userIds: string[], projectId: string | null) => Promise<boolean> | void;
+}) {
+  // Pre-select whoever is already assigned, so re-opening this to add one person
+  // does not silently drop everyone else.
+  const [sel, setSel] = useState<string[]>(() => {
+    try { return checklist.assignedTo ? JSON.parse(checklist.assignedTo) : []; } catch { return []; }
+  });
+  const [projectId, setProjectId] = useState<string>(checklist.projectId || "");
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
   const team = useTeam();
-  const people = team;
+  const people = team.filter((u) => !q || `${u.name} ${u.role}`.toLowerCase().includes(q.toLowerCase()));
+  const allShownSelected = people.length > 0 && people.every((u) => sel.includes(u.id));
+
+  const submit = async () => {
+    setBusy(true);
+    const ok = await onAssign(checklist.id, sel, projectId || null);
+    setBusy(false);
+    if (ok !== false) onClose();
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"><div className="bg-[#11161D] border border-[#222A35] rounded-xl w-full max-w-md p-5">
       <div className="flex items-center justify-between mb-4"><h3 className="text-[15px] font-semibold text-white flex items-center gap-2"><UserCheck className="w-4 h-4 text-[#FF6B1A]" /> Assign Checklist</h3><button onClick={onClose} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button></div>
       <div className="text-[13px] text-white mb-3">{checklist.title}</div>
+
+      <div className="mb-3">
+        <div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">Project</div>
+        <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-2 text-[12.5px] text-white focus:outline-none focus:border-[#FF6B1A]">
+          <option value="">— pick a project —</option>
+          {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        {!projectId && (
+          <div className="text-[10px] text-[#F5A623] mt-1">
+            Without a project, progress reported on this checklist will not roll up and it will not show on any project dashboard.
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="text-[10px] uppercase tracking-wider text-[#8A95A5]">Assign to · {sel.length} selected</div>
+        {people.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setSel(allShownSelected ? sel.filter((id) => !people.some((u) => u.id === id)) : [...new Set([...sel, ...people.map((u) => u.id)])])}
+            className="text-[10px] text-[#FF6B1A] hover:underline"
+          >{allShownSelected ? "Clear these" : "Select all"}</button>
+        )}
+      </div>
+      {team.length > 6 && (
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teammates…" className="w-full h-8 mb-2 bg-[#0A0E14] border border-[#222A35] rounded-lg px-2.5 text-[12px] text-white placeholder:text-[#3A4350] focus:outline-none focus:border-[#FF6B1A]" />
+      )}
       <div className="space-y-2 max-h-64 overflow-y-auto">
-        {people.length === 0 && <div className="text-[12px] text-[#5B6675] text-center py-4">No teammates yet. Invite people on the Team page first.</div>}
+        {team.length === 0 && <div className="text-[12px] text-[#5B6675] text-center py-4">No teammates yet. Invite people on the Team page first.</div>}
+        {team.length > 0 && people.length === 0 && <div className="text-[12px] text-[#5B6675] text-center py-4">Nobody matches “{q}”.</div>}
         {people.map((u)=>(
           <label key={u.id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-[#222A35] cursor-pointer">
             <input type="checkbox" checked={sel.includes(u.id)} onChange={(e)=>{if(e.target.checked)setSel([...sel,u.id]);else setSel(sel.filter((id)=>id!==u.id));}} className="accent-[#FF6B1A]" />
@@ -656,7 +779,7 @@ export function AssignModal({ checklist, onClose, onAssign }: { checklist: Check
           </label>
         ))}
       </div>
-      <div className="flex justify-end gap-2 mt-5"><button onClick={onClose} className="h-9 px-4 bg-[#222A35] rounded-lg text-[12px] text-white">Cancel</button><button onClick={()=>{onAssign(checklist.id,sel);onClose();}} disabled={sel.length===0} className="h-9 px-4 bg-[#FF6B1A] text-black rounded-lg text-[12px] font-medium disabled:opacity-50">Assign ({sel.length})</button></div>
+      <div className="flex justify-end gap-2 mt-5"><button onClick={onClose} className="h-9 px-4 bg-[#222A35] rounded-lg text-[12px] text-white">Cancel</button><button onClick={submit} disabled={sel.length===0 || busy} className="h-9 px-4 bg-[#FF6B1A] text-black rounded-lg text-[12px] font-medium disabled:opacity-50 flex items-center gap-1.5">{busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Assign ({sel.length})</button></div>
     </div></div>
   );
 }
