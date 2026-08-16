@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Paperclip, Search, Plus, Users, Phone, Hash, X, UserPlus, Check, Image as ImageIcon, Camera, FileText, Reply, CornerDownLeft, Download, Settings, Crown, UserMinus, Trash2, Link2, Bell, ListChecks } from "lucide-react";
+import { Send, Paperclip, Search, Plus, Users, Phone, Hash, X, UserPlus, Check, Image as ImageIcon, Camera, FileText, Reply, CornerDownLeft, Download, Settings, Crown, UserMinus, Trash2, Link2, Bell, ListChecks, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import type { Role } from "./roles";
 import { ROLE_COLORS } from "./roles";
@@ -247,6 +247,31 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
     setLinkedTaskId(null);
     setLinkedTaskTitle("");
     setLinkTaskOpen(false);
+  };
+
+  // Open a 1:1 with a teammate from the team panel. Reuses the existing
+  // conversation when there already is one, so clicking a name twice does not
+  // create a second identical thread.
+  const startDirect = async (userId: string) => {
+    if (userId === myId) return;
+    const existing = conversations.find(
+      (c) => c.type === "direct" && c.members.length === 2 && c.members.includes(userId) && c.members.includes(myId),
+    );
+    if (existing) { setSelectedId(existing.id); setShowMembers(false); return; }
+    const name = getMember(userId)?.name || "Direct message";
+    try {
+      const row = await api.createConversation({ name, type: "direct", memberIds: [myId, userId] });
+      const convo: Conversation = {
+        id: row.id, type: "direct", name,
+        members: row.members.map((m) => m.userId), messages: [], lastActivity: "Just now",
+        creatorId: row.creatorId || myId, admins: [],
+      };
+      setConversations((prev) => [convo, ...prev]);
+      setSelectedId(convo.id);
+      setShowMembers(false);
+    } catch (e: any) {
+      toast.error(e?.message || "Could not start that conversation");
+    }
   };
 
   const createGroup = async () => {
@@ -519,6 +544,66 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
         </div>
 
         {/* Members panel (toggleable) */}
+        {/* Team panel with NO conversation open.
+            The Team button only ever rendered a panel when a conversation was
+            selected, so on a workspace with no conversations yet — the state every
+            new customer starts in — clicking it toggled a highlight and produced
+            nothing at all. It now always shows the workspace's people, with a real
+            empty state when nobody has been invited. */}
+        {showMembers && !selected && (
+          <div className="flex-1 flex flex-col rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden">
+            <div className="px-4 py-3 border-b border-[#222A35] flex items-center justify-between shrink-0">
+              <div className="text-[13px] text-white font-display">Your team · {team.length}</div>
+              <button onClick={() => setShowMembers(false)} className="w-7 h-7 rounded-md text-[#8A95A5] hover:text-white flex items-center justify-center">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {team.length === 0 ? (
+              <div className="flex-1 flex items-center justify-center p-8">
+                <div className="text-center max-w-xs">
+                  <div className="w-12 h-12 rounded-xl bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 flex items-center justify-center mx-auto">
+                    <Users className="w-6 h-6 text-[#FF6B1A]" />
+                  </div>
+                  <div className="text-[14px] text-white font-display mt-3">Nobody here yet</div>
+                  <p className="text-[12px] text-[#8A95A5] mt-1.5 leading-relaxed">
+                    Invite your site team, PM, QS or subcontractors and they will show up here. You can message them directly or start a group.
+                  </p>
+                  <div className="text-[11px] text-[#5B6675] mt-3">Invite people from the Team page.</div>
+                </div>
+              </div>
+            ) : (
+              <div className="overflow-y-auto flex-1 p-3 space-y-2">
+                <div className="text-[11px] text-[#5B6675] px-1 pb-1">Pick someone to start a conversation.</div>
+                {team.map((m) => {
+                  const isMe = m.id === myId;
+                  return (
+                    <button
+                      key={m.id}
+                      disabled={isMe}
+                      onClick={() => startDirect(m.id)}
+                      className="w-full flex items-center gap-2.5 p-2 rounded-lg hover:bg-[#161C24] transition text-left disabled:opacity-50 disabled:hover:bg-transparent"
+                    >
+                      <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-[10px] font-medium shrink-0" style={{ background: ROLE_COLORS[m.role as Role] }}>
+                        {m.initials}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12px] text-white truncate flex items-center gap-1">
+                          {m.name}{isMe && <span className="text-[9px] text-[#5B6675]">You</span>}
+                        </div>
+                        <div className="text-[10px] text-[#8A95A5] flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full" style={{ background: ROLE_COLORS[m.role as Role] }} />
+                          {m.role}
+                        </div>
+                      </div>
+                      {!isMe && <MessageSquare className="w-3.5 h-3.5 text-[#5B6675] shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {showMembers && selected && (
           <div className="flex-1 lg:flex-none lg:w-[300px] flex flex-col rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden">
             <div className="px-4 py-3 border-b border-[#222A35] flex items-center justify-between shrink-0">
