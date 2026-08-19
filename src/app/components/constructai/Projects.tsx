@@ -778,20 +778,11 @@ export function Projects({
               onClick={() => openProject(p)}
               className="text-left rounded-xl border border-[#222A35] bg-[#11161D] overflow-visible hover:border-[#FF6B1A]/50 transition group relative"
             >
-              {/* The cover FILLS the image area edge to edge.
-                  This was briefly object-contain so that no part of a photo was
-                  cropped, but portrait and square uploads then sat as a narrow
-                  strip with wide empty margins, which read as a broken card in a
-                  grid. Filling is the right trade: a little of the photo is lost
-                  at the edges, and every card looks like every other card. */}
-              <div className="relative h-[140px] overflow-hidden rounded-t-xl bg-[#0A0E14]">
-                <ImageWithFallback src={cover} alt={p.name} className="w-full h-full object-cover object-center group-hover:scale-105 transition duration-500" />
-                {/* One scrim, bottom-weighted. There used to be a second full-height
-                    gradient stacked under this one, which muddied dark photos while
-                    still leaving the title thin on light ones. */}
-                <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black via-black/70 to-transparent" />
+              <div className="relative h-[140px] overflow-hidden rounded-t-xl">
+                <ImageWithFallback src={cover} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
                 <span className={`absolute top-3 left-3 px-2 py-0.5 rounded-full text-[10px] border ${statusColor(p.status)}`}>{p.status}</span>
-                <div className="absolute bottom-0 left-0 right-0 p-3">
+                <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent">
                   <div className="text-[10px] text-white font-mono" style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,1)' }}>{p.code}</div>
                   <div className="text-[15px] text-white tracking-tight font-display" style={{ color: '#ffffff', textShadow: '0 2px 4px rgba(0,0,0,1)' }}>{p.name}</div>
                 </div>
