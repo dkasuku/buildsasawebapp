@@ -10,15 +10,21 @@ Three environment variables on the **backend** service:
 | Variable | Example | Why |
 |---|---|---|
 | `RESEND_API_KEY` | `re_xxxxxxxx` | Without it nothing is sent |
-| `EMAIL_FROM` | `Buildsasa <noreply@buildsasa.com>` | The From address |
+| `EMAIL_FROM` | `Buildsasa <noreply@build.buildsasa.com>` | The From address. **Must be on the exact domain you verified** |
 | `APP_URL` | `https://app.buildsasa.com` | Makes the buttons in emails point at your app |
 
 ## Steps
 
 1. Create a free account at **resend.com**.
-2. **Domains → Add domain → `buildsasa.com`.** Resend gives you DNS records
-   (SPF, DKIM, usually DMARC). Add them at whoever hosts your DNS and wait for
-   Resend to show **Verified**.
+2. **Domains → Add domain.** Resend gives you DNS records (SPF, DKIM, usually
+   DMARC). Add them at whoever hosts your DNS — Namecheap, in our case — and wait
+   for Resend to show **Verified**.
+
+   Note which domain you verified. Ours is the subdomain **`build.buildsasa.com`**,
+   not the apex `buildsasa.com`. `EMAIL_FROM` has to sit on the domain that is
+   actually verified: sending as `noreply@buildsasa.com` while only
+   `build.buildsasa.com` is verified is rejected, and it is an easy thing to miss
+   because the domain page shows a reassuring green Verified either way.
 3. **API Keys → Create API Key**, with sending permission. Copy it once — it is
    not shown again.
 4. On Railway, open the **backend** service → **Variables**, add the three above,
