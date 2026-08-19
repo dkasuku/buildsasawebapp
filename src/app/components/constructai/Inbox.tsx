@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Send, Paperclip, Search, Plus, Users, Phone, Hash, X, UserPlus, Check, Image as ImageIcon, Camera, FileText, Reply, CornerDownLeft, Download, Settings, Crown, UserMinus, Trash2, Link2, Bell, ListChecks, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import type { Role } from "./roles";
@@ -98,13 +98,29 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
   // WebSocket
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
+
+  // The signed-in user's real id.
+  //
+  // This was hardcoded to "u-contractor" — a demo id belonging to nobody. It
+  // decided which messages rendered as yours, who the socket authenticated as,
+  // and it was sent as a member id when creating a conversation, which is why
+  // "u-contractor" turned up inside a failing prisma call against real data.
+  const myId = useMemo(() => {
+    try {
+      const u = JSON.parse(localStorage.getItem("constructai-user") || "null");
+      if (u?.id) return String(u.id);
+    } catch { /* fall through */ }
+    return "";
+  }, []);
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
 
   const selected = conversations.find((c) => c.id === selectedId);
 
-  // Fetch conversations from API
-  useEffect(() => {
-    api.getConversations().then((rows) => {
+  // Fetch conversations. Extracted from the mount-only effect so it can be re-run
+  // whenever the socket reconnects — otherwise anything sent while the tab was
+  // disconnected stayed invisible until a manual page reload.
+  const loadConversations = useCallback((opts?: { quiet?: boolean }) => {
+    return api.getConversations().then((rows) => {
       const mapped: Conversation[] = rows.map((r) => ({
         id: r.id,
         type: r.type as "direct" | "group",
@@ -126,15 +142,22 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
         profilePic: r.profilePic || undefined,
       }));
       setConversations(mapped);
-      if (mapped.length > 0 && !selectedId) setSelectedId(mapped[0].id);
+      setSelectedId((cur) => cur || (mapped.length > 0 ? mapped[0].id : null));
     }).catch((e) => {
       // Show nothing and say why. This used to fall back to a seeded demo
       // conversation full of invented people and messages, so a backend outage
       // looked like a real (but wrong) inbox.
-      setConversations([]);
-      toast.error(`Could not load your conversations — ${e?.message || "the server is unreachable"}`, { duration: 8000 });
+      // A background refresh stays silent: a dropped connection should not throw
+      // a toast every few seconds while it retries.
+      if (!opts?.quiet) {
+        setConversations([]);
+        toast.error(`Could not load your conversations — ${e?.message || "the server is unreachable"}`, { duration: 8000 });
+      }
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => { loadConversations(); }, [loadConversations]);
 
   // Load full messages when selecting a conversation
   useEffect(() => {
@@ -155,44 +178,113 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
     }).catch(() => { /* keep existing messages */ });
   }, [selectedId]);
 
-  // WebSocket connection
+  // Live updates.
+  //
+  // The previous version opened a socket once and, on close, only flipped a red
+  // dot. It never reconnected — so any dropped connection (a sleeping phone, a
+  // proxy timeout, a brief network blip) silently ended live updates for the rest
+  // of the session, and the only way to see new messages was to reload the page.
+  // That is the "I have to reload to see a reply".
+  //
+  // Now: reconnect with backoff, re-authenticate with the CURRENT user id, and on
+  // every (re)connect re-fetch conversations so anything missed while away
+  // appears. A slow poll covers the case where the socket cannot connect at all.
+  const wsRef = useRef<WebSocket | null>(null);
+  const myIdRef = useRef(myId);
+  useEffect(() => { myIdRef.current = myId; }, [myId]);
+  const loadRef = useRef(loadConversations);
+  useEffect(() => { loadRef.current = loadConversations; }, [loadConversations]);
+
   useEffect(() => {
-    const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
-    const wsUrl = API_URL.replace(/^http/, "ws") + "/ws";
-    const socket = new WebSocket(wsUrl);
-    socket.onopen = () => {
-      setConnected(true);
-      socket.send(JSON.stringify({ type: "auth", userId: myId }));
+    let closedByUs = false;
+    let retry = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const connect = () => {
+      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+      const wsUrl = API_URL.replace(/^http/, "ws") + "/ws";
+      let socket: WebSocket;
+      try { socket = new WebSocket(wsUrl); } catch { schedule(); return; }
+      wsRef.current = socket;
+      setWs(socket);
+
+      socket.onopen = () => {
+        retry = 0;
+        setConnected(true);
+        socket.send(JSON.stringify({ type: "auth", userId: myIdRef.current }));
+        // Catch up on whatever arrived while we were not listening.
+        loadRef.current({ quiet: true });
+      };
+
+      socket.onclose = () => {
+        setConnected(false);
+        if (!closedByUs) schedule();
+      };
+      socket.onerror = () => { try { socket.close(); } catch { /* noop */ } };
+
+      socket.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.type === "message" && payload.data) {
+            const m = payload.data;
+            setConversations((prev) => prev.map((c) => {
+              if (c.id !== m.conversationId) return c;
+              if (c.messages.some((msg) => msg.id === m.id)) return c;
+              const newMsg: ChatMessage = {
+                id: m.id,
+                senderId: m.userId,
+                text: m.text,
+                time: new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                read: m.read,
+                attachments: m.attachment ? [{ id: `att-${m.id}`, name: "attachment", size: "", type: "file" as const, url: m.attachment }] : undefined,
+                replyToId: m.replyToId || undefined,
+              };
+              return { ...c, messages: [...c.messages, newMsg], lastActivity: newMsg.time };
+            }));
+          }
+          if (payload.type === "typing") {
+            setTypingUsers((prev) => { const n = new Set(prev); n.add(payload.userId); return n; });
+            setTimeout(() => setTypingUsers((p) => { const r = new Set(p); r.delete(payload.userId); return r; }), 3000);
+          }
+        } catch { /* a malformed frame must not kill the socket */ }
+      };
     };
-    socket.onclose = () => setConnected(false);
-    socket.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(event.data);
-        if (payload.type === "message" && payload.data) {
-          const m = payload.data;
-          setConversations((prev) => prev.map((c) => {
-            if (c.id !== m.conversationId) return c;
-            const exists = c.messages.some((msg) => msg.id === m.id);
-            if (exists) return c;
-            const newMsg: ChatMessage = {
-              id: m.id,
-              senderId: m.userId,
-              text: m.text,
-              time: new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-              read: m.read,
-              attachments: m.attachment ? [{ id: `att-${m.id}`, name: "attachment", size: "", type: "file" as const, url: m.attachment }] : undefined,
-              replyToId: m.replyToId || undefined,
-            };
-            return { ...c, messages: [...c.messages, newMsg], lastActivity: newMsg.time };
-          }));
-        }
-        if (payload.type === "typing") {
-          setTypingUsers((prev) => { const n = new Set(prev); n.add(payload.userId); setTimeout(() => setTypingUsers((p) => { const r = new Set(p); r.delete(payload.userId); return r; }), 3000); return n; });
-        }
-      } catch { /* noop */ }
+
+    // Backoff caps at 15s so a long outage does not hammer the server, while a
+    // brief blip still recovers almost immediately.
+    const schedule = () => {
+      if (closedByUs) return;
+      const wait = Math.min(15000, 1000 * Math.pow(2, retry++));
+      timer = setTimeout(connect, wait);
     };
-    setWs(socket);
-    return () => { socket.close(); };
+
+    connect();
+
+    // Reconnect immediately when the tab wakes or the network returns, rather
+    // than waiting out the backoff — this is the common case on a phone.
+    const wake = () => {
+      if (document.visibilityState === "visible" && wsRef.current?.readyState !== WebSocket.OPEN) {
+        retry = 0;
+        connect();
+      }
+    };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("online", wake);
+
+    // Fallback for when the socket cannot connect at all (a proxy stripping
+    // upgrades, say). Quiet, and only while disconnected.
+    const poll = setInterval(() => {
+      if (wsRef.current?.readyState !== WebSocket.OPEN) loadRef.current({ quiet: true });
+    }, 20000);
+
+    return () => {
+      closedByUs = true;
+      if (timer) clearTimeout(timer);
+      clearInterval(poll);
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("online", wake);
+      try { wsRef.current?.close(); } catch { /* noop */ }
+    };
   }, []);
   const isContractor = role === "Contractor";
 
@@ -275,7 +367,10 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
   };
 
   const isGroupAdmin = (conv: Conversation) => conv.admins?.includes(myId) ?? false;
-  const canDeleteGroup = (conv: Conversation) => conv.creatorId === myId || myId === "u-contractor";
+  // The creator, or any group admin. The old `|| myId === "u-contractor"` was a
+  // demo escape hatch that, once myId became a real id, granted nothing to anyone
+  // — and before that granted delete rights to every user at once.
+  const canDeleteGroup = (conv: Conversation) => conv.creatorId === myId || (conv.admins || []).includes(myId);
 
   const deleteGroup = async () => {
     if (!selectedId) return;
@@ -356,7 +451,6 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
   };
 
   const getMember = (id: string) => team.find((m) => m.id === id);
-  const myId = "u-contractor";
   const getMessage = (id?: string) => selected?.messages.find((m) => m.id === id);
 
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -443,21 +537,21 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
   }, [showAttachMenu]);
 
   return (
-    <div className="px-4 sm:px-7 py-5 sm:py-6 h-[calc(100vh-64px)] flex flex-col">
+    <div className="px-3 sm:px-7 py-4 sm:py-6 h-[calc(100dvh-64px)] min-h-[420px] flex flex-col">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0 mb-4">
         <div>
           <div className="text-[15px] text-white font-display flex items-center gap-2">Team Inbox <span className={`w-2 h-2 rounded-full ${connected ? "bg-[#22C55E]" : "bg-[#EF4444]"}`} title={connected ? "Connected" : "Disconnected"} /></div>
           <div className="text-[11px] text-[#8A95A5]">{team.length} teammate{team.length === 1 ? "" : "s"} · {conversations.length} conversation{conversations.length === 1 ? "" : "s"}</div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="relative">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative flex-1 min-w-[140px] sm:flex-none">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#5B6675]" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search conversations..."
-              className="h-8 w-[200px] sm:w-[260px] pl-8 pr-3 rounded-md bg-[#11161D] border border-[#222A35] text-[12px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]"
+              className="h-8 w-full sm:w-[260px] pl-8 pr-3 rounded-md bg-[#11161D] border border-[#222A35] text-[12px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]"
             />
           </div>
           {isContractor && (
@@ -474,7 +568,7 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
         </div>
       </div>
 
-      <div className="flex-1 flex gap-4 min-h-0">
+      <div className="flex-1 flex gap-0 lg:gap-4 min-h-0">
         {/* Conversations list */}
         <div className={`${selectedId && !showMembers ? "hidden lg:flex" : "flex"} ${showMembers ? "hidden lg:flex" : ""} flex-col w-full lg:w-[340px] shrink-0 rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden`}>
           <div className="overflow-y-auto flex-1">
@@ -585,7 +679,7 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
           <div className="flex-1 lg:flex-none lg:w-[300px] flex flex-col rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden">
             <div className="px-4 py-3 border-b border-[#222A35] flex items-center justify-between shrink-0">
               <div className="text-[13px] text-white font-display">{selected.type === "group" ? "Group Members" : "Chat Info"}</div>
-              <button onClick={() => setShowMembers(false)} className="lg:hidden w-7 h-7 rounded-md text-[#8A95A5] hover:text-white flex items-center justify-center">
+              <button onClick={() => setShowMembers(false)} className="w-7 h-7 rounded-md text-[#8A95A5] hover:text-white flex items-center justify-center">
                 <X className="w-4 h-4" />
               </button>
             </div>

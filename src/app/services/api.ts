@@ -89,6 +89,45 @@ export function absoluteFileUrl(url?: string | null): string {
   return `${API_URL}${u.startsWith("/") ? "" : "/"}${u}`;
 }
 
+// Turn a failed response into a sentence a person can read.
+//
+// This used to throw the RAW RESPONSE BODY, so every error toast in the product
+// showed JSON — users were shown things like
+//   {"error":"Direct messages are turned off. Create a group..."}
+// The message inside was perfectly good English; it was just never unwrapped.
+async function readError(res: Response): Promise<string> {
+  const raw = await res.text().catch(() => "");
+  if (raw) {
+    try {
+      const body = JSON.parse(raw);
+      const msg = body?.error ?? body?.message;
+      if (typeof msg === "string" && msg.trim()) return msg.trim();
+      // Some validators nest the useful line one level down.
+      if (Array.isArray(body?.errors) && typeof body.errors[0]?.message === "string") return body.errors[0].message;
+    } catch {
+      // Not JSON. Plain text is already readable — unless it is an HTML error
+      // page from a proxy, which would dump markup into a toast.
+      const t = raw.trim();
+      if (t && !t.startsWith("<")) return t.length > 300 ? t.slice(0, 300) + "…" : t;
+    }
+  }
+  // Nothing usable in the body: say what the status actually means.
+  switch (res.status) {
+    case 400: return "That request wasn't valid. Check the details and try again.";
+    case 401: return "You need to sign in again.";
+    case 403: return "You don't have permission to do that.";
+    case 404: return "That item no longer exists.";
+    case 409: return "That conflicts with something already saved.";
+    case 413: return "That file is too large to upload.";
+    case 429: return "Too many attempts. Wait a moment and try again.";
+    case 500: return "Something went wrong on our side. Please try again.";
+    case 502:
+    case 503:
+    case 504: return "The server is unreachable right now. Please try again in a moment.";
+    default: return res.statusText || "Something went wrong. Please try again.";
+  }
+}
+
 async function http<T>(path: string, init?: RequestInit, _retried = false): Promise<T> {
   const token = localStorage.getItem(TOKEN_KEY);
   const isFormData = init?.body instanceof FormData;
@@ -109,8 +148,7 @@ async function http<T>(path: string, init?: RequestInit, _retried = false): Prom
     throw new Error("Your session has expired. Please sign in again.");
   }
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || res.statusText);
+    throw new Error(await readError(res));
   }
   return res.json() as Promise<T>;
 }
