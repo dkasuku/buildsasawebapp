@@ -16,7 +16,7 @@ export default function TeamMembers({ role }: { role: Role }) {
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showInvite, setShowInvite] = useState(false);
-  const [created, setCreated] = useState<{ email: string; tempPassword?: string; emailed?: boolean } | null>(null);
+  const [created, setCreated] = useState<{ email: string; tempPassword?: string; emailed?: boolean; emailReason?: "not_configured" | "send_failed"; emailError?: string } | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -33,9 +33,22 @@ export default function TeamMembers({ role }: { role: Role }) {
   };
   const remove = async (id: string) => {
     if (!confirm("Remove this teammate's access?")) return;
+    const before = users;
+    // Optimistic, but restored on failure — the row used to vanish from the list
+    // even when the server refused, so a failed removal looked like it worked
+    // until the next refresh brought them back.
     setUsers((prev) => prev.filter((u) => u.id !== id));
-    try { const m = await import("../../services/api"); await m.default.removeUser(id); toast.success("Member removed"); }
-    catch { toast.error("Could not remove"); }
+    try {
+      const m = await import("../../services/api");
+      const r = await m.default.removeUser(id);
+      // The API says what it actually did: deleted outright, or access revoked
+      // with their history kept. Reporting that plainly avoids the impression
+      // that a person's past approvals were erased along with them.
+      toast.success(r?.message || "Member removed", { duration: r?.mode === "deactivated" ? 8000 : 4000 });
+    } catch (e: any) {
+      setUsers(before);
+      toast.error(e?.message || "Could not remove");
+    }
   };
 
   return (
@@ -90,7 +103,17 @@ export default function TeamMembers({ role }: { role: Role }) {
               </>
             ) : (
               <>
-                <p className="text-[12px] text-[#8A95A5]">Email isn't configured yet, so share these sign-in details with <span className="text-white">{created.email}</span> directly. They can change the password after first login.</p>
+                {/* Say WHICH failure it was. "Not configured" and "the provider
+                    refused it" need completely different fixes, and a single
+                    blanket message sent the owner looking in the wrong place. */}
+                <p className="text-[12px] text-[#8A95A5]">
+                  {created.emailReason === "send_failed"
+                    ? <>The invite email could not be sent, so share these sign-in details with <span className="text-white">{created.email}</span> directly.</>
+                    : <>Email isn't set up yet, so share these sign-in details with <span className="text-white">{created.email}</span> directly. They can change the password after first login.</>}
+                </p>
+                {created.emailError && (
+                  <p className="text-[11px] text-[#F5A623] mt-1.5">{created.emailError}</p>
+                )}
                 <div className="mt-3 p-3 rounded-lg bg-[#0A0E14] border border-[#222A35] text-[12px]">
                   <div className="text-[#8A95A5]">Email: <span className="text-white font-mono">{created.email}</span></div>
                   <div className="text-[#8A95A5] mt-1 flex items-center gap-2">Temp password: <span className="text-white font-mono">{created.tempPassword}</span>
@@ -107,7 +130,7 @@ export default function TeamMembers({ role }: { role: Role }) {
   );
 }
 
-function InviteModal({ onClose, onCreated }: { onClose: () => void; onCreated: (c: { email: string; tempPassword?: string; emailed?: boolean }) => void }) {
+function InviteModal({ onClose, onCreated }: { onClose: () => void; onCreated: (c: { email: string; tempPassword?: string; emailed?: boolean; emailReason?: "not_configured" | "send_failed"; emailError?: string }) => void }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [memberRole, setMemberRole] = useState<Role>("Site Engineer");
@@ -120,7 +143,7 @@ function InviteModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
     try {
       const m = await import("../../services/api");
       const r = await m.default.inviteUser({ name: name.trim(), email: email.trim(), role: memberRole, password: password || undefined });
-      onCreated({ email: r.user.email, tempPassword: r.tempPassword, emailed: r.emailed });
+      onCreated({ email: r.user.email, tempPassword: r.tempPassword, emailed: r.emailed, emailReason: r.emailReason, emailError: r.emailError });
     } catch (e: any) { toast.error(e.message || "Invite failed"); }
     setBusy(false);
   };

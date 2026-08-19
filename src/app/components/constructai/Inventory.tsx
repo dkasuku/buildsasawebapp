@@ -523,8 +523,12 @@ function ItemModal({ projects, item, onClose, onSaved }: { projects: ProjectDto[
               {/* Without an allowance, a waste percentage is just a number — there
                   is nothing to say whether it is normal for this material. Tiles
                   and timber legitimately produce off-cuts; cement should not. */}
-              <Labeled label="Waste allowance %">
+              <Labeled label="Acceptable waste %">
                 <input type="number" value={form.wasteAllowancePct} onChange={(e) => setForm({ ...form, wasteAllowancePct: e.target.value })} placeholder="e.g. 5" className={inputCls} />
+                <div className="text-[10px] text-[#5B6675] mt-1 leading-relaxed">
+                  Out of every 100 units that leave the store, how many can be lost before you would call it a problem. Tiles and timber
+                  produce off-cuts, so 5–10% is normal. Cement or steel should be near 0. Leave blank if you are not sure.
+                </div>
               </Labeled>
               <Labeled label="Reorder qty">
                 <input type="number" value={form.reorderQty} onChange={(e) => setForm({ ...form, reorderQty: e.target.value })} className={inputCls} />
@@ -541,8 +545,11 @@ function ItemModal({ projects, item, onClose, onSaved }: { projects: ProjectDto[
               <Labeled label="Supplier contact">
                 <input value={form.supplierContact} onChange={(e) => setForm({ ...form, supplierContact: e.target.value })} placeholder="phone / email" className={inputCls} />
               </Labeled>
-              <Labeled label="Lead time (days)">
+              <Labeled label="Delivery time (days after ordering)">
                 <input type="number" value={form.leadTimeDays} onChange={(e) => setForm({ ...form, leadTimeDays: e.target.value })} className={inputCls} />
+                <div className="text-[10px] text-[#5B6675] mt-1 leading-relaxed">
+                  How many days this supplier normally takes to deliver after you place the order, so you reorder early enough not to stop work.
+                </div>
               </Labeled>
             </div>
           </Section>
@@ -710,7 +717,7 @@ function ItemDrawer({
               <Field label="Stock value" value={item.unitCostKES != null ? fmt(item.currentStock * Number(item.unitCostKES)) : "—"} />
               <Field label="Supplier" value={item.supplier || "—"} />
               <Field label="Supplier contact" value={item.supplierContact || "—"} />
-              <Field label="Lead time" value={item.leadTimeDays != null ? `${item.leadTimeDays} days` : "—"} />
+              <Field label="Delivery time" value={item.leadTimeDays != null ? `${item.leadTimeDays} days after ordering` : "—"} />
               <Field label="Location" value={item.location || "—"} />
               <Field label="Category" value={item.category || "—"} />
               <Field label="Status" value={item.status || "active"} />

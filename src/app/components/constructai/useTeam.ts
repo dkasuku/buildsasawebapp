@@ -9,7 +9,7 @@
 import { useState, useEffect } from "react";
 import api from "../../services/api";
 
-export type TeamMemberLite = { id: string; name: string; role: string; email?: string; phone?: string; initials?: string };
+export type TeamMemberLite = { id: string; name: string; role: string; email?: string; phone?: string; initials?: string; status?: string };
 
 function initialsOf(name: string) {
   return (name || "")
@@ -20,6 +20,9 @@ function initialsOf(name: string) {
     .slice(0, 2)
     .toUpperCase();
 }
+
+const activeOnly = (list: TeamMemberLite[] | null) =>
+  (list || []).filter((m) => m.status !== 'removed' && m.status !== 'suspended');
 
 let _cache: TeamMemberLite[] | null = null;
 let _inflight: Promise<TeamMemberLite[]> | null = null;
@@ -38,6 +41,7 @@ async function fetchTeam(force = false): Promise<TeamMemberLite[]> {
         email: u.email,
         phone: u.phone || undefined,
         initials: initialsOf(u.name),
+        status: u.status,
       }));
       _cache = list;
       _subscribers.forEach((fn) => fn(list));
@@ -54,11 +58,16 @@ async function fetchTeam(force = false): Promise<TeamMemberLite[]> {
 }
 
 // React hook: returns the live team list (real users), refetched on mount.
+// Returns only ACTIVE teammates — who can be assigned work, messaged or given a
+// project role. Removed people stay in the module cache so resolveName() can
+// still put a name on their past approvals and submissions; they simply stop
+// appearing in pickers. Erasing them from the cache too would turn every record
+// they touched into "Unknown".
 export function useTeam(): TeamMemberLite[] {
-  const [members, setMembers] = useState<TeamMemberLite[]>(_cache || []);
+  const [members, setMembers] = useState<TeamMemberLite[]>(activeOnly(_cache));
   useEffect(() => {
     let alive = true;
-    const update = (m: TeamMemberLite[]) => { if (alive) setMembers(m); };
+    const update = (m: TeamMemberLite[]) => { if (alive) setMembers(activeOnly(m)); };
     _subscribers.add(update);
     fetchTeam().then(update);
     return () => { alive = false; _subscribers.delete(update); };

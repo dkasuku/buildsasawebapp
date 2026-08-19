@@ -817,9 +817,11 @@ export const api = {
   forgotPassword: (email: string) => http<{ ok: boolean; devLink?: string }>("/api/auth/forgot", { method: "POST", body: JSON.stringify({ email }) }),
   resetPassword: (token: string, password: string) => http<{ ok: boolean; email?: string }>("/api/auth/reset", { method: "POST", body: JSON.stringify({ token, password }) }),
   getUsers: () => http<any[]>("/api/users"),
-  inviteUser: (payload: { name: string; email: string; role: string; trade?: string; password?: string }) => http<{ user: any; emailed?: boolean; tempPassword?: string }>("/api/users/invite", { method: "POST", body: JSON.stringify(payload) }),
+  inviteUser: (payload: { name: string; email: string; role: string; trade?: string; password?: string }) => http<{ user: any; emailed?: boolean; tempPassword?: string; emailReason?: "not_configured" | "send_failed"; emailError?: string }>("/api/users/invite", { method: "POST", body: JSON.stringify(payload) }),
   updateUserRole: (id: string, role: string) => http<any>(`/api/users/${id}/role`, { method: "PUT", body: JSON.stringify({ role }) }),
-  removeUser: (id: string) => http(`/api/users/${id}`, { method: "DELETE" }),
+  removeUser: (id: string) => http<{ ok: boolean; mode: "deleted" | "deactivated"; message: string }>(`/api/users/${id}`, { method: "DELETE" }),
+  getEmailStatus: () => http<{ configured: boolean; from: string; testSenderOnly: boolean; appUrl: string; missing: string[] }>("/api/email/status"),
+  sendTestEmail: (to?: string) => http<{ ok: boolean; to: string }>("/api/email/test", { method: "POST", body: JSON.stringify({ to }) }),
   getAccessLogs: () => http<any[]>("/api/access-logs"),
   // Upload a file and get back a PERSISTENT url, replacing throwaway in-browser
   // blob URLs so images survive reloads and reach other devices.

@@ -391,7 +391,7 @@ async function sendEmail({ to, subject, html, attachments }) {
   if (!RESEND_API_KEY) {
     console.log(`[EMAIL] (no RESEND_API_KEY — not sent) To: ${to} | ${subject}${attachments && attachments.length ? ` | ${attachments.length} attachment(s)` : ''}`);
     console.log('[EMAIL] body:', html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
-    return { sent: false };
+    return { sent: false, reason: 'not_configured' };
   }
   try {
     const payload = { from: EMAIL_FROM, to: [to], subject, html };
@@ -401,12 +401,41 @@ async function sendEmail({ to, subject, html, attachments }) {
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!r.ok) { const t = await r.text(); console.error('[EMAIL] Resend failed:', r.status, t); return { sent: false, error: t }; }
+    if (!r.ok) {
+      const t = await r.text();
+      console.error('[EMAIL] Resend rejected the send:', r.status, t);
+      // 403 from Resend almost always means the From domain is not verified, which
+      // is the one failure people spend hours on. Name it.
+      const hint = r.status === 403 && /domain/i.test(t)
+        ? `Resend rejected "${EMAIL_FROM}" — verify that domain at resend.com/domains, or use onboarding@resend.dev while testing.`
+        : `Resend returned ${r.status}.`;
+      return { sent: false, reason: 'send_failed', error: hint };
+    }
     return { sent: true };
   } catch (e) {
     console.error('[EMAIL] send error:', e && e.message);
-    return { sent: false, error: e && e.message };
+    return { sent: false, reason: 'send_failed', error: e && e.message };
   }
+}
+
+// Is outbound email actually usable, and if not, what is missing? Surfaced to the
+// UI so "share the password yourself" can say WHY instead of leaving the owner to
+// guess whether it is a missing key, an unverified domain, or a silent failure.
+function emailStatus() {
+  const usingTestSender = /onboarding@resend.dev/i.test(EMAIL_FROM);
+  return {
+    configured: !!RESEND_API_KEY,
+    from: EMAIL_FROM,
+    // Resend's shared test sender only delivers to the address that owns the
+    // Resend account. It looks configured and then quietly reaches nobody else.
+    testSenderOnly: !!RESEND_API_KEY && usingTestSender,
+    appUrl: APP_URL,
+    missing: [
+      !RESEND_API_KEY && 'RESEND_API_KEY',
+      !process.env.EMAIL_FROM && 'EMAIL_FROM',
+      !process.env.APP_URL && 'APP_URL',
+    ].filter(Boolean),
+  };
 }
 
 // Tiny on-brand email wrapper.
@@ -543,6 +572,12 @@ app.post('/api/login', async (req, res) => {
     if (user.status === 'suspended') {
       return res.status(403).json({ error: 'This account has been suspended. Please contact support.' });
     }
+    // Removed from the workspace. Their history is deliberately kept so past
+    // approvals and submissions still read correctly, but the account must not
+    // be able to sign back in.
+    if (user.status === 'removed') {
+      return res.status(403).json({ error: 'This account no longer has access to the workspace.' });
+    }
     recordAccess(req, user); res.json({ ...authTokens(user), user: publicUser(user) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -626,7 +661,7 @@ app.post('/api/auth/reset', async (req, res) => {
 
 // ===== TEAM / USER MANAGEMENT (invite teammates with roles) =====
 app.get('/api/users', auth, async (_req, res) => {
-  try { res.json(await prisma.user.findMany({ select: { id: true, name: true, email: true, role: true, trade: true, createdAt: true }, orderBy: { createdAt: 'asc' } })); }
+  try { res.json(await prisma.user.findMany({ select: { id: true, name: true, email: true, role: true, trade: true, status: true, createdAt: true }, orderBy: { createdAt: 'asc' } })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/users/invite', auth, async (req, res) => {
@@ -652,6 +687,8 @@ app.post('/api/users/invite', auth, async (req, res) => {
       user: { id: user.id, name: user.name, email: user.email, role: user.role },
       emailed: mail.sent,
       tempPassword: mail.sent ? undefined : tempPassword,
+      emailReason: mail.sent ? undefined : (mail.reason || 'send_failed'),
+      emailError: mail.sent ? undefined : mail.error,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -659,11 +696,77 @@ app.put('/api/users/:id/role', auth, async (req, res) => {
   try { const u = await prisma.user.update({ where: { id: req.params.id }, data: { role: req.body.role } }); res.json({ id: u.id, role: u.role }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
+// Remove a teammate from the workspace.
+//
+// This used to be a bare prisma.user.delete(), which fails the moment the person
+// has any history: Assignment, Message and Attendance all hold a required
+// foreign key onto User with Prisma's default Restrict. So anyone who had
+// actually used the product could never be removed, and the UI reported a flat
+// "Could not remove" with no reason.
+//
+// Hard-deleting them would be worse than the bug. This product's value rests on
+// its audit trail — who approved a change order, who reported 60% progress, who
+// submitted a checklist. Erasing the person turns all of that into "Unknown".
+// So: revoke access and detach from projects, but keep the record of what they
+// did. Only someone with no history at all is deleted outright.
 app.delete('/api/users/:id', auth, async (req, res) => {
-  try { await prisma.user.delete({ where: { id: req.params.id } }); res.json({ ok: true }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  try {
+    if (req.params.id === req.user.sub) {
+      return res.status(400).json({ error: 'You cannot remove your own account. Ask another workspace owner to do it.' });
+    }
+    const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!user) return res.status(404).json({ error: 'That teammate no longer exists' });
+
+    // Project roles are access, not history — always detach.
+    await prisma.assignment.deleteMany({ where: { userId: user.id } });
+
+    const [messages, attendance] = await Promise.all([
+      prisma.message.count({ where: { userId: user.id } }),
+      prisma.attendance.count({ where: { userId: user.id } }),
+    ]);
+
+    if (messages === 0 && attendance === 0) {
+      try {
+        await prisma.user.delete({ where: { id: user.id } });
+        return res.json({ ok: true, mode: 'deleted', message: `${user.name} was removed.` });
+      } catch (e) {
+        // Some other relation still references them. Fall through to deactivation
+        // rather than failing — the caller asked for them gone either way.
+        console.warn('[USERS] hard delete blocked, deactivating instead:', e && e.message);
+      }
+    }
+
+    await prisma.user.update({ where: { id: user.id }, data: { status: 'removed' } });
+    res.json({
+      ok: true,
+      mode: 'deactivated',
+      message: `${user.name} can no longer sign in and has been taken off all projects. Their name is kept on past approvals and submissions so your records stay readable.`,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+
+// Is email working? Tells you what is missing rather than leaving you to infer it
+// from invites quietly not arriving. Auth-gated: it names configuration, not
+// secrets — the API key itself is never returned.
+app.get('/api/email/status', auth, (_req, res) => res.json(emailStatus()));
+
+// Send a real test email to yourself to prove the whole path works end to end.
+app.post('/api/email/test', auth, async (req, res) => {
+  const to = String(req.body?.to || req.user?.email || '').trim();
+  if (!to) return res.status(400).json({ error: 'No address to send to' });
+  const st = emailStatus();
+  if (!st.configured) {
+    return res.status(400).json({ error: 'Email is not configured. Set RESEND_API_KEY on the backend service, then redeploy.', status: st });
+  }
+  const r = await sendEmail({
+    to,
+    subject: 'Buildsasa email test',
+    html: emailShell('Email is working', '<p>If you are reading this, invites and notifications will reach your team.</p>'),
+  });
+  if (!r.sent) return res.status(502).json({ error: r.error || 'The provider refused the send.', status: st });
+  res.json({ ok: true, to, status: st });
+});
 // Simple health check
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
