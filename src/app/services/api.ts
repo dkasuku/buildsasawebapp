@@ -523,6 +523,8 @@ export type InventoryItemDto = {
   reorderQty?: number | null;
   leadTimeDays?: number | null;
   supplierContact?: string | null;
+  /** Acceptable waste for this material, as a % of what leaves the store. */
+  wasteAllowancePct?: number | null;
   createdAt?: string;
   updatedAt?: string;
   movements?: InventoryMovementDto[];
@@ -540,7 +542,35 @@ export type InventoryMovementDto = {
   actorId?: string | null;
   actorName?: string | null;
   notes?: string | null;
+  /** Waste: damaged | offcut | spoiled | theft | over_order | rework | weather |
+   *  other. Adjust: shrinkage | surplus | no_change, set by the server. */
+  reason?: string | null;
+  /** Cost snapshot at the time of the movement, not today's price. */
+  unitCostKES?: number | null;
+  valueKES?: number | null;
+  projectId?: string | null;
   createdAt?: string;
+};
+
+/** What the wastage report returns. Every figure is derived from recorded
+ *  movements — nothing here is estimated. */
+export type WastageReportDto = {
+  totals: {
+    wasteValueKES: number;
+    issuedValueKES: number;
+    shrinkageValueKES: number;
+    wastePctOfConsumed: number;
+    wasteMovements: number;
+  };
+  byReason: { reason: string; quantity: number; valueKES: number; movements: number }[];
+  byItem: {
+    itemId: string; name: string; unit: string; category?: string | null;
+    wasteAllowancePct?: number | null;
+    wastedQty: number; wastedValueKES: number; issuedQty: number; issuedValueKES: number;
+    wastePct: number; overAllowance: boolean | null; overBy: number;
+  }[];
+  /** Movements with no unit cost — the money totals exclude these. */
+  unpricedMovements: number;
 };
 
 export type ChecklistItemDto = {
@@ -1004,7 +1034,8 @@ export const api = {
   updateInventoryItem: (id: string, payload: Partial<InventoryItemDto>) => http<InventoryItemDto>(`/api/inventory/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteInventoryItem: (id: string) => http(`/api/inventory/${id}`, { method: "DELETE" }),
   getInventoryMovements: (id: string) => http<InventoryMovementDto[]>(`/api/inventory/${id}/movements`),
-  addInventoryMovement: (id: string, payload: { type: string; quantity: number; reference?: string; notes?: string; date?: string }) => http<{ movement: InventoryMovementDto; item: InventoryItemDto }>(`/api/inventory/${id}/movements`, { method: "POST", body: JSON.stringify(payload) }),
+  getWastageReport: (params?: { from?: string; to?: string; projectId?: string }) => http<WastageReportDto>(`/api/inventory/wastage?${new URLSearchParams((params || {}) as any).toString()}`),
+  addInventoryMovement: (id: string, payload: { type: string; quantity: number; reference?: string; notes?: string; date?: string; reason?: string; projectId?: string; unitCostKES?: number }) => http<{ movement: InventoryMovementDto; item: InventoryItemDto }>(`/api/inventory/${id}/movements`, { method: "POST", body: JSON.stringify(payload) }),
   getLowStock: () => http<InventoryItemDto[]>("/api/inventory/low-stock"),
   // Attendance
   getAttendance: (params?: { date?: string; userId?: string }) => http<AttendanceDto[]>("/api/attendance" + (params ? "?" + new URLSearchParams(params as Record<string, string>).toString() : "")),

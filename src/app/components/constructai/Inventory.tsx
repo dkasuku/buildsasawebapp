@@ -6,10 +6,10 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { Plus, X, Trash2, Boxes, Package, ArrowDownToLine, ArrowUpFromLine, Pencil } from "lucide-react";
+import { Plus, X, Trash2, Boxes, Package, ArrowDownToLine, ArrowUpFromLine, Pencil, AlertTriangle } from "lucide-react";
 import type { Role } from "./roles";
 import { ROLES } from "./roles";
-import api, { type InventoryItemDto, type InventoryMovementDto, type ProjectDto } from "../../services/api";
+import api, { type WastageReportDto, type InventoryItemDto, type InventoryMovementDto, type ProjectDto } from "../../services/api";
 import { EmptyState } from "./EmptyState";
 import { formatCurrency } from "./currency";
 import { useCurrency } from "./CurrencyContext";
@@ -20,9 +20,32 @@ const ALL = "__all__";
 
 const MOVEMENT_TYPES: { value: string; label: string }[] = [
   { value: "in", label: "Received (in)" },
-  { value: "out", label: "Issued (out)" },
-  { value: "adjust", label: "Adjust" },
+  { value: "out", label: "Issued to works (out)" },
+  // Material bought that never became building. There was previously no way to
+  // say this: waste was recorded as an ordinary "out" and became invisible, which
+  // is why the money lost to it could never be counted.
+  { value: "waste", label: "Wasted / lost" },
+  { value: "adjust", label: "Stock take (adjust)" },
 ];
+
+// Why material was wasted. Recording the quantity without the cause tells you
+// money disappeared but nothing about how to stop it happening again.
+const WASTE_REASONS: { value: string; label: string; hint: string }[] = [
+  { value: "damaged", label: "Damaged", hint: "Broken in handling, transport or storage" },
+  { value: "offcut", label: "Off-cut", hint: "Unavoidable trim — tiles, timber, bar" },
+  { value: "spoiled", label: "Spoiled", hint: "Cured, set or expired before use" },
+  { value: "theft", label: "Theft / missing", hint: "Gone from site with no record" },
+  { value: "over_order", label: "Over-ordered", hint: "Bought more than the works needed" },
+  { value: "rework", label: "Rework", hint: "Consumed redoing work already done" },
+  { value: "weather", label: "Weather", hint: "Rain, wind or sun ruined it on site" },
+  { value: "other", label: "Other", hint: "Explain in the notes" },
+];
+const REASON_LABEL: Record<string, string> = {
+  ...Object.fromEntries(WASTE_REASONS.map((r) => [r.value, r.label])),
+  shrinkage: "Count came up short",
+  surplus: "Count came up over",
+  no_change: "No change",
+};
 
 const UNITS = ["bags", "tonnes", "m", "m2", "m3", "kg", "pcs", "rolls", "litres", "boxes"];
 
@@ -87,6 +110,20 @@ function Materials({ canManage, role }: { canManage: boolean; role: Role }) {
     api.getProjects().then(setProjects).catch(() => {});
   }, []);
 
+  // Wastage report. Loaded alongside the item list and re-fetched whenever a
+  // movement is recorded, so the headline figures cannot drift from the ledger.
+  const [wastage, setWastage] = useState<WastageReportDto | null>(null);
+  const [showWaste, setShowWaste] = useState(false);
+
+  const loadWastage = async () => {
+    try {
+      const params = projectFilter !== ALL && projectFilter !== COMPANY_WIDE ? { projectId: projectFilter } : undefined;
+      setWastage(await api.getWastageReport(params));
+    } catch {
+      setWastage(null);
+    }
+  };
+
   const load = async () => {
     setLoading(true);
     try {
@@ -103,6 +140,11 @@ function Materials({ canManage, role }: { canManage: boolean; role: Role }) {
 
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectFilter]);
+
+  useEffect(() => {
+    loadWastage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectFilter]);
 
@@ -136,6 +178,83 @@ function Materials({ canManage, role }: { canManage: boolean; role: Role }) {
           )}
         </div>
       </div>
+
+      {/* ── Wastage ──────────────────────────────────────────────────────────
+          The question this module exists to answer: how much of what we bought
+          never became building, why, and what did it cost. Every figure below is
+          summed from recorded movements — none of it is estimated. */}
+      {wastage && wastage.totals.wasteMovements > 0 && (
+        <div className="rounded-xl border border-[#F97316]/30 bg-gradient-to-br from-[#F97316]/[0.07] to-transparent overflow-hidden">
+          <button
+            onClick={() => setShowWaste((v) => !v)}
+            className="w-full flex items-center gap-3 px-4 py-3 text-left"
+          >
+            <AlertTriangle className="w-4 h-4 text-[#F97316] shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] text-white font-display">
+                {fmt(Math.round(wastage.totals.wasteValueKES))} of material wasted
+              </div>
+              <div className="text-[11px] text-[#8A95A5] mt-0.5">
+                {wastage.totals.wastePctOfConsumed}% of everything issued from store · {wastage.totals.wasteMovements} entr{wastage.totals.wasteMovements === 1 ? "y" : "ies"}
+                {wastage.totals.shrinkageValueKES > 0 && ` · ${fmt(Math.round(wastage.totals.shrinkageValueKES))} unaccounted at stock take`}
+              </div>
+            </div>
+            <span className="text-[11px] text-[#F97316] shrink-0">{showWaste ? "Hide" : "Break it down"}</span>
+          </button>
+
+          {showWaste && (
+            <div className="px-4 pb-4 space-y-4">
+              {/* Where the money goes. Sorted by value, because the biggest
+                  number is the one worth acting on first. */}
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-2">By cause</div>
+                <div className="space-y-1.5">
+                  {wastage.byReason.map((r) => {
+                    const share = wastage.totals.wasteValueKES > 0 ? (r.valueKES / wastage.totals.wasteValueKES) * 100 : 0;
+                    return (
+                      <div key={r.reason} className="flex items-center gap-3">
+                        <div className="w-32 shrink-0 text-[11.5px] text-white truncate">{REASON_LABEL[r.reason] || r.reason}</div>
+                        <div className="flex-1 h-1.5 rounded-full bg-[#222A35] overflow-hidden">
+                          <div className="h-full rounded-full bg-[#F97316]" style={{ width: `${Math.max(2, share)}%` }} />
+                        </div>
+                        <div className="w-28 shrink-0 text-right text-[11.5px] text-[#F97316] tabular-nums">{fmt(Math.round(r.valueKES))}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Worst materials, with each one's own allowance so "is this
+                  normal?" has an answer instead of being a judgement call. */}
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-2">Worst materials</div>
+                <div className="space-y-1.5">
+                  {wastage.byItem.filter((i) => i.wastedQty > 0).slice(0, 6).map((i) => (
+                    <div key={i.itemId} className="flex items-center gap-3 text-[11.5px]">
+                      <div className="flex-1 min-w-0">
+                        <span className="text-white truncate">{i.name}</span>
+                        <span className="text-[#5B6675]"> · {i.wastedQty} {i.unit} of {Math.round((i.issuedQty + i.wastedQty) * 100) / 100} used</span>
+                      </div>
+                      <span className={`shrink-0 tabular-nums ${i.overAllowance ? "text-[#EF4444]" : "text-[#8A95A5]"}`}>
+                        {i.wastePct}%
+                        {i.wasteAllowancePct != null && <span className="text-[#5B6675]"> / {i.wasteAllowancePct}% allowed</span>}
+                      </span>
+                      <span className="w-24 shrink-0 text-right text-[#F97316] tabular-nums">{fmt(Math.round(i.wastedValueKES))}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Never let a total imply more precision than it has. */}
+              {wastage.unpricedMovements > 0 && (
+                <div className="text-[10.5px] text-[#F5A623] border-t border-[#222A35] pt-2.5">
+                  {wastage.unpricedMovements} movement{wastage.unpricedMovements === 1 ? " has" : "s have"} no unit cost recorded, so the totals above understate the real loss. Set a unit cost on those materials to include them.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-8 text-center text-[12px] text-[#8A95A5]">Loading…</div>
@@ -248,7 +367,7 @@ function Materials({ canManage, role }: { canManage: boolean; role: Role }) {
           projectName={projectName}
           onClose={() => setActiveId(null)}
           onEdit={(it) => { setActiveId(null); setEditItem(it); }}
-          onChanged={load}
+          onChanged={() => { load(); loadWastage(); }}
           onDeleted={() => { setActiveId(null); load(); }}
         />
       )}
@@ -297,6 +416,7 @@ function ItemModal({ projects, item, onClose, onSaved }: { projects: ProjectDto[
     supplier: item?.supplier ?? "",
     supplierContact: item?.supplierContact ?? "",
     leadTimeDays: item?.leadTimeDays != null ? String(item.leadTimeDays) : "",
+    wasteAllowancePct: item?.wasteAllowancePct != null ? String(item.wasteAllowancePct) : "",
     unitCostKES: item?.unitCostKES != null ? String(item.unitCostKES) : "",
     notes: item?.notes ?? "",
   });
@@ -324,6 +444,7 @@ function ItemModal({ projects, item, onClose, onSaved }: { projects: ProjectDto[
         supplier: form.supplier.trim() || undefined,
         supplierContact: form.supplierContact.trim() || undefined,
         leadTimeDays: num(form.leadTimeDays),
+        wasteAllowancePct: num(form.wasteAllowancePct),
         unitCostKES: num(form.unitCostKES),
         notes: form.notes.trim() || undefined,
       };
@@ -398,6 +519,12 @@ function ItemModal({ projects, item, onClose, onSaved }: { projects: ProjectDto[
               </Labeled>
               <Labeled label="Max level">
                 <input type="number" value={form.maxLevel} onChange={(e) => setForm({ ...form, maxLevel: e.target.value })} className={inputCls} />
+              </Labeled>
+              {/* Without an allowance, a waste percentage is just a number — there
+                  is nothing to say whether it is normal for this material. Tiles
+                  and timber legitimately produce off-cuts; cement should not. */}
+              <Labeled label="Waste allowance %">
+                <input type="number" value={form.wasteAllowancePct} onChange={(e) => setForm({ ...form, wasteAllowancePct: e.target.value })} placeholder="e.g. 5" className={inputCls} />
               </Labeled>
               <Labeled label="Reorder qty">
                 <input type="number" value={form.reorderQty} onChange={(e) => setForm({ ...form, reorderQty: e.target.value })} className={inputCls} />
@@ -492,6 +619,7 @@ function ItemDrawer({
   const [mvQty, setMvQty] = useState("");
   const [mvRef, setMvRef] = useState("");
   const [mvNotes, setMvNotes] = useState("");
+  const [mvReason, setMvReason] = useState("");
   const [saving, setSaving] = useState(false);
 
   const load = async () => {
@@ -520,15 +648,23 @@ function ItemDrawer({
   const recordMovement = async () => {
     const qty = Number(mvQty);
     if (!qty || qty <= 0) return toast.error("Enter a quantity greater than 0");
+    // The API rejects unattributed waste; say so here rather than round-tripping.
+    if (mvType === "waste" && !mvReason) return toast.error("Pick why it was wasted — the cause is what makes the figure actionable");
     setSaving(true);
     try {
-      await api.addInventoryMovement(itemId, { type: mvType, quantity: qty, reference: mvRef.trim() || undefined, notes: mvNotes.trim() || undefined });
-      setMvQty(""); setMvRef(""); setMvNotes("");
+      await api.addInventoryMovement(itemId, {
+        type: mvType,
+        quantity: qty,
+        reference: mvRef.trim() || undefined,
+        notes: mvNotes.trim() || undefined,
+        reason: mvType === "waste" ? mvReason : undefined,
+      });
+      setMvQty(""); setMvRef(""); setMvNotes(""); setMvReason("");
       toast.success("Movement recorded");
       await load();
       onChanged();
-    } catch {
-      toast.error("Couldn't record movement");
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't record movement");
     } finally {
       setSaving(false);
     }
@@ -594,6 +730,29 @@ function ItemDrawer({
                     <input type="number" value={mvQty} onChange={(e) => setMvQty(e.target.value)} className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" />
                   </Labeled>
                 </div>
+                {/* Reason is required for waste and shown only then, so the common
+                    cases (delivery in, issue out) stay one line as before. */}
+                {mvType === "waste" && (
+                  <Labeled label="Why was it wasted?">
+                    <select value={mvReason} onChange={(e) => setMvReason(e.target.value)} className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]">
+                      <option value="">Pick a cause…</option>
+                      {WASTE_REASONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+                    </select>
+                    {mvReason && (
+                      <div className="text-[10px] text-[#5B6675] mt-1">{WASTE_REASONS.find((r) => r.value === mvReason)?.hint}</div>
+                    )}
+                    {item?.unitCostKES != null && Number(mvQty) > 0 && (
+                      <div className="text-[11px] text-[#EF4444] mt-1.5">
+                        Writes off {fmt(Math.round(Number(mvQty) * item.unitCostKES))} at the current unit cost.
+                      </div>
+                    )}
+                  </Labeled>
+                )}
+                {mvType === "adjust" && (
+                  <div className="text-[10px] text-[#8A95A5] rounded-md border border-[#222A35] bg-[#11161D] px-2.5 py-2">
+                    Enter the quantity you actually counted. Any difference against the system figure is recorded as a shortfall or surplus and valued at the unit cost.
+                  </div>
+                )}
                 <Labeled label="Reference">
                   <input value={mvRef} onChange={(e) => setMvRef(e.target.value)} placeholder="e.g. GRN-104 / Delivery note" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]" />
                 </Labeled>
@@ -614,25 +773,35 @@ function ItemDrawer({
               ) : (
                 <div className="space-y-1.5">
                   {movements.map((m) => {
-                    const sign = m.type === "out" ? "−" : m.type === "in" ? "+" : "±";
-                    const color = m.type === "out" ? "#EF4444" : m.type === "in" ? "#22C55E" : "#F5A623";
-                    const MvIcon = m.type === "out" ? ArrowUpFromLine : ArrowDownToLine;
+                    // Waste reads distinctly from an ordinary issue: they move
+                    // stock the same way, but only one of them is money lost.
+                    const isWaste = m.type === "waste";
+                    const sign = m.type === "out" || isWaste ? "−" : m.type === "in" ? "+" : "±";
+                    const color = isWaste ? "#F97316" : m.type === "out" ? "#EF4444" : m.type === "in" ? "#22C55E" : "#F5A623";
+                    const MvIcon = m.type === "out" || isWaste ? ArrowUpFromLine : ArrowDownToLine;
                     return (
-                      <div key={m.id} className="border border-[#222A35] rounded-md px-3 py-2 text-[12px] text-[#C2CAD6]">
+                      <div key={m.id} className={`border rounded-md px-3 py-2 text-[12px] text-[#C2CAD6] ${isWaste ? "border-[#F97316]/40 bg-[#F97316]/[0.06]" : "border-[#222A35]"}`}>
                         <div className="flex items-center justify-between">
                           <span className="flex items-center gap-1.5" style={{ color }}>
                             <MvIcon className="w-3.5 h-3.5" />
                             {sign}{m.quantity} {item.unit}
+                            {isWaste && <span className="text-[10px] uppercase tracking-wider">wasted</span>}
                           </span>
                           <span className="text-[10px] text-[#8A95A5]">{new Date(m.date).toLocaleDateString()}</span>
                         </div>
                         <div className="flex items-center justify-between text-[11px] text-[#8A95A5] mt-0.5">
                           <span>
-                            {m.reference ? `Ref: ${m.reference}` : "—"}
+                            {m.reason ? `${REASON_LABEL[m.reason] || m.reason}` : m.reference ? `Ref: ${m.reference}` : "—"}
                             {m.actorName ? ` · ${m.actorName}` : ""}
                           </span>
                           {m.balanceAfter != null && <span>Bal: {m.balanceAfter} {item.unit}</span>}
                         </div>
+                        {/* What it cost, priced when it happened. Shown for anything
+                            that removed value, so the ledger reads as money and not
+                            just quantities. */}
+                        {m.valueKES != null && (isWaste || m.reason === "shrinkage") && (
+                          <div className="text-[11px] text-[#F97316] mt-1">{fmt(Math.round(m.valueKES))} written off</div>
+                        )}
                       </div>
                     );
                   })}

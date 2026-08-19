@@ -635,6 +635,11 @@ model InventoryItem {
   maxLevel        Float?   // maximum / target stock
   reorderQty      Float?   // suggested quantity to reorder
   leadTimeDays    Int?     // supplier lead time in days
+  // Acceptable waste for this material as a percentage of what is issued (tiles
+  // and timber legitimately produce off-cuts; cement should not). Without an
+  // allowance there is no way to say whether a waste figure is normal or a
+  // problem worth acting on.
+  wasteAllowancePct Float?
   supplierContact String?  // supplier phone/email
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -647,7 +652,22 @@ model InventoryMovement {
   id           String   @id @default(cuid())
   workspaceId  String?
   itemId       String
-  type         String   // in | out | adjust
+  // in | out | waste | adjust
+  //
+  // "waste" used to be impossible to record. Material thrown away looked exactly
+  // like material properly issued to the works, so the one number a site manager
+  // most needs — how much of what we bought never made it into the building —
+  // could not be produced from this ledger at all.
+  type         String
+  // WHY it was wasted. Required for waste movements: damaged | offcut | spoiled
+  // | theft | over_order | rework | weather | other. Waste you cannot attribute
+  // is waste you cannot stop.
+  reason       String?
+  // Cost SNAPSHOT at the moment of the movement. unitCostKES on the item changes
+  // as prices move, so valuing an old movement at today's price misstates it.
+  unitCostKES  Float?
+  valueKES     Float?   // quantity * unitCostKES, stored so reports need no re-derivation
+  projectId    String?  // which project consumed or wasted it
   quantity     Float
   balanceAfter Float?   // resulting currentStock after this movement was applied
   date         DateTime @default(now())

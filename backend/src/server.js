@@ -2589,8 +2589,8 @@ app.delete('/api/equipment/:id', auth, async (req, res) => {
 // recording movements is limited to the site/management roles that run material
 // stock (mirrors CAN_ASSIGN_TASKS: site supervisors, PM, contractor, etc.).
 const CAN_MANAGE_INVENTORY = ['Contractor', 'Executive', 'Project Manager', 'Superintendent', 'Trade Lead'];
-const INVENTORY_FIELDS = ['projectId', 'name', 'category', 'unit', 'reorderLevel', 'unitCostKES', 'supplier', 'location', 'notes', 'status', 'sku', 'minLevel', 'maxLevel', 'reorderQty', 'leadTimeDays', 'supplierContact'];
-const INVENTORY_NUMERIC_FIELDS = ['reorderLevel', 'unitCostKES', 'minLevel', 'maxLevel', 'reorderQty', 'leadTimeDays'];
+const INVENTORY_FIELDS = ['projectId', 'name', 'category', 'unit', 'reorderLevel', 'unitCostKES', 'supplier', 'location', 'notes', 'status', 'sku', 'minLevel', 'maxLevel', 'reorderQty', 'leadTimeDays', 'supplierContact', 'wasteAllowancePct'];
+const INVENTORY_NUMERIC_FIELDS = ['reorderLevel', 'unitCostKES', 'minLevel', 'maxLevel', 'reorderQty', 'leadTimeDays', 'wasteAllowancePct'];
 const pickInventory = (b) => {
   const d = {};
   for (const f of INVENTORY_FIELDS) if (b[f] !== undefined) d[f] = b[f];
@@ -2663,22 +2663,43 @@ app.get('/api/inventory/:id/movements', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+const WASTE_REASONS = ['damaged', 'offcut', 'spoiled', 'theft', 'over_order', 'rework', 'weather', 'other'];
+
 // Record a movement and apply the stock logic to the item's cached currentStock:
 //   in     -> currentStock += quantity
-//   out    -> currentStock -= quantity (may go to/below 0; UI flags negatives)
-//   adjust -> currentStock = quantity (a correction sets the absolute value)
+//   out    -> currentStock -= quantity   (issued to the works)
+//   waste  -> currentStock -= quantity   (bought but never became building)
+//   adjust -> currentStock = quantity    (stock take sets the absolute value)
 app.post('/api/inventory/:id/movements', auth, requireRole(CAN_MANAGE_INVENTORY), async (req, res) => {
   try {
-    const { type, quantity, reference, notes, date } = req.body || {};
-    if (!['in', 'out', 'adjust'].includes(type)) return res.status(400).json({ error: 'type must be in | out | adjust' });
+    const { type, quantity, reference, notes, date, reason, projectId, unitCostKES } = req.body || {};
+    if (!['in', 'out', 'waste', 'adjust'].includes(type)) return res.status(400).json({ error: 'type must be in | out | waste | adjust' });
     const qty = Number(quantity);
     if (!Number.isFinite(qty)) return res.status(400).json({ error: 'quantity must be a number' });
+    if (qty < 0) return res.status(400).json({ error: 'quantity cannot be negative — the movement type says which way stock moves' });
+    // Waste MUST carry a reason. An unattributed waste figure tells you money
+    // disappeared but nothing about how to stop it happening again, which is the
+    // whole point of recording it.
+    if (type === 'waste' && !WASTE_REASONS.includes(String(reason || ''))) {
+      return res.status(400).json({ error: 'waste needs a reason: ' + WASTE_REASONS.join(', ') });
+    }
     const item = await prisma.inventoryItem.findUnique({ where: { id: req.params.id } });
     if (!item) return res.status(404).json({ error: 'Not found' });
+
     let newStock;
     if (type === 'in') newStock = item.currentStock + qty;
-    else if (type === 'out') newStock = item.currentStock - qty;
+    else if (type === 'out' || type === 'waste') newStock = item.currentStock - qty;
     else newStock = qty; // adjust = absolute correction
+
+    // Price the movement AT THE TIME it happens. unitCostKES on the item moves
+    // with the market, so valuing a movement later at today's price misstates
+    // what it actually cost. The caller may override for a delivery at a new price.
+    const unitCost = Number.isFinite(Number(unitCostKES)) ? Number(unitCostKES) : (item.unitCostKES != null ? item.unitCostKES : null);
+    // For an adjust, what matters financially is the DELTA, not the new total: a
+    // stock take finding 80 bags where the system said 100 is a 20-bag loss.
+    const valuedQty = type === 'adjust' ? Math.abs(newStock - item.currentStock) : qty;
+    const valueKES = unitCost != null ? Math.round(valuedQty * unitCost * 100) / 100 : null;
+
     const movement = await prisma.inventoryMovement.create({ data: {
       itemId: item.id,
       type,
@@ -2687,6 +2708,18 @@ app.post('/api/inventory/:id/movements', auth, requireRole(CAN_MANAGE_INVENTORY)
       date: date ? new Date(date) : undefined,
       reference: reference || null,
       notes: notes || null,
+      // For a stock take, record WHICH WAY it went. balanceAfter equals quantity
+      // on an adjust, so the delta cannot be recovered from the row afterwards —
+      // and a count that comes up short (shrinkage, theft, unrecorded issues) needs
+      // a different response from one that comes up long.
+      reason: type === 'waste'
+        ? String(reason)
+        : type === 'adjust'
+          ? (newStock < item.currentStock ? 'shrinkage' : newStock > item.currentStock ? 'surplus' : 'no_change')
+          : (reason || null),
+      unitCostKES: unitCost,
+      valueKES,
+      projectId: projectId || item.projectId || null,
       actorId: (req.user && req.user.sub) || null,
       actorName: (req.user && req.user.name) || null,
     } });
@@ -2695,6 +2728,109 @@ app.post('/api/inventory/:id/movements', auth, requireRole(CAN_MANAGE_INVENTORY)
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+
+// ===== WASTAGE REPORT =====
+// Answers the question the ledger alone cannot: how much material did we buy that
+// never became building, what was it, why did it go, on which project, and what
+// did it cost. Everything here is derived from recorded movements — nothing is
+// estimated or invented.
+//
+// ?from=YYYY-MM-DD &to=YYYY-MM-DD &projectId=
+app.get('/api/inventory/wastage', auth, async (req, res) => {
+  try {
+    const { from, to, projectId } = req.query;
+    const where = { type: { in: ['out', 'waste', 'adjust'] } };
+    if (from || to) {
+      where.date = {};
+      if (from) where.date.gte = new Date(String(from));
+      if (to) { const t = new Date(String(to)); t.setHours(23, 59, 59, 999); where.date.lte = t; }
+    }
+    if (projectId) where.projectId = String(projectId);
+
+    const movements = await prisma.inventoryMovement.findMany({ where, orderBy: { date: 'desc' } });
+    const itemIds = [...new Set(movements.map((m) => m.itemId))];
+    const items = itemIds.length
+      ? await prisma.inventoryItem.findMany({ where: { id: { in: itemIds } } })
+      : [];
+    const byId = new Map(items.map((i) => [i.id, i]));
+
+    const waste = movements.filter((m) => m.type === 'waste');
+    const issued = movements.filter((m) => m.type === 'out');
+    // A stock take that finds LESS than the system expected is unexplained loss —
+    // shrinkage, theft or unrecorded issues. It is reported separately from
+    // declared waste because the two need different responses.
+    const shrinkage = movements.filter((m) => m.type === 'adjust' && m.reason === 'shrinkage');
+
+    const sum = (rows, f) => Math.round(rows.reduce((a, r) => a + (Number(f(r)) || 0), 0) * 100) / 100;
+    const wasteValue = sum(waste, (m) => m.valueKES);
+    const issuedValue = sum(issued, (m) => m.valueKES);
+
+    // Waste by reason — where the money actually goes.
+    const byReason = {};
+    for (const m of waste) {
+      const k = m.reason || 'other';
+      if (!byReason[k]) byReason[k] = { reason: k, quantity: 0, valueKES: 0, movements: 0 };
+      byReason[k].quantity += Number(m.quantity) || 0;
+      byReason[k].valueKES += Number(m.valueKES) || 0;
+      byReason[k].movements += 1;
+    }
+
+    // Waste by material, with each item's own allowance so "is this normal?" is
+    // answerable rather than a judgement call.
+    const byItem = {};
+    for (const m of movements) {
+      const item = byId.get(m.itemId);
+      if (!item) continue;
+      if (!byItem[m.itemId]) {
+        byItem[m.itemId] = {
+          itemId: m.itemId, name: item.name, unit: item.unit, category: item.category || null,
+          wasteAllowancePct: item.wasteAllowancePct ?? null,
+          wastedQty: 0, wastedValueKES: 0, issuedQty: 0, issuedValueKES: 0,
+        };
+      }
+      const b = byItem[m.itemId];
+      if (m.type === 'waste') { b.wastedQty += Number(m.quantity) || 0; b.wastedValueKES += Number(m.valueKES) || 0; }
+      if (m.type === 'out') { b.issuedQty += Number(m.quantity) || 0; b.issuedValueKES += Number(m.valueKES) || 0; }
+    }
+    const items_ = Object.values(byItem).map((b) => {
+      // Waste rate = wasted / (issued + wasted): of everything that left the
+      // store for this material, what share never became building.
+      const consumed = b.issuedQty + b.wastedQty;
+      const wastePct = consumed > 0 ? Math.round((b.wastedQty / consumed) * 1000) / 10 : 0;
+      const allowance = b.wasteAllowancePct;
+      return {
+        ...b,
+        wastedQty: Math.round(b.wastedQty * 100) / 100,
+        wastedValueKES: Math.round(b.wastedValueKES * 100) / 100,
+        issuedQty: Math.round(b.issuedQty * 100) / 100,
+        issuedValueKES: Math.round(b.issuedValueKES * 100) / 100,
+        wastePct,
+        // Only a claim when there IS an allowance to measure against.
+        overAllowance: allowance != null ? wastePct > allowance : null,
+        overBy: allowance != null && wastePct > allowance ? Math.round((wastePct - allowance) * 10) / 10 : 0,
+      };
+    }).sort((a, b) => b.wastedValueKES - a.wastedValueKES);
+
+    const totalConsumedValue = wasteValue + issuedValue;
+    res.json({
+      totals: {
+        wasteValueKES: wasteValue,
+        issuedValueKES: issuedValue,
+        shrinkageValueKES: sum(shrinkage, (m) => m.valueKES),
+        wastePctOfConsumed: totalConsumedValue > 0 ? Math.round((wasteValue / totalConsumedValue) * 1000) / 10 : 0,
+        wasteMovements: waste.length,
+      },
+      byReason: Object.values(byReason)
+        .map((r) => ({ ...r, quantity: Math.round(r.quantity * 100) / 100, valueKES: Math.round(r.valueKES * 100) / 100 }))
+        .sort((a, b) => b.valueKES - a.valueKES),
+      byItem: items_,
+      // How much of this is unpriced. A total built from movements with no unit
+      // cost understates the loss, and saying so is better than quietly showing a
+      // number that is too small.
+      unpricedMovements: movements.filter((m) => m.valueKES == null).length,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 // ===== ATTENDANCE =====
 app.get('/api/attendance', auth, async (req, res) => {
   try {
