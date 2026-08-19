@@ -221,7 +221,7 @@ export default function App() {
   // Start locked (active:false) so we NEVER flash the dashboard before the
   // subscription status is known. `gateLoaded` stays false until the first
   // check resolves; until then we hold on a neutral loading screen.
-  const [gate, setGate] = useState<{ configured: boolean; active: boolean; overdue: boolean; unpaidDue: string | null }>({ configured: false, active: false, overdue: false, unpaidDue: null });
+  const [gate, setGate] = useState<{ configured: boolean; active: boolean; overdue: boolean; unpaidDue: string | null; isBillingOwner: boolean }>({ configured: false, active: false, overdue: false, unpaidDue: null, isBillingOwner: false });
   const [gateLoaded, setGateLoaded] = useState(false);
   const [gateNonce, setGateNonce] = useState(0);
   useEffect(() => {
@@ -236,9 +236,20 @@ export default function App() {
         ]);
         const open = (Array.isArray(invoices) ? invoices : []).filter((i: any) => i.status !== "paid" && i.status !== "void");
         const now = Date.now();
-        const overdue = open.some((i: any) => new Date(i.dueDate).getTime() < now);
         const soonest = open.map((i: any) => i.dueDate).sort()[0] || null;
-        if (alive) setGate({ configured: !!(plans as any).configured, active: (sub as any)?.status === "active", overdue, unpaidDue: soonest });
+        // Only the person who HANDLES billing is stopped by an overdue invoice.
+        // Invoices are workspace-scoped, so this used to lock out every teammate
+        // in the workspace over the owner's late payment — a site engineer would
+        // be shown "Payment required" for a bill they cannot see or settle.
+        const isBillingOwner = !!(sub as any)?.isBillingOwner;
+        const overdue = isBillingOwner && open.some((i: any) => new Date(i.dueDate).getTime() < now);
+        if (alive) setGate({
+          configured: !!(plans as any).configured,
+          active: (sub as any)?.status === "active",
+          overdue,
+          unpaidDue: soonest,
+          isBillingOwner,
+        });
       } catch { /* ignore */ }
       finally { if (alive) setGateLoaded(true); }
     })();
@@ -392,10 +403,23 @@ export default function App() {
                   <div className="w-12 h-12 rounded-xl bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 flex items-center justify-center mx-auto">
                     <CreditCard className="w-6 h-6 text-[#FF6B1A]" />
                   </div>
-                  <div className="text-[18px] text-white font-display mt-4">{gate.overdue ? "Payment required" : "Activate your workspace"}</div>
-                  <p className="text-[12.5px] text-[#8A95A5] mt-2 leading-relaxed">{gate.overdue ? "You have an overdue invoice. Pay it to continue using your workspace." : "Choose a plan to unlock Buildsasa for your company. You can manage or cancel anytime from Billing."}</p>
+                  <div className="text-[18px] text-white font-display mt-4">
+                    {gate.overdue ? "Payment required" : gate.isBillingOwner ? "Activate your workspace" : "This workspace isn't active yet"}
+                  </div>
+                  {/* A teammate cannot settle their company's bill. Sending them to a
+                      checkout they have no authority over is a dead end, so they are
+                      told who to speak to instead. */}
+                  <p className="text-[12.5px] text-[#8A95A5] mt-2 leading-relaxed">
+                    {gate.overdue
+                      ? "You have an overdue invoice. Pay it to continue using your workspace."
+                      : gate.isBillingOwner
+                        ? "Choose a plan to unlock Buildsasa for your company. You can manage or cancel anytime from Billing."
+                        : "Your company's Buildsasa plan is not active. Ask whoever manages your account to activate it — you will get straight in once they do."}
+                  </p>
                   <div className="flex gap-2 justify-center mt-5">
-                    <button onClick={() => setView("billing")} className="h-10 px-5 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[12.5px]">{gate.overdue ? "Pay invoice" : "Choose a plan"}</button>
+                    {gate.isBillingOwner && (
+                      <button onClick={() => setView("billing")} className="h-10 px-5 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[12.5px]">{gate.overdue ? "Pay invoice" : "Choose a plan"}</button>
+                    )}
                     <button onClick={() => { try { localStorage.removeItem("constructai-token"); localStorage.removeItem("constructai-user"); localStorage.removeItem("constructai-refresh"); } catch { /* noop */ } setView("login"); }} className="h-10 px-4 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white text-[12.5px]">Sign out</button>
                   </div>
                 </div>

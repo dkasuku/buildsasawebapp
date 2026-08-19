@@ -440,11 +440,18 @@ function emailStatus() {
 
 // Tiny on-brand email wrapper.
 function emailShell(title, bodyHtml) {
+  // The logo is a remote image, and most clients block those until the reader
+  // allows them. The alt text is therefore the wordmark itself, styled in the
+  // brand orange, so a blocked image degrades to "Buildsasa" in the right colour
+  // rather than a broken-image icon.
   return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#11161D">
-    <div style="font-size:18px;font-weight:600;color:#FF6B1A">Buildsasa</div>
+    <img src="${APP_URL}/Buildsasa.png" width="40" height="40" alt="Buildsasa"
+         style="display:block;width:40px;height:40px;border:0;outline:none;text-decoration:none;font-size:18px;font-weight:600;color:#FF6B1A" />
+    <div style="font-size:18px;font-weight:600;color:#FF6B1A;margin-top:8px">Buildsasa</div>
+    <div style="font-size:12px;color:#8A95A5;margin-top:2px">Building tomorrow, empowered by AI</div>
     <h2 style="font-size:18px;margin:16px 0 8px">${title}</h2>
     ${bodyHtml}
-    <p style="font-size:12px;color:#8A95A5;margin-top:24px">If you didn't expect this email, you can safely ignore it.</p>
+    <p style="font-size:12px;color:#8A95A5;margin-top:24px;border-top:1px solid #E7EBF0;padding-top:12px">If you didn't expect this email, you can safely ignore it.</p>
   </div>`;
 }
 
@@ -4607,13 +4614,23 @@ app.get('/api/billing/plans', async (_req, res) => {
 
 app.get('/api/billing/subscription', auth, async (req, res) => {
   try {
-    // Comped accounts (FREE_ACCESS_EMAILS) always report an active subscription
-    // so the paywall never engages — they use the product for free.
-    if (hasFreeAccess(req.user?.email)) {
-      return res.json({ status: 'active', plan: 'comp', comp: true, currentPeriodEnd: new Date(Date.now() + 3650 * 864e5) });
+    // Comped accounts (FREE_ACCESS_EMAILS) and platform admins always report an
+    // active subscription so the paywall never engages. Admins run this product;
+    // locking them out of it behind its own checkout is nonsense, and it used to
+    // happen because only FREE_ACCESS_EMAILS was checked here.
+    if (hasFreeAccess(req.user?.email) || isPlatformAdmin(req.user?.email)) {
+      return res.json({ status: 'active', plan: 'comp', comp: true, isBillingOwner: true, currentPeriodEnd: new Date(Date.now() + 3650 * 864e5) });
     }
-    const sub = await prisma.subscription.findFirst({ where: {}, orderBy: { createdAt: 'desc' } });
-    res.json(sub || { status: 'inactive' });
+    // Prefer an ACTIVE subscription over merely the newest row. Every abandoned
+    // checkout writes an 'inactive' row, so taking the latest by date meant one
+    // half-finished payment attempt could paywall a workspace that had already
+    // paid — and every member of it.
+    const active = await prisma.subscription.findFirst({ where: { status: 'active' }, orderBy: { createdAt: 'desc' } });
+    const sub = active || await prisma.subscription.findFirst({ where: {}, orderBy: { createdAt: 'desc' } });
+    // Who actually handles billing for this workspace. Everyone else rides on the
+    // workspace's status and is never sent to a checkout they cannot complete.
+    const isBillingOwner = !!sub && sub.userId === req.user.sub;
+    res.json(sub ? { ...sub, isBillingOwner } : { status: 'inactive', isBillingOwner: false });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -4719,7 +4736,7 @@ app.get('/api/billing/invoices', auth, async (req, res) => {
   try {
     // Comped accounts never owe anything — report no invoices so the overdue
     // paywall can never engage for them.
-    if (hasFreeAccess(req.user?.email)) return res.json([]);
+    if (hasFreeAccess(req.user?.email) || isPlatformAdmin(req.user?.email)) return res.json([]);
     // Lazy renewal: if the active subscription has lapsed and there's no open
     // invoice, auto-issue one due now so the user is prompted to pay & continue.
     const sub = await prisma.subscription.findFirst({ where: {}, orderBy: { createdAt: 'desc' } });
