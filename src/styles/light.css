@@ -102,16 +102,28 @@ html.theme-anim *::after {
 .theme-light .text-\[\#3A4350\] { color: #94A3B8 !important; }
 .theme-light .placeholder\:text-\[\#5B6675\]::placeholder { color: #94A3B8 !important; }
 
+/* ───── Hover text ─────
+   THE FIX: 225 places use "text-[#8A95A5] hover:text-white" — muted grey that
+   brightens on hover. In light mode .text-white is darkened to ink, but the
+   HOVER variant generates its own class (.hover:text-white) which that rule
+   never matched. So hovering a dropdown item painted pure white text on a
+   near-white hover surface: the label vanished under the cursor. In light mode
+   "brightens" has to mean "darkens to ink". Every one of those usages sits on a
+   neutral surface — the selected/active states use text-black or the orange
+   accent — so this is safe across all of them. */
+.theme-light .hover\:text-white:hover { color: #0F172A !important; }
+.theme-light .group:hover .group-hover\:text-white { color: #0F172A !important; }
+
 /* ───── Hover surfaces ───── */
 .theme-light .hover\:bg-\[\#0A0E14\]:hover { background-color: #EEF1F6 !important; }
 .theme-light .hover\:bg-\[\#11161D\]:hover { background-color: #F7F9FC !important; }
-.theme-light .hover\:bg-\[\#161C24\]:hover { background-color: #E7EBF0 !important; }
-.theme-light .hover\:bg-\[\#161D27\]:hover { background-color: #E7EBF0 !important; }
+.theme-light .hover\:bg-\[\#161C24\]:hover { background-color: #DFE5EE !important; }
+.theme-light .hover\:bg-\[\#161D27\]:hover { background-color: #DFE5EE !important; }
 .theme-light .bg-\[\#161D27\] { background-color: #EEF1F6 !important; }
 .theme-light .bg-\[\#0F141B\] { background-color: #EEF1F6 !important; }
-.theme-light .hover\:bg-\[\#0F141B\]:hover { background-color: #E7EBF0 !important; }
+.theme-light .hover\:bg-\[\#0F141B\]:hover { background-color: #DFE5EE !important; }
 .theme-light .hover\:bg-\[\#1A222C\]:hover,
-.theme-light .hover\:bg-\[\#1C2530\]:hover { background-color: #E7EBF0 !important; }
+.theme-light .hover\:bg-\[\#1C2530\]:hover { background-color: #DFE5EE !important; }
 /* Row hover used in pick-lists (e.g. Assign Checklist members). Without this the
    raw #222A35 dark hover stayed dark while text darkened — invisible in light mode. */
 .theme-light .hover\:bg-\[\#222A35\]:hover { background-color: #DDE2EA !important; }
