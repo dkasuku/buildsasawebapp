@@ -3609,9 +3609,14 @@ app.delete('/api/checklists/:id/responses/:responseId', auth, requireRole(CAN_FI
 });
 
 // ===== CHAT / INBOX =====
+// currentUserId: a real token carries `sub`; the demo fallback also sets `id`.
+// Reading only `id` broke every one of these routes for signed-in users while
+// working perfectly in demo mode, which is how it shipped unnoticed.
+const currentUserId = (req) => (req.user && (req.user.sub || req.user.id)) || null;
+
 app.get('/api/conversations', auth, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = currentUserId(req);
     const rows = await prisma.conversation.findMany({
       where: { members: { some: { userId } } },
       include: {
@@ -3637,11 +3642,20 @@ app.get('/api/conversations/:id/messages', auth, async (req, res) => {
 app.post('/api/conversations', auth, async (req, res) => {
   try {
     const { name, type, memberIds } = req.body;
-    const userId = req.user.id;
+    const userId = currentUserId(req);
+    if (!userId) return res.status(401).json({ error: 'Not signed in' });
+    // Groups only, for now. One-to-one messaging is deliberately off: a decision
+    // taken in a private thread leaves no record for the people it affects.
+    // Enforced HERE and not only in the UI — hiding a button is a suggestion,
+    // not a rule, and the endpoint is callable directly.
+    if (type && type !== 'group') {
+      return res.status(400).json({ error: 'Direct messages are turned off. Create a group so the conversation stays with the team.' });
+    }
+    if (!String(name || '').trim()) return res.status(400).json({ error: 'A group needs a name' });
     const row = await prisma.conversation.create({
       data: {
         name: name || undefined,
-        type: type || 'group',
+        type: 'group',
         creatorId: userId,
         members: {
           create: [
@@ -3659,7 +3673,8 @@ app.post('/api/conversations', auth, async (req, res) => {
 app.post('/api/conversations/:id/messages', auth, async (req, res) => {
   try {
     const { text, attachment, replyToId, taskId, taskTitle } = req.body;
-    const userId = req.user.id;
+    const userId = currentUserId(req);
+    if (!userId) return res.status(401).json({ error: 'Not signed in' });
     const row = await prisma.chatMessage.create({
       data: {
         text: text || '',
@@ -3713,7 +3728,7 @@ app.delete('/api/conversations/:id/members/:memberId', auth, async (req, res) =>
 app.put('/api/conversations/:id/read', auth, async (req, res) => {
   try {
     await prisma.chatMessage.updateMany({
-      where: { conversationId: req.params.id, userId: { not: req.user.id }, read: false },
+      where: { conversationId: req.params.id, userId: { not: currentUserId(req) }, read: false },
       data: { read: true },
     });
     res.json({ ok: true });

@@ -248,32 +248,6 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
     setLinkedTaskTitle("");
     setLinkTaskOpen(false);
   };
-
-  // Open a 1:1 with a teammate from the team panel. Reuses the existing
-  // conversation when there already is one, so clicking a name twice does not
-  // create a second identical thread.
-  const startDirect = async (userId: string) => {
-    if (userId === myId) return;
-    const existing = conversations.find(
-      (c) => c.type === "direct" && c.members.length === 2 && c.members.includes(userId) && c.members.includes(myId),
-    );
-    if (existing) { setSelectedId(existing.id); setShowMembers(false); return; }
-    const name = getMember(userId)?.name || "Direct message";
-    try {
-      const row = await api.createConversation({ name, type: "direct", memberIds: [myId, userId] });
-      const convo: Conversation = {
-        id: row.id, type: "direct", name,
-        members: row.members.map((m) => m.userId), messages: [], lastActivity: "Just now",
-        creatorId: row.creatorId || myId, admins: [],
-      };
-      setConversations((prev) => [convo, ...prev]);
-      setSelectedId(convo.id);
-      setShowMembers(false);
-    } catch (e: any) {
-      toast.error(e?.message || "Could not start that conversation");
-    }
-  };
-
   const createGroup = async () => {
     if (!newGroup.name.trim() || newGroup.memberIds.length < 2) return toast.error("Group needs a name and at least 2 members");
     try {
@@ -573,15 +547,19 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
               </div>
             ) : (
               <div className="overflow-y-auto flex-1 p-3 space-y-2">
-                <div className="text-[11px] text-[#5B6675] px-1 pb-1">Pick someone to start a conversation.</div>
+                {/* A roster, not a launcher. One-to-one messaging is deliberately
+                    off for now — conversations happen in named groups so the
+                    record of a decision stays with the people it affects instead
+                    of disappearing into a private thread. */}
+                <div className="text-[11px] text-[#5B6675] px-1 pb-2 leading-relaxed">
+                  Everyone in this workspace. Messaging happens in groups — use <span className="text-[#C2CAD6]">New Group</span> to start one.
+                </div>
                 {team.map((m) => {
                   const isMe = m.id === myId;
                   return (
-                    <button
+                    <div
                       key={m.id}
-                      disabled={isMe}
-                      onClick={() => startDirect(m.id)}
-                      className="w-full flex items-center gap-2.5 p-2 rounded-lg hover:bg-[#161C24] transition text-left disabled:opacity-50 disabled:hover:bg-transparent"
+                      className="w-full flex items-center gap-2.5 p-2 rounded-lg text-left"
                     >
                       <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-[10px] font-medium shrink-0" style={{ background: ROLE_COLORS[m.role as Role] }}>
                         {m.initials}
@@ -595,8 +573,7 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
                           {m.role}
                         </div>
                       </div>
-                      {!isMe && <MessageSquare className="w-3.5 h-3.5 text-[#5B6675] shrink-0" />}
-                    </button>
+                    </div>
                   );
                 })}
               </div>
