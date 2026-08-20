@@ -814,12 +814,19 @@ function ScheduledReportsPanel({ reports, onAdd, onToggle, onDelete }: { reports
           </table>
         </div>
       </div>
+      {/* A "Push Notification Settings" panel stood here with an Enable button
+          whose entire implementation was toast.success("Push notifications
+          enabled") — nothing was stored, nothing was enabled, and there is no
+          service worker, VAPID key or subscription anywhere in the product. It
+          promised mobile alerts that could never arrive. Replaced with a plain
+          statement of how a scheduled report is actually delivered. */}
       <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-4 space-y-2">
-        <div className="text-[12px] text-white font-display">Push Notification Settings</div>
-        <div className="text-[11px] text-[#8A95A5]">When a scheduled report is generated, recipients can receive push notifications to their mobile devices.</div>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-[11px] text-[#8A95A5]">
-          <div className="flex items-center gap-2"><Bell className="w-3.5 h-3.5 text-[#FF6B1A]" /> Enable push notifications for scheduled reports</div>
-          <button onClick={() => toast.success("Push notifications enabled for scheduled reports")} className="sm:ml-auto px-2 py-1 rounded text-[10px] bg-[#FF6B1A]/15 text-[#FF6B1A] border border-[#FF6B1A]/30 shrink-0">Enable</button>
+        <div className="text-[12px] text-white font-display flex items-center gap-2">
+          <Bell className="w-3.5 h-3.5 text-[#FF6B1A]" /> How reports are delivered
+        </div>
+        <div className="text-[11px] text-[#8A95A5] leading-relaxed">
+          Each schedule is generated on its due date and emailed to the recipients listed above. Add anyone who should
+          receive it — they do not need a Buildsasa account to read it.
         </div>
       </div>
     </div>

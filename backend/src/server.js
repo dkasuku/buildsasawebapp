@@ -2941,6 +2941,120 @@ app.get('/api/inventory/wastage', auth, async (req, res) => {
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// ===== SCHEDULED REPORT RUNNER =====
+// Scheduled reports were stored with a nextRunAt and then never executed — the
+// only timer in this file refreshed the admin cache. A schedule could be created,
+// its date would pass, and nothing was generated or sent. The Scheduled tab
+// described a recurring email that did not exist.
+//
+// Every figure below is counted from real rows. Nothing is estimated, and a
+// section with no data says so rather than showing a zero that looks like a fact.
+
+const REPORT_PERIOD_DAYS = { daily: 1, weekly: 7, monthly: 30 };
+
+function advanceRunDate(from, frequency) {
+  const d = new Date(from);
+  if (frequency === 'daily') d.setDate(d.getDate() + 1);
+  else if (frequency === 'monthly') d.setMonth(d.getMonth() + 1);
+  else d.setDate(d.getDate() + 7); // weekly is the default
+  return d;
+}
+
+const fmtKES = (n) => 'KSh ' + Math.round(Number(n) || 0).toLocaleString('en-KE');
+
+function reportRow(label, value) {
+  return `<tr>
+    <td style="padding:6px 0;font-size:13px;color:#475569">${label}</td>
+    <td style="padding:6px 0;font-size:13px;color:#0F172A;text-align:right;font-weight:600">${value}</td>
+  </tr>`;
+}
+
+// Build the body from actual rows in the report's own workspace.
+async function buildScheduledReportBody(report) {
+  const ws = report.workspaceId || undefined;
+  const since = new Date(Date.now() - (REPORT_PERIOD_DAYS[report.frequency] || 7) * 864e5);
+  const scope = ws ? { workspaceId: ws } : {};
+  const projectScope = report.projectId ? { projectId: report.projectId } : {};
+  const type = String(report.reportType || '').toLowerCase();
+  const rows = [];
+
+  if (type.includes('financial')) {
+    const [cos, commitments, invoices] = await Promise.all([
+      prismaBase.changeOrder.findMany({ where: { ...scope, ...projectScope, createdAt: { gte: since } } }),
+      prismaBase.commitment.findMany({ where: { ...scope, ...projectScope } }),
+      prismaBase.invoice.findMany({ where: { ...scope, ...projectScope } }),
+    ]);
+    const coValue = cos.reduce((a, c) => a + (Number(c.costUSD) || 0) * USD_TO_KES, 0);
+    rows.push(reportRow('Change orders raised', cos.length));
+    rows.push(reportRow('Their value', fmtKES(coValue)));
+    rows.push(reportRow('Awaiting approval', cos.filter((c) => !['approved', 'rejected', 'void'].includes(c.status)).length));
+    rows.push(reportRow('Active commitments', commitments.filter((c) => c.status === 'active').length));
+    rows.push(reportRow('Unpaid invoices', invoices.filter((i) => i.status !== 'paid').length));
+  } else if (type.includes('operational')) {
+    const [checklists, punch, logs] = await Promise.all([
+      prismaBase.checklist.findMany({ where: { ...scope, ...projectScope } }),
+      prismaBase.punchItem.findMany({ where: { ...scope, ...projectScope } }),
+      prismaBase.dailyLog.findMany({ where: { ...scope, ...projectScope, date: { gte: since } } }),
+    ]);
+    rows.push(reportRow('Checklists submitted', checklists.filter((c) => c.status === 'submitted').length));
+    rows.push(reportRow('Still out with the team', checklists.filter((c) => c.status === 'assigned' || c.status === 'in_progress').length));
+    rows.push(reportRow('Open punch items', punch.filter((p) => p.status === 'open').length));
+    rows.push(reportRow('Daily logs in this period', logs.length));
+  } else {
+    const [projects, cos, punch] = await Promise.all([
+      prismaBase.project.findMany({ where: scope }),
+      prismaBase.changeOrder.findMany({ where: { ...scope, createdAt: { gte: since } } }),
+      prismaBase.punchItem.findMany({ where: scope }),
+    ]);
+    rows.push(reportRow('Active projects', projects.filter((p) => p.status !== 'Archived').length));
+    rows.push(reportRow('Change orders this period', cos.length));
+    rows.push(reportRow('Open punch items', punch.filter((p) => p.status === 'open').length));
+  }
+
+  const period = report.frequency === 'daily' ? 'the last day' : report.frequency === 'monthly' ? 'the last month' : 'the last week';
+  return `<p style="font-size:14px;color:#11161D">Covering ${period}, to ${new Date().toLocaleDateString('en-KE')}.</p>
+    <table style="width:100%;border-collapse:collapse;margin:12px 0;border-top:1px solid #E7EBF0">${rows.join('')}</table>
+    ${button(APP_URL + '/', 'Open Buildsasa')}`;
+}
+
+async function runDueScheduledReports() {
+  let due;
+  try {
+    due = await prismaBase.scheduledReport.findMany({ where: { active: true, nextRunAt: { lte: new Date() } } });
+  } catch (e) {
+    console.error('[REPORTS] could not read the schedule:', e && e.message);
+    return;
+  }
+  for (const report of due) {
+    // Move the next run forward FIRST. If the send throws, a schedule that is
+    // already overdue must not be retried in a tight loop every cycle.
+    const next = advanceRunDate(new Date(), report.frequency);
+    try {
+      await prismaBase.scheduledReport.update({ where: { id: report.id }, data: { lastRunAt: new Date(), nextRunAt: next } });
+    } catch (e) {
+      console.error('[REPORTS] could not advance schedule', report.id, e && e.message);
+      continue;
+    }
+    const to = String(report.recipients || '').split(',').map((s) => s.trim()).filter(Boolean);
+    if (!to.length) { console.warn('[REPORTS]', report.name, 'has no recipients — nothing sent'); continue; }
+    let body;
+    try { body = await buildScheduledReportBody(report); }
+    catch (e) { console.error('[REPORTS] could not build', report.name, e && e.message); continue; }
+    for (const addr of to) {
+      try {
+        await sendEmail({ to: addr, subject: `${report.name} — Buildsasa report`, html: emailShell(report.name, body) });
+      } catch (e) { console.error('[REPORTS] send failed to', addr, e && e.message); }
+    }
+    console.log('[REPORTS] ran', report.name, '->', to.length, 'recipient(s); next', next.toISOString());
+  }
+}
+
+// Checked every five minutes. NOTE: this assumes a single running instance, which
+// is how this service is deployed; more than one would each send a copy.
+setInterval(runDueScheduledReports, 5 * 60 * 1000).unref();
+setTimeout(runDueScheduledReports, 30 * 1000).unref();
+
 // ===== ATTENDANCE =====
 app.get('/api/attendance', auth, async (req, res) => {
   try {
