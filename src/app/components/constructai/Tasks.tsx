@@ -9,11 +9,12 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Search, Filter, Users, Clock, Loader2, ClipboardList, UserCheck, PenTool, CheckCircle2, AlertTriangle, Eye, Plus, X, FileText, ArrowRight, TrendingUp, Check } from "lucide-react";
 import type { Role } from "./roles";
-import { ROLES, TRADE_COLOR } from "./roles";
+import { ROLES, TRADE_COLOR, TRADES } from "./roles";
 import { useTeam, resolveName } from "./useTeam";
 import api, { type ChecklistDto, type ChecklistTemplateDto, type ChecklistQuestionDto, type ProjectDto } from "../../services/api";
 import { STATUS_META, AssignModal, FillModal, DetailModal, answeredQuestionCount, checklistProgress, assigneeSummary } from "./Checklists";
 import { EmptyState } from "./EmptyState";
+import { InlineSelectChip } from "./InlineSelectChip";
 
 // Sort within a trade so the things needing attention float up.
 const STATUS_RANK: Record<string, number> = { submitted: 0, in_progress: 1, assigned: 2, draft: 3, rejected: 4, approved: 5 };
@@ -132,6 +133,52 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
       .filter(Boolean) as { id: string; name: string; current: number; suggested: number; count: number; reporters: string[] }[];
   }, [checklists, projects]);
 
+  // Set a checklist's project straight from its card. Optimistic, because the card
+  // must feel like a control rather than a form submission, but rolled back if the
+  // save fails — a chip that shows the new value while the server still holds the
+  // old one is worse than no shortcut at all.
+  async function setChecklistProject(c: ChecklistDto, projectId: string) {
+    const before = checklists;
+    setChecklists((prev) => prev.map((x) => (x.id === c.id ? { ...x, projectId } : x)));
+    try {
+      await api.updateChecklist(c.id, { projectId });
+      toast.success(`Linked to ${projName(projectId) || "the project"}`);
+    } catch (e: any) {
+      setChecklists(before);
+      toast.error(e?.message || "Could not set the project");
+    }
+  }
+
+  // Same for the trade. Changing it moves the row between groups, which is the
+  // point: an item under "No trade set" can be filed without leaving the page.
+  async function setChecklistTrade(c: ChecklistDto, trade: string) {
+    const before = checklists;
+    setChecklists((prev) => prev.map((x) => (x.id === c.id ? { ...x, trade } : x)));
+    try {
+      await api.updateChecklist(c.id, { trade });
+      toast.success(`Filed under ${trade}`);
+    } catch (e: any) {
+      setChecklists(before);
+      toast.error(e?.message || "Could not set the trade");
+    }
+  }
+
+  // Link every unlinked assignment to one project in a single action. Each is a
+  // separate request; failures are counted and reported rather than swallowed, so
+  // "9 linked" never covers for 3 that silently did not.
+  async function linkAllOrphans(projectId: string) {
+    const targets = checklists.filter((c) => !c.projectId && c.status !== "draft");
+    if (!targets.length) return;
+    let done = 0; let failed = 0;
+    for (const c of targets) {
+      try { await api.updateChecklist(c.id, { projectId }); done += 1; }
+      catch { failed += 1; }
+    }
+    await loadData();
+    if (failed) toast.error(`${done} linked, ${failed} could not be — try those again`);
+    else toast.success(`${done} assignment${done === 1 ? "" : "s"} linked to ${projName(projectId) || "the project"}`);
+  }
+
   // Actions (same lifecycle as the Checklists module).
   // The project is chosen in the same dialog as the people, and saved in the same
   // write. It used to be settable only when creating from a template, so anything
@@ -206,12 +253,27 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
           reported on a checklist with no project reaches nothing, and previously
           there was no way to notice — the figure just never moved. */}
       {orphanCount > 0 && projectFilter !== "__none" && (
-        <div className="rounded-xl border border-[#F5A623]/40 bg-[#F5A623]/10 px-4 py-3 flex items-center gap-3">
+        <div className="rounded-xl border border-[#F5A623]/40 bg-[#F5A623]/10 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
           <AlertTriangle className="w-4 h-4 text-[#F5A623] shrink-0" />
           <div className="text-[12px] text-[#E6EAF0] flex-1">
             {orphanCount} assignment{orphanCount === 1 ? " is" : "s are"} not linked to a project, so progress reported on {orphanCount === 1 ? "it" : "them"} will not roll up.
-            {canAssign && <span className="text-[#8A95A5]"> Open Assign on each to pick one.</span>}
+            {canAssign && <span className="text-[#8A95A5]"> Link them one at a time on each card, or all at once here.</span>}
           </div>
+          {/* Linking nine records one by one is the kind of chore people simply do
+              not do, which is how they stayed unlinked. One choice, applied to all
+              of them. */}
+          {canAssign && projects.length > 0 && (
+            <div className="shrink-0">
+              <InlineSelectChip
+                value=""
+                options={projects.map((pr) => ({ value: pr.id, label: `Link all to ${pr.name}` }))}
+                placeholder={`Link all ${orphanCount} to a project`}
+                tone="warn"
+                title="Set the same project on every unlinked assignment"
+                onChange={(v) => linkAllOrphans(v)}
+              />
+            </div>
+          )}
           <button onClick={() => setProjectFilter("__none")} className="h-8 px-3 rounded-md border border-[#F5A623]/40 text-[11px] text-[#F5A623] hover:bg-[#F5A623]/10 shrink-0">Show them</button>
         </div>
       )}
@@ -301,9 +363,28 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
                       <div key={c.id} className="p-4 hover:bg-[#161D27] transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1 flex-wrap"><span className={`text-[10px] px-1.5 py-0.5 rounded border ${st.bg} ${st.text} ${st.border}`}>{st.label}</span>
-                            {c.projectId
-                              ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#222A35] text-[#8A95A5]">{projName(c.projectId) || "Project"}</span>
-                              : <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#F5A623]/15 text-[#F5A623] border border-[#F5A623]/30" title="Progress reported here will not roll up to any project">No project</span>}
+                            {/* Both chips SET the value they report. A checklist's
+                                project could only be chosen inside the Assign
+                                dialog, and its trade could not be changed at all —
+                                so a board of "No project" chips showed the problem
+                                while offering no way to fix it. */}
+                            <InlineSelectChip
+                              value={c.projectId || ""}
+                              options={projects.map((pr) => ({ value: pr.id, label: pr.name }))}
+                              placeholder="No project"
+                              tone="warn"
+                              disabled={!canAssign}
+                              title={c.projectId ? "Change project" : "Not linked — progress reported here will not roll up to any project"}
+                              onChange={(v) => setChecklistProject(c, v)}
+                            />
+                            <InlineSelectChip
+                              value={tradeOf(c) === NO_TRADE ? "" : tradeOf(c)}
+                              options={TRADES.map((t) => ({ value: t.name, label: t.name }))}
+                              placeholder="No trade"
+                              disabled={!canAssign}
+                              title="Set the trade this belongs to"
+                              onChange={(v) => setChecklistTrade(c, v)}
+                            />
                             {c.category && <span className="text-[10px] text-[#5B6675]">{c.category}</span>}</div>
                           <div className="text-[13px] font-medium text-white truncate">{c.title}</div>
                           <div className="text-[11px] text-[#8A95A5] flex flex-wrap items-center gap-2 mt-0.5">
@@ -328,7 +409,14 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          {c.status === "draft" && canAssign && <button onClick={() => setAssign(c)} className="h-8 px-2.5 bg-[#222A35] rounded-lg text-[11px] text-white hover:bg-[#3B82F6]/20 flex items-center gap-1"><UserCheck className="w-3.5 h-3.5" /> Assign</button>}
+                          {/* Reassign stays available at every stage except approved.
+                              This is the only place people and project can be changed,
+                              so hiding it after the first assignment stranded the record. */}
+                          {canAssign && c.status !== "approved" && (
+                            <button onClick={() => setAssign(c)} className="h-8 px-2.5 bg-[#222A35] rounded-lg text-[11px] text-white hover:bg-[#3B82F6]/20 flex items-center gap-1">
+                              <UserCheck className="w-3.5 h-3.5" /> {c.status === "draft" ? "Assign" : "Reassign"}
+                            </button>
+                          )}
                           {/* "rejected" is fillable too. Without it, a reviewer's
                               rejection was a dead end — the assignee had no way to
                               correct the form and send it back. */}
