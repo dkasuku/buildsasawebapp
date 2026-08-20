@@ -62,6 +62,15 @@ model Project {
   images    String?
   startDate DateTime?
   targetEndDate DateTime?
+  // ── Closeout ──
+  // A project's life ended at "Archived" with nothing in between. There was no
+  // handover, no defects period and no final account, so the phase where a
+  // contractor is still liable but no longer building was invisible.
+  practicalCompletionAt  DateTime? // works handed over to the client
+  defectsLiabilityMonths Int?      // length of the defects period (commonly 6 or 12)
+  defectsEndAt           DateTime? // derived from the two above; stored so it is queryable
+  finalAccountAt         DateTime? // account agreed and settled
+  closeoutNotes          String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -362,6 +371,13 @@ model Commitment {
   retentionPct       Float?  @default(0)
   retentionHeld      Float?  @default(0)
   balanceRemaining   Float?  @default(0)
+  // ── Advance / mobilisation ──
+  // An advance is money paid before work starts, recovered from later claims. It
+  // could be recorded as a payment but nothing recovered it, so it sat on the
+  // books as if it had been earned and the outstanding balance was overstated.
+  advanceAmount      Float?  @default(0) // paid up front
+  advanceRecovered   Float?  @default(0) // repaid out of claims so far
+  advanceRecoveryPct Float?  @default(0) // share of each claim that repays it
   status             String? @default("active") // active | completed | overdue | on_hold
   project   Project  @relation(fields: [projectId], references: [id])
   projectId String
@@ -387,6 +403,9 @@ model PaymentApplication {
   requestedAmount         Float?
   retentionPct            Float?  @default(0)
   retentionAmount         Float?
+  // How much of the advance this claim repays. Deducted before netPayable, the
+  // same way retention is.
+  advanceRecovery         Float?  @default(0)
   netPayable              Float?
   status    String   @default("draft") // draft | submitted | under_review | approved | rejected | paid
   costCodeId   String?
@@ -408,7 +427,18 @@ model RetentionRecord {
   amountReleased Float?  @default(0)
   remaining      Float?
   releaseDate    DateTime?
-  status         String  @default("held") // held | released | overdue
+  // held | due | released | overdue
+  //
+  // Retention was recorded and then never came back. A releaseDate could pass with
+  // the row still sitting at "held", because nothing ever looked at it — the money
+  // stayed on the books indefinitely and nobody was told it was payable.
+  status         String  @default("held")
+  // Which half this is. Retention is normally released in two parts: half at
+  // practical completion, half when the defects period ends.
+  stage          String?  // practical_completion | defects_expiry | other
+  releasedAt     DateTime?
+  releasedById   String?
+  note           String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -1191,4 +1221,49 @@ model PlatformAdmin {
   email     String   @id                       // always stored lowercase
   addedBy   String?                             // email of the admin who added them
   createdAt DateTime @default(now())
+}
+
+// ── Bill of Quantities / estimating ──────────────────────────────────────────
+// The product could tender a job and manage it, but never PRICE one. There was no
+// way to say what the work was expected to cost before it was awarded, so the
+// budget had no origin: expense categories carried a budget figure typed from
+// nowhere, and "budget vs actual" compared actuals against a guess.
+//
+// A BOQ is the priced breakdown of the works. Sections group the trades; items are
+// the priced lines. The total becomes the project's budget instead of a number
+// somebody remembered.
+model BoqSection {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  projectId   String
+  code        String?  // e.g. "2" for Substructure
+  title       String
+  position    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items       BoqItem[]
+
+  @@index([projectId])
+}
+
+model BoqItem {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  section     BoqSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  sectionId   String
+  code        String?  // item reference, e.g. "2.1"
+  description String
+  unit        String   // m, m2, m3, kg, no, sum, item
+  quantity    Float    @default(0)
+  rate        Float    @default(0)  // price per unit, in the base currency (KES)
+  // quantity x rate, stored so totals do not have to be recomputed everywhere and
+  // so a historical line keeps the figure it was actually priced at.
+  amount      Float    @default(0)
+  costCodeId  String?  // ties the estimate to the code actuals are booked against
+  position    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([sectionId])
 }

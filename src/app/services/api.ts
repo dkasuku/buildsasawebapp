@@ -153,6 +153,70 @@ async function http<T>(path: string, init?: RequestInit, _retried = false): Prom
   return res.json() as Promise<T>;
 }
 
+
+// ── Project closeout: handover, defects liability, final account ─────────────
+export type CloseoutDto = {
+  practicalCompletionAt?: string | null;
+  defectsLiabilityMonths?: number | null;
+  defectsEndAt?: string | null;
+  finalAccountAt?: string | null;
+  closeoutNotes?: string | null;
+  /** in_progress | handed_over | defects_liability | defects_expired | closed */
+  phase: string;
+  openPunchItems: number;
+  retentionStillHeld: number;
+  /** Plain sentences saying what stands between here and a closed job. */
+  blockers: string[];
+};
+
+export type RetentionReportDto = {
+  records: RetentionRecordDto[];
+  totals: { held: number; dueNow: number; released: number };
+};
+
+/** What a claim actually pays once retention is held and the advance is repaid. */
+export type ClaimPreviewDto = {
+  gross: number;
+  retentionPct: number;
+  retentionAmount: number;
+  advanceRecovery: number;
+  netPayable: number;
+  advanceOutstandingBefore: number;
+  advanceOutstandingAfter: number;
+};
+
+export type BoqItemDto = {
+  id: string;
+  sectionId: string;
+  code?: string | null;
+  description: string;
+  unit: string;
+  quantity: number;
+  rate: number;
+  amount: number;
+  costCodeId?: string | null;
+  position: number;
+};
+
+export type BoqSectionDto = {
+  id: string;
+  projectId: string;
+  code?: string | null;
+  title: string;
+  position: number;
+  items: BoqItemDto[];
+  total: number;
+};
+
+export type BoqDto = {
+  sections: BoqSectionDto[];
+  total: number;
+  itemCount: number;
+  /** Lines with no rate. They add nothing to the total, so a BOQ can look
+   *  finished while still missing money. */
+  unpricedItems: number;
+};
+
 export type ProjectDto = {
   id: string;
   code: string;
@@ -372,7 +436,12 @@ export type RetentionRecordDto = {
   amountReleased?: number | null;
   remaining?: number | null;
   releaseDate?: string | null;
-  status: string; // held | released | overdue
+  status: string; // held | due | released | overdue
+  /** Which half this is: practical_completion | defects_expiry | other. */
+  stage?: string | null;
+  releasedAt?: string | null;
+  note?: string | null;
+  commitment?: { vendor: string; scope: string; projectId: string } | null;
 };
 
 export type CostCodeDto = {
@@ -1073,6 +1142,38 @@ export const api = {
   createInventoryItem: (payload: Partial<InventoryItemDto>) => http<InventoryItemDto>("/api/inventory", { method: "POST", body: JSON.stringify(payload) }),
   updateInventoryItem: (id: string, payload: Partial<InventoryItemDto>) => http<InventoryItemDto>(`/api/inventory/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteInventoryItem: (id: string) => http(`/api/inventory/${id}`, { method: "DELETE" }),
+  // ── Project closeout ──
+  getCloseout: (projectId: string) => http<CloseoutDto>(`/api/projects/${projectId}/closeout`),
+  updateCloseout: (projectId: string, payload: { practicalCompletionAt?: string | null; defectsLiabilityMonths?: number | null; finalAccountAt?: string | null; closeoutNotes?: string | null }) =>
+    http<any>(`/api/projects/${projectId}/closeout`, { method: "PUT", body: JSON.stringify(payload) }),
+
+  // ── Retention ──
+  /** Across every project: what is held, and what has fallen due. The
+   *  project-scoped getRetention above answers "on this job". */
+  getRetentionDue: (params?: { projectId?: string; status?: string }) =>
+    http<RetentionReportDto>(`/api/retention/due?${new URLSearchParams((params || {}) as any).toString()}`),
+
+  // ── Advance recovery ──
+  previewClaim: (commitmentId: string, payload: { grossClaim: number; retentionPct?: number }) =>
+    http<ClaimPreviewDto>(`/api/commitments/${commitmentId}/claim-preview`, { method: "POST", body: JSON.stringify(payload) }),
+  recordClaim: (commitmentId: string, payload: { grossClaim: number; retentionPct?: number; number?: string; period?: string; status?: string }) =>
+    http<any>(`/api/commitments/${commitmentId}/claims`, { method: "POST", body: JSON.stringify(payload) }),
+
+  // ── Bill of quantities ──
+  getBoq: (projectId: string) => http<BoqDto>(`/api/projects/${projectId}/boq`),
+  addBoqSection: (projectId: string, payload: { title: string; code?: string }) =>
+    http<BoqSectionDto>(`/api/projects/${projectId}/boq/sections`, { method: "POST", body: JSON.stringify(payload) }),
+  updateBoqSection: (id: string, payload: { title?: string; code?: string; position?: number }) =>
+    http<BoqSectionDto>(`/api/boq/sections/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteBoqSection: (id: string) => http(`/api/boq/sections/${id}`, { method: "DELETE" }),
+  addBoqItem: (sectionId: string, payload: { description: string; unit?: string; quantity?: number; rate?: number; code?: string; costCodeId?: string }) =>
+    http<BoqItemDto>(`/api/boq/sections/${sectionId}/items`, { method: "POST", body: JSON.stringify(payload) }),
+  updateBoqItem: (id: string, payload: Partial<Pick<BoqItemDto, "code" | "description" | "unit" | "quantity" | "rate" | "costCodeId" | "position">>) =>
+    http<BoqItemDto>(`/api/boq/items/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteBoqItem: (id: string) => http(`/api/boq/items/${id}`, { method: "DELETE" }),
+  /** Turn the priced BOQ into the project's expense budget. */
+  applyBoqBudget: (projectId: string) =>
+    http<{ ok: boolean; created: number; updated: number; totalKES: number }>(`/api/projects/${projectId}/boq/apply-budget`, { method: "POST" }),
   getInventoryMovements: (id: string) => http<InventoryMovementDto[]>(`/api/inventory/${id}/movements`),
   getWastageReport: (params?: { from?: string; to?: string; projectId?: string }) => http<WastageReportDto>(`/api/inventory/wastage?${new URLSearchParams((params || {}) as any).toString()}`),
   addInventoryMovement: (id: string, payload: { type: string; quantity: number; reference?: string; notes?: string; date?: string; reason?: string; projectId?: string; unitCostKES?: number }) => http<{ movement: InventoryMovementDto; item: InventoryItemDto }>(`/api/inventory/${id}/movements`, { method: "POST", body: JSON.stringify(payload) }),

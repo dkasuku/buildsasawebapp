@@ -1856,14 +1856,31 @@ app.post('/api/projects/:projectId/retention/:id/release', auth, async (req, res
     if (!hasRole(req, CAN_APPROVE_FINANCE)) return res.status(403).json({ error: `Forbidden: ${req.user?.role || 'this role'} cannot release retention` });
     const existing = await prisma.retentionRecord.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Not found' });
+    if (existing.status === 'released') return res.status(400).json({ error: 'That retention has already been released' });
     const held = Number(existing.amountHeld) || 0;
-    const releaseAmount = req.body?.amount !== undefined ? (num(req.body.amount) || 0) : held - (Number(existing.amountReleased) || 0);
-    const amountReleased = (Number(existing.amountReleased) || 0) + releaseAmount;
-    const remaining = Math.max(0, held - amountReleased);
+    const outstanding = Math.max(0, held - (Number(existing.amountReleased) || 0));
+    const releaseAmount = req.body?.amount !== undefined ? (num(req.body.amount) || 0) : outstanding;
+    if (!(releaseAmount > 0)) return res.status(400).json({ error: 'Enter an amount greater than zero' });
+    // Releasing more than is outstanding would invent money. It used to be
+    // possible: the amount was added to amountReleased with no ceiling.
+    if (releaseAmount > outstanding + 0.01) return res.status(400).json({ error: 'Only ' + outstanding + ' is still held on this record' });
+    const amountReleased = Math.round(((Number(existing.amountReleased) || 0) + releaseAmount) * 100) / 100;
+    const remaining = Math.round(Math.max(0, held - amountReleased) * 100) / 100;
     const row = await prisma.retentionRecord.update({
       where: { id: req.params.id },
-      data: { amountReleased, remaining, status: remaining <= 0 ? 'released' : 'held', releaseDate: new Date() },
+      // releaseDate is the date it FALLS DUE and is set when the schedule is
+      // created; overwriting it with today erased that. releasedAt records when it
+      // was actually paid, which is a different fact.
+      data: { amountReleased, remaining, status: remaining <= 0.009 ? 'released' : 'due', releasedAt: new Date(), releasedById: req.user.sub, note: req.body?.comments || existing.note || null },
     });
+    // The subcontract must stop showing money it no longer holds.
+    if (existing.commitmentId) {
+      const c = await prisma.commitment.findUnique({ where: { id: existing.commitmentId } });
+      if (c) {
+        const nextHeld = Math.max(0, Math.round(((Number(c.retentionHeld) || 0) - releaseAmount) * 100) / 100);
+        await prisma.commitment.update({ where: { id: existing.commitmentId }, data: { retentionHeld: nextHeld } });
+      }
+    }
     await logApproval(req, 'retentionRecord', row.id, 'released', req.body?.comments);
     res.json(row);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -3054,6 +3071,414 @@ async function runDueScheduledReports() {
 // is how this service is deployed; more than one would each send a copy.
 setInterval(runDueScheduledReports, 5 * 60 * 1000).unref();
 setTimeout(runDueScheduledReports, 30 * 1000).unref();
+
+
+// ============================================================================
+// PROJECT CLOSEOUT — handover, defects liability, final account
+// ============================================================================
+// A project ran Planning -> ... -> Closing -> Archived, which skipped the period
+// that matters most for liability: the works are handed over, the client is using
+// the building, and the contractor is still answerable for defects. None of that
+// was recorded, so nobody could answer "are we still liable on this job?".
+
+// Derived, but stored, so it can be queried and sorted without recomputing.
+function computeDefectsEnd(practicalCompletionAt, months) {
+  if (!practicalCompletionAt || !months) return null;
+  const d = new Date(practicalCompletionAt);
+  d.setMonth(d.getMonth() + Number(months));
+  return d;
+}
+
+app.get('/api/projects/:id/closeout', auth, async (req, res) => {
+  try {
+    const p = await prisma.project.findUnique({ where: { id: req.params.id } });
+    if (!p) return res.status(404).json({ error: 'Project not found' });
+    const now = Date.now();
+    const inDefects = !!(p.practicalCompletionAt && p.defectsEndAt && now < new Date(p.defectsEndAt).getTime());
+    const defectsExpired = !!(p.defectsEndAt && now >= new Date(p.defectsEndAt).getTime());
+    const openPunch = await prisma.punchItem.count({ where: { projectId: p.id, status: { notIn: ['closed', 'resolved'] } } });
+    const retention = await prisma.retentionRecord.findMany({ where: { commitment: { projectId: p.id } } });
+    const outstanding = (r) => Number(r.remaining == null ? r.amountHeld : r.remaining) || 0;
+    const stillHeld = retention.filter((r) => r.status !== 'released').reduce((a, r) => a + outstanding(r), 0);
+
+    // Saying WHAT blocks closeout is more use than a bare status. Open snagging is
+    // the usual reason a final account stalls, so it is surfaced here rather than
+    // discovered later.
+    const blockers = [];
+    if (!p.practicalCompletionAt) blockers.push('Practical completion has not been recorded');
+    if (openPunch > 0) blockers.push(openPunch + ' punch item' + (openPunch === 1 ? '' : 's') + ' still open');
+    if (stillHeld > 0) blockers.push('Retention is still held');
+
+    res.json({
+      practicalCompletionAt: p.practicalCompletionAt,
+      defectsLiabilityMonths: p.defectsLiabilityMonths,
+      defectsEndAt: p.defectsEndAt,
+      finalAccountAt: p.finalAccountAt,
+      closeoutNotes: p.closeoutNotes,
+      phase: p.finalAccountAt ? 'closed'
+        : defectsExpired ? 'defects_expired'
+        : inDefects ? 'defects_liability'
+        : p.practicalCompletionAt ? 'handed_over'
+        : 'in_progress',
+      openPunchItems: openPunch,
+      retentionStillHeld: Math.round(stillHeld * 100) / 100,
+      blockers,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/projects/:id/closeout', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_BIDS)) return res.status(403).json({ error: 'Forbidden: ' + ((req.user && req.user.role) || 'this role') + ' cannot change closeout dates' });
+    const b = req.body || {};
+    const existing = await prisma.project.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Project not found' });
+
+    const data = {};
+    if (b.practicalCompletionAt !== undefined) data.practicalCompletionAt = b.practicalCompletionAt ? new Date(b.practicalCompletionAt) : null;
+    if (b.defectsLiabilityMonths !== undefined) data.defectsLiabilityMonths = (b.defectsLiabilityMonths == null || b.defectsLiabilityMonths === '') ? null : Number(b.defectsLiabilityMonths);
+    if (b.finalAccountAt !== undefined) data.finalAccountAt = b.finalAccountAt ? new Date(b.finalAccountAt) : null;
+    if (b.closeoutNotes !== undefined) data.closeoutNotes = b.closeoutNotes || null;
+
+    const pc = data.practicalCompletionAt !== undefined ? data.practicalCompletionAt : existing.practicalCompletionAt;
+    const months = data.defectsLiabilityMonths !== undefined ? data.defectsLiabilityMonths : existing.defectsLiabilityMonths;
+    data.defectsEndAt = computeDefectsEnd(pc, months);
+
+    const row = await prisma.project.update({ where: { id: req.params.id }, data });
+
+    // Recording practical completion is what makes the first half of retention
+    // payable, so the schedule is written here rather than left to be remembered.
+    if (data.practicalCompletionAt && !existing.practicalCompletionAt) {
+      await scheduleRetentionRelease(req.params.id, data.practicalCompletionAt, row.defectsEndAt);
+    }
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ============================================================================
+// RETENTION RELEASE
+// ============================================================================
+// Retention was held and never came back: a releaseDate could pass with the row
+// still marked "held", because nothing ever read it. The money stayed on the books
+// indefinitely and nobody was told it had become payable.
+
+// Half at practical completion, half at the end of the defects period — the
+// standard split. Existing stages are skipped, so re-saving a handover date does
+// not duplicate the schedule.
+async function scheduleRetentionRelease(projectId, practicalCompletionAt, defectsEndAt) {
+  const commitments = await prisma.commitment.findMany({ where: { projectId, retentionHeld: { gt: 0 } } });
+  for (const c of commitments) {
+    const held = Number(c.retentionHeld) || 0;
+    if (held <= 0) continue;
+    const existing = await prisma.retentionRecord.findMany({ where: { commitmentId: c.id } });
+    const half = Math.round((held / 2) * 100) / 100;
+    const stages = [
+      { stage: 'practical_completion', amount: half, releaseDate: practicalCompletionAt },
+      { stage: 'defects_expiry', amount: Math.round((held - half) * 100) / 100, releaseDate: defectsEndAt },
+    ];
+    for (const st of stages) {
+      if (!st.releaseDate) continue;
+      if (existing.some((r) => r.stage === st.stage)) continue;
+      await prisma.retentionRecord.create({ data: {
+        commitmentId: c.id,
+        amountHeld: st.amount,
+        amountReleased: 0,
+        remaining: st.amount,
+        releaseDate: new Date(st.releaseDate),
+        stage: st.stage,
+        status: 'held',
+      } });
+    }
+  }
+}
+
+// Anything past its release date becomes payable. On a timer so the money surfaces
+// on its own instead of waiting to be noticed by someone.
+async function markDueRetention() {
+  try {
+    const r = await prismaBase.retentionRecord.updateMany({
+      where: { status: 'held', releaseDate: { lte: new Date() } },
+      data: { status: 'due' },
+    });
+    if (r.count) console.log('[RETENTION] ' + r.count + ' record(s) became due');
+  } catch (e) { console.error('[RETENTION] sweep failed:', e && e.message); }
+}
+setInterval(markDueRetention, 6 * 60 * 60 * 1000).unref();
+setTimeout(markDueRetention, 45 * 1000).unref();
+
+// Cross-project view: what is held, what has fallen due, across every job. The
+// project-scoped GET above answers "on this job"; this one answers "anywhere".
+app.get('/api/retention/due', auth, async (req, res) => {
+  try {
+    const where = {};
+    if (req.query.projectId) where.commitment = { projectId: String(req.query.projectId) };
+    if (req.query.status) where.status = String(req.query.status);
+    const rows = await prisma.retentionRecord.findMany({
+      where,
+      orderBy: { releaseDate: 'asc' },
+      include: { commitment: { select: { vendor: true, scope: true, projectId: true } } },
+    });
+    const outstanding = (r) => Number(r.remaining == null ? r.amountHeld : r.remaining) || 0;
+    const due = rows.filter((r) => r.status === 'due' || (r.status === 'held' && r.releaseDate && new Date(r.releaseDate) <= new Date()));
+    res.json({
+      records: rows,
+      totals: {
+        held: Math.round(rows.filter((r) => r.status !== 'released').reduce((a, r) => a + outstanding(r), 0) * 100) / 100,
+        dueNow: Math.round(due.reduce((a, r) => a + outstanding(r), 0) * 100) / 100,
+        released: Math.round(rows.reduce((a, r) => a + (Number(r.amountReleased) || 0), 0) * 100) / 100,
+      },
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
+
+// ============================================================================
+// ADVANCE RECOVERY
+// ============================================================================
+// A mobilisation advance is money paid before any work is done, recovered from
+// later payment claims. It could be recorded as a payment, but nothing ever
+// recovered it — so it sat on the books as though it had been earned, and the
+// balance outstanding on the subcontract was overstated for the life of the job.
+
+// How much of a claim repays the advance. Never more than is still outstanding,
+// and never more than the claim itself, so a recovery cannot push a claim negative
+// or repay more than was advanced.
+function computeAdvanceRecovery(commitment, grossClaim) {
+  const advance = Number(commitment && commitment.advanceAmount) || 0;
+  const recovered = Number(commitment && commitment.advanceRecovered) || 0;
+  const pct = Number(commitment && commitment.advanceRecoveryPct) || 0;
+  const outstanding = Math.max(0, advance - recovered);
+  if (outstanding <= 0 || pct <= 0) return 0;
+  const wanted = (Number(grossClaim) || 0) * (pct / 100);
+  return Math.round(Math.min(wanted, outstanding, Number(grossClaim) || 0) * 100) / 100;
+}
+
+// What a claim is actually worth once retention is held back and the advance is
+// repaid. Kept in one place so the figure on the claim, the figure on the
+// subcontract and the figure paid can never disagree.
+function settleClaim(commitment, grossClaim, retentionPct) {
+  const gross = Number(grossClaim) || 0;
+  const retention = Math.round(gross * ((Number(retentionPct) || 0) / 100) * 100) / 100;
+  const advanceRecovery = computeAdvanceRecovery(commitment, gross);
+  const netPayable = Math.round((gross - retention - advanceRecovery) * 100) / 100;
+  return { gross, retentionAmount: retention, advanceRecovery, netPayable };
+}
+
+// Preview the numbers before committing to them, so a QS can see what a claim will
+// actually pay out before it is raised.
+app.post('/api/commitments/:id/claim-preview', auth, async (req, res) => {
+  try {
+    const c = await prisma.commitment.findUnique({ where: { id: req.params.id } });
+    if (!c) return res.status(404).json({ error: 'Subcontract not found' });
+    const gross = Number((req.body || {}).grossClaim) || 0;
+    if (gross <= 0) return res.status(400).json({ error: 'Enter the amount being claimed' });
+    const retentionPct = (req.body || {}).retentionPct != null ? Number(req.body.retentionPct) : (Number(c.retentionPct) || 0);
+    const result = settleClaim(c, gross, retentionPct);
+    const advance = Number(c.advanceAmount) || 0;
+    const recovered = Number(c.advanceRecovered) || 0;
+    res.json({
+      ...result,
+      retentionPct,
+      advanceOutstandingBefore: Math.round(Math.max(0, advance - recovered) * 100) / 100,
+      advanceOutstandingAfter: Math.round(Math.max(0, advance - recovered - result.advanceRecovery) * 100) / 100,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Record a claim: holds retention, recovers part of the advance, and moves the
+// subcontract's running totals in one place.
+app.post('/api/commitments/:id/claims', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_BIDS)) return res.status(403).json({ error: 'Forbidden: ' + ((req.user && req.user.role) || 'this role') + ' cannot certify claims' });
+    const c = await prisma.commitment.findUnique({ where: { id: req.params.id } });
+    if (!c) return res.status(404).json({ error: 'Subcontract not found' });
+    const body = req.body || {};
+    const gross = Number(body.grossClaim) || 0;
+    if (gross <= 0) return res.status(400).json({ error: 'Enter the amount being claimed' });
+
+    const retentionPct = body.retentionPct != null ? Number(body.retentionPct) : (Number(c.retentionPct) || 0);
+    const s = settleClaim(c, gross, retentionPct);
+
+    const number = String(body.number || ('PA-' + Date.now().toString(36).toUpperCase()));
+    const app_ = await prisma.paymentApplication.create({ data: {
+      projectId: c.projectId,
+      commitmentId: c.id,
+      number,
+      period: body.period || null,
+      workCompletedThisPeriod: s.gross,
+      previousCertified: Number(c.invoicedToDate) || 0,
+      requestedAmount: s.gross,
+      retentionPct,
+      retentionAmount: s.retentionAmount,
+      advanceRecovery: s.advanceRecovery,
+      netPayable: s.netPayable,
+      status: body.status || 'submitted',
+    } });
+
+    const updated = await prisma.commitment.update({ where: { id: c.id }, data: {
+      invoicedToDate: Math.round(((Number(c.invoicedToDate) || 0) + s.gross) * 100) / 100,
+      retentionHeld: Math.round(((Number(c.retentionHeld) || 0) + s.retentionAmount) * 100) / 100,
+      advanceRecovered: Math.round(((Number(c.advanceRecovered) || 0) + s.advanceRecovery) * 100) / 100,
+      balanceRemaining: Math.round((((Number(c.contractValue) || 0) - (Number(c.invoicedToDate) || 0) - s.gross)) * 100) / 100,
+    } });
+
+    res.json({ application: app_, commitment: updated });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ============================================================================
+// BILL OF QUANTITIES / ESTIMATING
+// ============================================================================
+// The product could tender a job and manage it, but never PRICE one. The budget
+// had no origin: expense categories carried a figure typed from nowhere, so
+// "budget vs actual" compared actuals against a guess. A BOQ is the priced
+// breakdown of the works; its total is a budget that can be defended.
+
+const boqAmount = (qty, rate) => Math.round((Number(qty) || 0) * (Number(rate) || 0) * 100) / 100;
+
+app.get('/api/projects/:projectId/boq', auth, async (req, res) => {
+  try {
+    const sections = await prisma.boqSection.findMany({
+      where: { projectId: req.params.projectId },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+      include: { items: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] } },
+    });
+    const withTotals = sections.map((s) => ({
+      ...s,
+      total: Math.round(s.items.reduce((a, i) => a + (Number(i.amount) || 0), 0) * 100) / 100,
+    }));
+    const total = Math.round(withTotals.reduce((a, s) => a + s.total, 0) * 100) / 100;
+    const itemCount = withTotals.reduce((a, s) => a + s.items.length, 0);
+    // An unpriced line contributes nothing to the total, so a BOQ that looks
+    // complete can still be missing money. Say how many, rather than letting the
+    // total imply more certainty than it has.
+    const unpriced = withTotals.reduce((a, s) => a + s.items.filter((i) => !Number(i.rate)).length, 0);
+    res.json({ sections: withTotals, total, itemCount, unpricedItems: unpriced });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/projects/:projectId/boq/sections', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_BIDS)) return res.status(403).json({ error: 'Forbidden: ' + ((req.user && req.user.role) || 'this role') + ' cannot edit the bill of quantities' });
+    const b = req.body || {};
+    if (!String(b.title || '').trim()) return res.status(400).json({ error: 'A section needs a title' });
+    const count = await prisma.boqSection.count({ where: { projectId: req.params.projectId } });
+    const row = await prisma.boqSection.create({ data: {
+      projectId: req.params.projectId,
+      code: b.code || null,
+      title: String(b.title).trim(),
+      position: b.position == null ? count : Number(b.position),
+    } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/boq/sections/:id', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_BIDS)) return res.status(403).json({ error: 'Not allowed' });
+    const b = req.body || {};
+    const data = {};
+    if (b.title !== undefined) data.title = b.title;
+    if (b.code !== undefined) data.code = b.code || null;
+    if (b.position !== undefined) data.position = Number(b.position) || 0;
+    res.json(await prisma.boqSection.update({ where: { id: req.params.id }, data }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/boq/sections/:id', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_BIDS)) return res.status(403).json({ error: 'Not allowed' });
+    await prisma.boqSection.delete({ where: { id: req.params.id } }); // items cascade
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/boq/sections/:sectionId/items', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_BIDS)) return res.status(403).json({ error: 'Not allowed' });
+    const b = req.body || {};
+    if (!String(b.description || '').trim()) return res.status(400).json({ error: 'An item needs a description' });
+    const count = await prisma.boqItem.count({ where: { sectionId: req.params.sectionId } });
+    const row = await prisma.boqItem.create({ data: {
+      sectionId: req.params.sectionId,
+      code: b.code || null,
+      description: String(b.description).trim(),
+      unit: b.unit || 'item',
+      quantity: Number(b.quantity) || 0,
+      rate: Number(b.rate) || 0,
+      // Stored, not derived on read, so a historical line keeps the figure it was
+      // actually priced at even if the rate is edited later.
+      amount: boqAmount(b.quantity, b.rate),
+      costCodeId: b.costCodeId || null,
+      position: b.position == null ? count : Number(b.position),
+    } });
+    res.json(row);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/boq/items/:id', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_BIDS)) return res.status(403).json({ error: 'Not allowed' });
+    const existing = await prisma.boqItem.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+    const b = req.body || {};
+    const data = {};
+    if (b.code !== undefined) data.code = b.code || null;
+    if (b.description !== undefined) data.description = b.description;
+    if (b.unit !== undefined) data.unit = b.unit;
+    if (b.quantity !== undefined) data.quantity = Number(b.quantity) || 0;
+    if (b.rate !== undefined) data.rate = Number(b.rate) || 0;
+    if (b.costCodeId !== undefined) data.costCodeId = b.costCodeId || null;
+    if (b.position !== undefined) data.position = Number(b.position) || 0;
+    // Recompute whenever either side of the multiplication moved.
+    const qty = data.quantity !== undefined ? data.quantity : existing.quantity;
+    const rate = data.rate !== undefined ? data.rate : existing.rate;
+    data.amount = boqAmount(qty, rate);
+    res.json(await prisma.boqItem.update({ where: { id: req.params.id }, data }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/boq/items/:id', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_BIDS)) return res.status(403).json({ error: 'Not allowed' });
+    await prisma.boqItem.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Turn the priced BOQ into the project's budget, so budget-vs-actual finally
+// compares actuals against something that was actually estimated. Sections become
+// expense categories; existing ones are updated rather than duplicated.
+app.post('/api/projects/:projectId/boq/apply-budget', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_BIDS)) return res.status(403).json({ error: 'Forbidden: ' + ((req.user && req.user.role) || 'this role') + ' cannot set the budget' });
+    const sections = await prisma.boqSection.findMany({
+      where: { projectId: req.params.projectId },
+      include: { items: true },
+    });
+    if (!sections.length) return res.status(400).json({ error: 'There is no bill of quantities to apply' });
+
+    const existing = await prisma.expenseCategory.findMany({ where: { projectId: req.params.projectId } });
+    let created = 0; let updated = 0;
+    for (const s of sections) {
+      const totalKES = Math.round(s.items.reduce((a, i) => a + (Number(i.amount) || 0), 0));
+      if (totalKES <= 0) continue;
+      // ExpenseCategory.budgetUSD is stored in USD like the rest of the ledger.
+      const budgetUSD = Math.round(totalKES / USD_TO_KES);
+      const match = existing.find((e) => e.name.toLowerCase() === s.title.toLowerCase());
+      if (match) {
+        await prisma.expenseCategory.update({ where: { id: match.id }, data: { budgetUSD } });
+        updated += 1;
+      } else {
+        await prisma.expenseCategory.create({ data: { name: s.title, budgetUSD, actualUSD: 0, projectId: req.params.projectId } });
+        created += 1;
+      }
+    }
+    const total = Math.round(sections.reduce((a, s) => a + s.items.reduce((x, i) => x + (Number(i.amount) || 0), 0), 0) * 100) / 100;
+    res.json({ ok: true, created, updated, totalKES: total });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ===== ATTENDANCE =====
 app.get('/api/attendance', auth, async (req, res) => {
