@@ -137,7 +137,10 @@ model LedgerEntry {
   desc      String
   type      String   // in | out
   category  String
-  amountUSD Int
+  // Float, not Int. As an integer the smallest representable entry was $1 — about
+  // KSh 130 — so in a shilling-denominated product every ledger line rounded to
+  // the nearest 130 shillings and anything smaller could not be recorded at all.
+  amountUSD Float
   vendorId           String?
   commitmentId       String?
   applicationId      String?

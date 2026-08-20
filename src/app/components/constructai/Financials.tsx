@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import "jspdf-autotable";
 import { useCurrency } from "./CurrencyContext";
-import { formatCurrency } from "./currency";
+import { CURRENCIES, USD_TO_KES, formatCurrency, toKES } from "./currency";
 import type { Role } from "./roles";
 import { ROLES } from "./roles";
 import { EmptyState } from "./EmptyState";
@@ -22,6 +22,36 @@ import api, {
 import { warnSaveFailed } from "./saveFeedback";
 
 type LedgerRow = { date: string; desc: string; type: "in" | "out"; category: string; amountUSD: number };
+
+// Category was a free-text input, so money coming IN was filed as whatever each
+// person happened to type — "deposit", "Deposit", "advance", "part payment" — and
+// nothing could be totalled by kind. These are the ways money actually arrives on
+// and leaves a construction job here, offered as a list so the ledger can answer
+// "how much deposit have we received?" instead of only "what is the balance?".
+const MONEY_IN_CATEGORIES = [
+  "Deposit / advance",
+  "Mobilisation advance",
+  "Progress payment",
+  "Retention released",
+  "Variation payment",
+  "Final account",
+  "Other income",
+];
+const MONEY_OUT_CATEGORIES = [
+  "Materials",
+  "Labour",
+  "Subcontractor",
+  "Plant & equipment",
+  "Transport",
+  "Professional fees",
+  "Permits & approvals",
+  "Site overheads",
+  "Other expense",
+];
+// Deposits and advances are money received BEFORE the work is done. They are the
+// client's money until it is earned, so they are reported apart from progress
+// payments rather than lumped into one "cash in" figure.
+const ADVANCE_CATEGORIES = ["Deposit / advance", "Mobilisation advance"];
 type LedgerEntryWithId = LedgerRow & { id?: string };
 
 type ExpenseRow = { name: string; amountUSD: number; budgetUSD: number; color: string };
@@ -129,10 +159,25 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
     const budget = expenseRows.reduce((s, e) => s + e.budgetUSD, 0);
     const actual = expenseRows.reduce((s, e) => s + e.amountUSD, 0);
     const variance = budget - actual;
-    return { cashIn, cashOut, net, budget, actual, variance };
+    // Split what the client has paid: money received in ADVANCE of the work is not
+    // the same as money earned. Reporting them as one "cash in" figure flatters
+    // the position on a job that has been paid up front but not yet built.
+    const advances = ledgerRows.filter((l) => l.type === "in" && ADVANCE_CATEGORIES.includes(l.category))
+      .reduce((sum, l) => sum + l.amountUSD, 0);
+    const earned = cashIn - advances;
+    return { cashIn, cashOut, net, budget, actual, variance, advances, earned };
   }, [ledgerRows, expenseRows]);
 
-  const fmt = (amountUSD: number) => formatCurrency(amountUSD, currency);
+  // Ledger amounts are STORED in USD; formatCurrency takes a KES base. Passing the
+  // dollar figure straight in treated dollars as shillings, so the same entry read
+  // as "KSh 500,000" or "$3,850" depending only on the display toggle — in a
+  // finance module, where a number that changes meaning is worse than no number.
+  const fmt = (amountUSD: number) => formatCurrency(Math.round((Number(amountUSD) || 0) * USD_TO_KES), currency);
+  // What the user types is in THEIR currency; convert to the stored USD figure.
+  // Full precision, no rounding. Rounding to cents lost up to a shilling per entry
+  // — trivial on one line, but a ledger is summed, and a finance total that does
+  // not tie back to the entries behind it is worse than useless.
+  const toStoredUSD = (typed: number) => toKES(Number(typed) || 0, currency) / USD_TO_KES;
 
   const exportExcel = () => {
     const wb = XLSX.utils.book_new();
@@ -234,8 +279,10 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
       desc: newLedger.desc,
       type: newLedger.type,
       category: newLedger.category,
-      amountUSD: Number(newLedger.amountUSD) || 0,
+      // Typed in the workspace currency, stored in USD.
+      amountUSD: toStoredUSD(newLedger.amountUSD),
     };
+    if (!entry.amountUSD) return toast.error("Enter an amount");
     const refs = {
       invoiceNumber: newLedger.invoiceNumber || undefined,
       poNumber: newLedger.poNumber || undefined,
@@ -535,9 +582,12 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
 
       {/* OVERVIEW — existing summary cards */}
       {tab === "overview" && (
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         {[
+          // "Deposits & advances held" answers the question the ledger could not:
+          // how much of the money received was paid before the work was done.
           { icon: Wallet, label: "Cash in", value: fmt(totals.cashIn), tone: "text-[#22C55E]", bg: "bg-[#22C55E]/15" },
+          { icon: PiggyBank, label: "Deposits & advances", value: fmt(totals.advances), tone: "text-[#3B82F6]", bg: "bg-[#3B82F6]/15" },
           { icon: Receipt, label: "Cash out", value: fmt(totals.cashOut), tone: "text-[#EF4444]", bg: "bg-[#EF4444]/15" },
           { icon: PiggyBank, label: "Net", value: fmt(totals.net), tone: totals.net >= 0 ? "text-[#22C55E]" : "text-[#EF4444]", bg: "bg-[#FF6B1A]/15" },
           { icon: TrendingUp, label: "Budget vs actual", value: `${fmt(totals.actual)} / ${fmt(totals.budget)}`, tone: totals.variance >= 0 ? "text-[#22C55E]" : "text-[#EF4444]", bg: "bg-[#3B82F6]/15" },
@@ -631,13 +681,15 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
             <div className="p-4 border-t border-[#222A35] grid grid-cols-1 sm:grid-cols-5 gap-2 text-[12px] text-white">
               <input value={newLedger.date} onChange={(e) => setNewLedger((s) => ({ ...s, date: e.target.value }))} type="date" className="bg-[#0A0E14] border border-[#222A35] rounded-md px-2 h-9" />
               <input value={newLedger.desc} onChange={(e) => setNewLedger((s) => ({ ...s, desc: e.target.value }))} placeholder="Description" className="bg-[#0A0E14] border border-[#222A35] rounded-md px-2 h-9" />
-              <input value={newLedger.category} onChange={(e) => setNewLedger((s) => ({ ...s, category: e.target.value }))} placeholder="Category" className="bg-[#0A0E14] border border-[#222A35] rounded-md px-2 h-9" />
-              <select value={newLedger.type} onChange={(e) => setNewLedger((s) => ({ ...s, type: e.target.value as "in" | "out" }))} className="bg-[#0A0E14] border border-[#222A35] rounded-md px-2 h-9">
+              <select value={newLedger.category} onChange={(e) => setNewLedger((s) => ({ ...s, category: e.target.value }))} className="bg-[#0A0E14] border border-[#222A35] rounded-md px-2 h-9">
+                {(newLedger.type === "in" ? MONEY_IN_CATEGORIES : MONEY_OUT_CATEGORIES).map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={newLedger.type} onChange={(e) => { const t = e.target.value as "in" | "out"; setNewLedger((s) => ({ ...s, type: t, category: t === "in" ? MONEY_IN_CATEGORIES[0] : MONEY_OUT_CATEGORIES[0] })); }} className="bg-[#0A0E14] border border-[#222A35] rounded-md px-2 h-9">
                 <option value="in">In</option>
                 <option value="out">Out</option>
               </select>
               <div className="flex gap-2">
-                <input value={newLedger.amountUSD} onChange={(e) => setNewLedger((s) => ({ ...s, amountUSD: Number(e.target.value) || 0 }))} type="number" placeholder="Amount" className="bg-[#0A0E14] border border-[#222A35] rounded-md px-2 h-9 w-full" />
+                <input value={newLedger.amountUSD} onChange={(e) => setNewLedger((s) => ({ ...s, amountUSD: Number(e.target.value) || 0 }))} type="number" placeholder={`Amount (${CURRENCIES[currency].code})`} className="bg-[#0A0E14] border border-[#222A35] rounded-md px-2 h-9 w-full" />
                 <button onClick={addLedger} className="px-3 rounded-md bg-[#FF6B1A] text-white text-[12px]">Add</button>
               </div>
             </div>
