@@ -196,3 +196,26 @@ html.theme-light,
 .theme-light .absolute.top-3 button svg {
   color: #ffffff !important;
 }
+
+/* ───── Chart tooltips in light mode ─────
+   A dark tooltip floating over a light dashboard reads as a hole in the page —
+   which is exactly how it looked. The surface becomes white and the text ink, so
+   the label and value are legible against it. Series colours are dropped for the
+   value text because several of them (yellow, light green) fail against white;
+   the bar being hovered already identifies the series. */
+.theme-light .recharts-default-tooltip {
+  background: #FFFFFF !important;
+  border: 1px solid #DDE4EE !important;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12) !important;
+}
+.theme-light .recharts-tooltip-label { color: #0F172A !important; }
+.theme-light .recharts-tooltip-item,
+.theme-light .recharts-tooltip-item-name,
+.theme-light .recharts-tooltip-item-separator,
+.theme-light .recharts-tooltip-item-value { color: #334155 !important; }
+
+/* Axis labels and grid lines are drawn as SVG with hardcoded dark fills, which
+   disappear against a light background for the same reason. */
+.theme-light .recharts-cartesian-axis-tick-value { fill: #475569 !important; }
+.theme-light .recharts-cartesian-grid line { stroke: #E2E8F0 !important; }
+.theme-light .recharts-legend-item-text { color: #334155 !important; }

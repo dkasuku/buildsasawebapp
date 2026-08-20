@@ -179,3 +179,32 @@
     line-height: 1.5;
   }
 }
+
+/* ───── Chart tooltips (recharts) ─────
+   The six chart tooltips set only a background via inline `contentStyle`, never a
+   text colour, so the label fell back to recharts' default #666 — dark grey on a
+   near-black panel. Barely legible in dark mode and completely invisible in light
+   mode, where the surface stays dark but the global .text-white override darkens
+   anything inside it too.
+
+   Fixed here rather than in six components so every chart, including any added
+   later, is covered. `!important` is required: inline styles otherwise win. */
+.recharts-default-tooltip {
+  background: #0A0E14 !important;
+  border: 1px solid #222A35 !important;
+  border-radius: 8px !important;
+  padding: 8px 10px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35) !important;
+}
+.recharts-tooltip-label {
+  color: #E6EAF0 !important;
+  font-weight: 600 !important;
+  margin-bottom: 4px !important;
+}
+.recharts-tooltip-item,
+.recharts-tooltip-item-name,
+.recharts-tooltip-item-separator,
+.recharts-tooltip-item-value {
+  color: #C2CAD6 !important;
+}
+.recharts-tooltip-item-value { font-weight: 600 !important; }
