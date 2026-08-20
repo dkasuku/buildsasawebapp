@@ -1,4 +1,4 @@
-import { FileSpreadsheet, FileText, TrendingUp, TrendingDown, Wallet, PiggyBank, Receipt, Share2, Plus, Layers, ClipboardList, ShieldCheck, X } from "lucide-react";
+import { FileSpreadsheet, FileText, TrendingUp, TrendingDown, Wallet, PiggyBank, Receipt, Share2, Plus, Layers, ClipboardList, ShieldCheck, X, Calculator } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -7,8 +7,9 @@ import "jspdf-autotable";
 import { useCurrency } from "./CurrencyContext";
 import { CURRENCIES, USD_TO_KES, formatCurrency, toKES } from "./currency";
 import type { Role } from "./roles";
-import { ROLES } from "./roles";
+import { ROLES, canManageBids } from "./roles";
 import { EmptyState } from "./EmptyState";
+import { BoqEditor } from "./BoqEditor";
 import CommitmentDrawer from "./CommitmentDrawer";
 import api, {
   type ExpenseDto,
@@ -57,7 +58,7 @@ type LedgerEntryWithId = LedgerRow & { id?: string };
 type ExpenseRow = { name: string; amountUSD: number; budgetUSD: number; color: string };
 type ExpenseWithId = ExpenseRow & { id?: string };
 
-type Tab = "overview" | "ledger" | "commitments" | "applications" | "retention" | "budget"; // financials sub-tabs
+type Tab = "overview" | "ledger" | "boq" | "commitments" | "applications" | "retention" | "budget"; // financials sub-tabs
 
 const COMMITMENT_STATUSES = ["active", "completed", "overdue", "on_hold"];
 
@@ -78,6 +79,8 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
   const { currency } = useCurrency();
   const perms = ROLES[role];
   const canApprove = !!perms.financials; // "Finance can approve" capability gates approve/pay/release
+  // Building the bill is estimating work — the same people who run a tender.
+  const canEdit = canManageBids(role);
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [projectId, setProjectId] = useState<string | undefined>(undefined);
   const [ledgerRows, setLedgerRows] = useState<LedgerEntryWithId[]>([]);
@@ -563,6 +566,7 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
         {([
           { id: "overview", label: "Overview", icon: Wallet },
           { id: "ledger", label: "Ledger", icon: Receipt },
+          { id: "boq", label: "Bill of Quantities", icon: Calculator },
           { id: "commitments", label: "Commitments", icon: Layers },
           { id: "applications", label: "Applications", icon: ClipboardList },
           { id: "retention", label: "Retention", icon: ShieldCheck },
@@ -766,6 +770,8 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
       )}
 
       {/* COMMITMENTS */}
+      {tab === "boq" && <BoqEditor projectId={projectId} canEdit={canEdit} />}
+
       {tab === "commitments" && (
         !projectId ? (
           <EmptyState icon={Layers} title="No project selected" description="Choose a project to track its commitments." />
@@ -885,6 +891,30 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
         ) : retention.length === 0 ? (
           <EmptyState icon={ShieldCheck} title="No retention records" description="Retention appears here once commitments hold retention or applications certify amounts." />
         ) : (
+          <div className="space-y-4">
+          {(() => {
+            const outstanding = (r: any) => Number(r.remaining == null ? r.amountHeld : r.remaining) || 0;
+            const heldTotal = retention.filter((r) => r.status !== "released").reduce((a, r) => a + outstanding(r), 0);
+            const dueTotal = retention.filter((r) => r.status === "due" || (r.status === "held" && r.releaseDate && new Date(r.releaseDate) <= new Date())).reduce((a, r) => a + outstanding(r), 0);
+            const releasedTotal = retention.reduce((a, r) => a + (Number(r.amountReleased) || 0), 0);
+            return (
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-4">
+                  <div className="text-[11px] text-[#8A95A5]">Still held</div>
+                  <div className="text-[20px] text-white font-display mt-1">{fmt(heldTotal)}</div>
+                </div>
+                {/* The number that actually prompts an action. */}
+                <div className={`rounded-xl border p-4 ${dueTotal > 0 ? "border-[#F5A623]/40 bg-[#F5A623]/10" : "border-[#222A35] bg-[#11161D]"}`}>
+                  <div className="text-[11px] text-[#8A95A5]">Due for release now</div>
+                  <div className={`text-[20px] font-display mt-1 ${dueTotal > 0 ? "text-[#F5A623]" : "text-white"}`}>{fmt(dueTotal)}</div>
+                </div>
+                <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-4">
+                  <div className="text-[11px] text-[#8A95A5]">Released to date</div>
+                  <div className="text-[20px] text-[#22C55E] font-display mt-1">{fmt(releasedTotal)}</div>
+                </div>
+              </div>
+            );
+          })()}
           <div className="rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden">
             <div className="px-5 py-4 border-b border-[#222A35] text-[13px] text-white font-display">Retention</div>
             <div className="overflow-x-auto">
@@ -892,6 +922,7 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
                 <thead>
                   <tr className="text-[10px] text-[#5B6675] uppercase tracking-wider">
                     <th className="text-left px-5 py-2.5">Vendor</th>
+                    <th className="text-left px-3 py-2.5">Stage</th>
                     <th className="text-right px-3 py-2.5">Retention %</th>
                     <th className="text-right px-3 py-2.5">Held</th>
                     <th className="text-right px-3 py-2.5">Released</th>
@@ -906,18 +937,23 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
                     const c = commitmentById(r.commitmentId);
                     const isReleased = r.status === "released";
                     const due = r.releaseDate ? new Date(r.releaseDate) : null;
-                    const aging = !due ? null : isReleased ? null : due.getTime() < Date.now() ? "Overdue" : "Upcoming";
+                    const aging = !due ? null : isReleased ? null : due.getTime() < Date.now() ? "Due now" : "Upcoming";
                     return (
                       <tr key={r.id} className="border-t border-[#222A35]">
                         <td className="px-5 py-2.5 text-white">{c?.vendor || "—"}</td>
+                        <td className="px-3 py-2.5 text-[#8A95A5]">{
+                          r.stage === "practical_completion" ? "At handover"
+                          : r.stage === "defects_expiry" ? "End of defects"
+                          : "—"
+                        }</td>
                         <td className="px-3 py-2.5 text-right text-[#C2CAD6]">{Number(c?.retentionPct || 0)}%</td>
                         <td className="px-3 py-2.5 text-right text-[#C2CAD6]">{fmt(Number(r.amountHeld || 0))}</td>
                         <td className="px-3 py-2.5 text-right text-[#C2CAD6]">{fmt(Number(r.amountReleased || 0))}</td>
                         <td className="px-3 py-2.5 text-right text-white">{fmt(Number(r.remaining || 0))}</td>
                         <td className="px-3 py-2.5 text-[#8A95A5]">{due ? due.toLocaleDateString() : "—"}</td>
                         <td className="px-3 py-2.5">
-                          {aging === "Overdue" ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] text-[#EF4444] bg-[#EF4444]/15">Overdue</span>
+                          {aging === "Due now" ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] text-[#F5A623] bg-[#F5A623]/15">Due now</span>
                           ) : aging === "Upcoming" ? (
                             <span className="px-2 py-0.5 rounded-full text-[10px] text-[#F5A623] bg-[#F5A623]/15">Upcoming</span>
                           ) : (
@@ -937,6 +973,7 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
                 </tbody>
               </table>
             </div>
+          </div>
           </div>
         )
       )}

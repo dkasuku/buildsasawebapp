@@ -24,7 +24,8 @@ import { useCurrency } from "./CurrencyContext";
 import { formatCompactCurrency } from "./currency";
 import type { View } from "./Sidebar";
 import type { Role } from "./roles";
-import { ROLES } from "./roles";
+import { ROLES, canManageBids } from "./roles";
+import { ProjectCloseout } from "./ProjectCloseout";
 
 const $toKES = (usd: number) => Math.round((Number(usd) || 0) * 130);
 
@@ -60,7 +61,7 @@ export function ProjectDetail({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
-  const [tab, setTab] = useState<"overview" | "progress" | "records" | "financials">("overview");
+  const [tab, setTab] = useState<"overview" | "progress" | "records" | "closeout" | "financials">("overview");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -126,6 +127,10 @@ export function ProjectDetail({
     { key: "overview" as const, label: "Overview" },
     { key: "progress" as const, label: "Progress" },
     { key: "records" as const, label: "Related records" },
+    // Handover, defects liability and the final account. Sits with the project
+    // rather than under Financials because it is a project milestone that has
+    // financial consequences, not the other way round.
+    { key: "closeout" as const, label: "Closeout" },
     ...(showFin ? [{ key: "financials" as const, label: "Financials" }] : []),
   ];
 
@@ -257,6 +262,8 @@ export function ProjectDetail({
           </button>
         ))}
       </div>
+
+      {tab === "closeout" && <ProjectCloseout projectId={projectId} canEdit={canManageBids(role)} />}
 
       {tab === "overview" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
