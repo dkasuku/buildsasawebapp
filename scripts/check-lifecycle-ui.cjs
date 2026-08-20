@@ -8,7 +8,7 @@
  */
 const fs=require('fs'),path=require('path');
 const R=(f)=>fs.readFileSync(path.resolve(__dirname,'..','src/app/components/constructai',f),'utf8');
-const BOQ=R('BoqEditor.tsx'), CO=R('ProjectCloseout.tsx'), FIN=R('Financials.tsx'), PD=R('ProjectDetail.tsx');
+const BOQ=R('BoqEditor.tsx'), CO=R('ProjectCloseout.tsx'), FIN=R('Financials.tsx'), PD=R('ProjectDetail.tsx'), CALC=R('ClaimCalculator.tsx');
 let pass=0,fail=0;
 const ok=(l,c)=>{c?pass++:fail++;console.log(`  ${c?'PASS':'FAIL'}  ${l}`);};
 console.log('\nEvery backend feature now has a screen');
@@ -38,6 +38,20 @@ console.log('\nRetention tab surfaces what is payable');
 ok('totals row added', /Due for release now/.test(FIN));
 ok('stage column on the retention table', /At handover/.test(FIN) && /End of defects/.test(FIN));
 ok('a passed date reads as payable, not late', /"Due now"/.test(FIN) && !/>Overdue</.test(FIN));
+
+console.log(String.fromCharCode(10)+'Advance recovery has a screen');
+ok('claim calculator exists', /export function ClaimCalculator/.test(CALC));
+ok('commitment form collects the advance', FIN.indexOf('advanceAmount: Number(e.target.value)') >= 0);
+ok('commitment form collects the recovery rate', FIN.indexOf('advanceRecoveryPct: Number(e.target.value)') >= 0);
+ok('warns about an advance with no recovery rate', /this advance will never be repaid/.test(FIN));
+ok('commitments table shows advance outstanding', /Advance outstanding/.test(FIN));
+ok('a claim can be certified from the table', FIN.indexOf('setClaimFor(c)') >= 0);
+ok('breakdown comes from the server, not the browser', CALC.indexOf('api.previewClaim(') >= 0);
+ok('recording uses the same endpoint family', CALC.indexOf('api.recordClaim(') >= 0);
+ok('preview is debounced', CALC.indexOf('350') >= 0);
+ok('late responses cannot overwrite newer ones', CALC.indexOf('if (alive) setPreview') >= 0);
+ok('flags an outstanding advance recovering nothing', /but nothing is being recovered from this claim/.test(CALC));
+ok('certifying refreshes retention too', CALC ? FIN.indexOf('refreshRetention(projectId)') >= 0 : false);
 
 console.log('\nColumns line up');
 const between=(src,a,b)=>{const i=src.indexOf(a),j=src.indexOf(b,i);return src.slice(i,j);};

@@ -403,6 +403,10 @@ export type CommitmentDto = {
   retentionPct?: number | null;
   retentionHeld?: number | null;
   balanceRemaining?: number | null;
+  /** Mobilisation advance: paid up front, recovered from later claims. */
+  advanceAmount?: number | null;
+  advanceRecovered?: number | null;
+  advanceRecoveryPct?: number | null;
   status?: string | null; // active | completed | overdue | on_hold
 };
 

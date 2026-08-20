@@ -10,6 +10,7 @@ import type { Role } from "./roles";
 import { ROLES, canManageBids } from "./roles";
 import { EmptyState } from "./EmptyState";
 import { BoqEditor } from "./BoqEditor";
+import { ClaimCalculator } from "./ClaimCalculator";
 import CommitmentDrawer from "./CommitmentDrawer";
 import api, {
   type ExpenseDto,
@@ -99,11 +100,13 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
 
   // Modals
   const [showCommitmentModal, setShowCommitmentModal] = useState(false);
+  // Which subcontract is having a claim certified against it.
+  const [claimFor, setClaimFor] = useState<CommitmentDto | null>(null);
   const [showAppModal, setShowAppModal] = useState(false);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectComment, setRejectComment] = useState("");
 
-  const [newCommitment, setNewCommitment] = useState({ vendor: "", scope: "", contractValue: 0, retentionPct: 0, status: "active", costCodeId: "" });
+  const [newCommitment, setNewCommitment] = useState({ vendor: "", scope: "", contractValue: 0, retentionPct: 0, status: "active", costCodeId: "", advanceAmount: 0, advanceRecoveryPct: 0 });
   const [newApp, setNewApp] = useState({ number: "", period: "", commitmentId: "", workCompletedThisPeriod: 0, previousCertified: 0, requestedAmount: 0, retentionPct: 0 });
   const [newCostCode, setNewCostCode] = useState({ code: "", description: "" });
 
@@ -381,11 +384,15 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
         scope: newCommitment.scope,
         contractValue: Number(newCommitment.contractValue) || 0,
         retentionPct: Number(newCommitment.retentionPct) || 0,
+        // An advance with no recovery rate is money that never comes back, so both
+        // are captured together rather than one being added later and forgotten.
+        advanceAmount: Number(newCommitment.advanceAmount) || 0,
+        advanceRecoveryPct: Number(newCommitment.advanceRecoveryPct) || 0,
         status: newCommitment.status,
         costCodeId: newCommitment.costCodeId || null,
       });
       setShowCommitmentModal(false);
-      setNewCommitment({ vendor: "", scope: "", contractValue: 0, retentionPct: 0, status: "active", costCodeId: "" });
+      setNewCommitment({ vendor: "", scope: "", contractValue: 0, retentionPct: 0, status: "active", costCodeId: "", advanceAmount: 0, advanceRecoveryPct: 0 });
       await refreshCommitments(projectId);
       toast.success("Commitment added");
     } catch {
@@ -795,8 +802,10 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
                     <th className="text-right px-3 py-2.5">Invoiced to date</th>
                     <th className="text-right px-3 py-2.5">Paid to date</th>
                     <th className="text-right px-3 py-2.5">Retention held</th>
+                    <th className="text-right px-3 py-2.5">Advance outstanding</th>
                     <th className="text-right px-3 py-2.5">Balance remaining</th>
-                    <th className="text-left px-5 py-2.5">Status</th>
+                    <th className="text-left px-3 py-2.5">Status</th>
+                    <th className="text-right px-5 py-2.5">Claim</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -808,8 +817,21 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
                       <td className="px-3 py-2.5 text-right text-[#C2CAD6]">{fmt(Number(c.invoicedToDate || 0))}</td>
                       <td className="px-3 py-2.5 text-right text-[#C2CAD6]">{fmt(Number(c.paidToDate || 0))}</td>
                       <td className="px-3 py-2.5 text-right text-[#C2CAD6]">{fmt(Number(c.retentionHeld || 0))}</td>
+                      {(() => {
+                        const outstanding = Math.max(0, (Number(c.advanceAmount) || 0) - (Number(c.advanceRecovered) || 0));
+                        return (
+                          <td className={`px-3 py-2.5 text-right ${outstanding > 0 ? "text-[#3B82F6]" : "text-[#5B6675]"}`}>
+                            {(Number(c.advanceAmount) || 0) > 0 ? fmt(outstanding) : "—"}
+                          </td>
+                        );
+                      })()}
                       <td className="px-3 py-2.5 text-right text-white">{fmt(Number(c.balanceRemaining || 0))}</td>
-                      <td className="px-5 py-2.5"><StatusBadge status={c.status} /></td>
+                      <td className="px-3 py-2.5"><StatusBadge status={c.status} /></td>
+                      <td className="px-5 py-2.5 text-right">
+                        {canApprove ? (
+                          <button onClick={() => setClaimFor(c)} className="text-[11px] text-[#FF6B1A] hover:underline">Certify</button>
+                        ) : <span className="text-[10px] text-[#5B6675]">—</span>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1100,6 +1122,19 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
       )}
 
       {/* Commitment modal */}
+      {claimFor && (
+        <ClaimCalculator
+          commitment={claimFor}
+          onClose={() => setClaimFor(null)}
+          onRecorded={() => {
+            if (!projectId) return;
+            void refreshCommitments(projectId);
+            void refreshApplications(projectId);
+            void refreshRetention(projectId);
+          }}
+        />
+      )}
+
       {showCommitmentModal && (
         <Modal title="Add commitment" onClose={() => setShowCommitmentModal(false)}>
           <div className="space-y-3 text-[12px] text-white">
@@ -1108,6 +1143,23 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Labeled label="Contract value"><input type="number" value={newCommitment.contractValue} onChange={(e) => setNewCommitment((s) => ({ ...s, contractValue: Number(e.target.value) || 0 }))} className={inputCls} /></Labeled>
               <Labeled label="Retention %"><input type="number" value={newCommitment.retentionPct} onChange={(e) => setNewCommitment((s) => ({ ...s, retentionPct: Number(e.target.value) || 0 }))} className={inputCls} /></Labeled>
+            </div>
+            {/* Mobilisation advance. Paid before any work is done and recovered
+                from later claims — without a recovery rate it sits on the books as
+                though it had been earned. */}
+            <div className="rounded-md border border-[#222A35] bg-[#0A0E14] p-3 space-y-3">
+              <div className="text-[11px] text-[#8A95A5]">Advance / mobilisation (optional)</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Labeled label={`Advance paid (${CURRENCIES[currency].code})`}>
+                  <input type="number" value={newCommitment.advanceAmount} onChange={(e) => setNewCommitment((s) => ({ ...s, advanceAmount: Number(e.target.value) || 0 }))} className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-2 text-white focus:outline-none focus:border-[#FF6B1A]" />
+                </Labeled>
+                <Labeled label="Recover % of each claim">
+                  <input type="number" value={newCommitment.advanceRecoveryPct} onChange={(e) => setNewCommitment((s) => ({ ...s, advanceRecoveryPct: Number(e.target.value) || 0 }))} placeholder="20" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-2 text-white placeholder:text-[#3A4350] focus:outline-none focus:border-[#FF6B1A]" />
+                </Labeled>
+              </div>
+              {Number(newCommitment.advanceAmount) > 0 && !Number(newCommitment.advanceRecoveryPct) && (
+                <div className="text-[10px] text-[#F5A623]">Set a recovery rate, or this advance will never be repaid out of the claims.</div>
+              )}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Labeled label="Status">
