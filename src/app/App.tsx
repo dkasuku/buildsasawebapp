@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback } from "react";
 import { flushSync } from "react-dom";
 import { Toaster, toast } from "sonner";
 import { Sidebar, type View } from "./components/constructai/Sidebar";
@@ -120,6 +120,22 @@ export default function App() {
     } catch { return "login"; }
   });
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Where the user has been, so every page has a "Back to …" without each
+  // screen carrying its own. Pushed on every navigation; popped by goBack.
+  const [history, setHistory] = useState<View[]>([]);
+  const navigate = useCallback((v: View) => {
+    setView((cur) => {
+      if (cur !== v && cur !== "login") setHistory((h) => [...h.slice(-19), cur]);
+      return v;
+    });
+  }, []);
+  const goBack = useCallback(() => {
+    setHistory((h) => {
+      const prev = h[h.length - 1];
+      if (prev) setView(prev);
+      return h.slice(0, -1);
+    });
+  }, []);
   const [role, setRole] = useState<Role>(() => {
     // Role is determined by the logged-in account (persisted at login/signup).
     try {
@@ -154,7 +170,7 @@ export default function App() {
   const openAiForm = (form: AiFormDraft) => {
     setAiFormDraft({ title: form.title, trade: form.trade, category: form.category, items: JSON.stringify(form.items || []), status: "draft" });
     setAiPanelOpen(false);
-    setView("checklists");
+    navigate("checklists");
   };
   // Profile settings modal (opened from the sidebar profile menu).
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -171,7 +187,7 @@ export default function App() {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const openProject = (id: string) => {
     setActiveProjectId(id);
-    setView("project-detail");
+    navigate("project-detail");
     setDrawerOpen(false);
   };
   // Ask the Projects list to open its edit dialog for this project on mount —
@@ -285,7 +301,7 @@ export default function App() {
   // the same record, and the one still rendering invented figures.
   const openChangeOrder = (id: string) => {
     setActiveChangeOrderId(id);
-    setView("change-orders");
+    navigate("change-orders");
     setDrawerOpen(false);
   };
 
@@ -353,6 +369,9 @@ export default function App() {
   const meta = TITLES[effectiveView as Exclude<View, "login">];
   const backTarget: View = returnView;
   const backMeta = TITLES[backTarget as Exclude<View, "login">];
+  // The last page in the trail that is still allowed and isn't this one.
+  const backView = [...history].reverse().find((v) => v !== effectiveView && allowed.includes(v));
+  const back = backView ? { label: TITLES[backView as Exclude<View, "login">]?.title || "previous page", onClick: goBack } : null;
   // Block (after due date) on an overdue invoice, or when a configured workspace
   // has no active plan. Stays dormant until Paystack is configured so local
   // testing is never blocked. A not-yet-due unpaid invoice shows a soft banner.
@@ -373,7 +392,7 @@ export default function App() {
       >
         <Sidebar
           view={effectiveView}
-          setView={setView}
+          setView={navigate}
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
           role={role}
@@ -384,10 +403,11 @@ export default function App() {
             title={meta.title}
             subtitle={meta.subtitle}
             onMenu={() => setDrawerOpen(true)}
-            onNewOrder={() => setView("change-orders")}
+            onNewOrder={() => navigate("change-orders")}
             role={role}
             setRole={setRole}
-            onNavigate={(v: View) => setView(v)}
+            onNavigate={(v: View) => navigate(v)}
+            back={back}
             onOpenChangeOrder={openChangeOrder}
             onOpenAi={() => setAiPanelOpen(true)}
             theme={theme}
@@ -421,7 +441,7 @@ export default function App() {
                   </p>
                   <div className="flex gap-2 justify-center mt-5">
                     {gate.isBillingOwner && (
-                      <button onClick={() => setView("billing")} className="h-10 px-5 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[12.5px]">{gate.overdue ? "Pay invoice" : "Choose a plan"}</button>
+                      <button onClick={() => navigate("billing")} className="h-10 px-5 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[12.5px]">{gate.overdue ? "Pay invoice" : "Choose a plan"}</button>
                     )}
                     <button onClick={() => { try { localStorage.removeItem("constructai-token"); localStorage.removeItem("constructai-user"); localStorage.removeItem("constructai-refresh"); } catch { /* noop */ } setView("login"); }} className="h-10 px-4 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white text-[12.5px]">Sign out</button>
                   </div>
@@ -432,7 +452,7 @@ export default function App() {
               <div className="flex items-center gap-3 px-4 sm:px-7 py-2.5 bg-[#F59E0B]/10 border-b border-[#F59E0B]/30">
                 <CreditCard className="w-4 h-4 text-[#F59E0B] shrink-0" />
                 <div className="text-[12px] text-[#E6EAF0] flex-1">You have an invoice due {gate.unpaidDue ? new Date(gate.unpaidDue).toLocaleDateString() : "soon"}. Pay it to avoid any interruption to your services.</div>
-                <button onClick={() => setView("billing")} className="h-8 px-3 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[11.5px] shrink-0">Pay invoice</button>
+                <button onClick={() => navigate("billing")} className="h-8 px-3 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[11.5px] shrink-0">Pay invoice</button>
               </div>
             )}
             <ErrorBoundary resetKey={effectiveView} onReset={() => setView("dashboard")}>
@@ -440,12 +460,12 @@ export default function App() {
               <Dashboard
                 role={role}
                 onOpenChangeOrder={openChangeOrder}
-                onNavigate={setView}
+                onNavigate={navigate}
               />
             )}
             {effectiveView === "projects" && (
               <Projects
-                setView={setView}
+                setView={navigate}
                 role={role}
                 onOpenProject={openProject}
                 openEditProjectId={editProjectId}
@@ -458,16 +478,16 @@ export default function App() {
                   key={activeProjectId}
                   projectId={activeProjectId}
                   role={role}
-                  setView={setView}
-                  onBack={() => setView("projects")}
+                  setView={navigate}
+                  onBack={() => (backView ? goBack() : navigate("projects"))}
                   // Editing lives in the Projects list, which owns the form —
                   // hand the user back there with the dialog already open.
-                  onEdit={() => { setEditProjectId(activeProjectId); setView("projects"); }}
+                  onEdit={() => { setEditProjectId(activeProjectId); navigate("projects"); }}
                 />
               ) : (
                 // Reached without a project selected (e.g. a stale view after a
                 // reload). Send the user somewhere useful instead of a blank page.
-                <Projects setView={setView} role={role} onOpenProject={openProject} />
+                <Projects setView={navigate} role={role} onOpenProject={openProject} />
               )
             )}
             {effectiveView === "change-orders" && <ChangeOrders role={role} openId={activeChangeOrderId} onConsumeOpenId={() => setActiveChangeOrderId(null)} />}
@@ -510,12 +530,12 @@ export default function App() {
         {onboardingShowing && !paywalled && (
           <Onboarding
             role={role}
-            onNavigate={(v: View) => setView(v)}
+            onNavigate={(v: View) => navigate(v)}
             onClose={dismissOnboarding}
           />
         )}
         {settingsOpen && <ProfileSettings onClose={() => setSettingsOpen(false)} />}
-        <AiAssistantPanel open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} onExpand={() => { setAiPanelOpen(false); setView("buildflex-ai"); }} messages={aiMessages} setMessages={setAiMessages} onOpenForm={openAiForm} />
+        <AiAssistantPanel open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} onExpand={() => { setAiPanelOpen(false); navigate("buildflex-ai"); }} messages={aiMessages} setMessages={setAiMessages} onOpenForm={openAiForm} />
         {!paywalled && <ShemmySupport />}
       </div>
     </CurrencyProvider>

@@ -82,7 +82,9 @@ const uploadStorage = multer.diskStorage({
 // a phone photo burst or a 300MB drawing set would be accepted, buffered, and
 // then die halfway with a socket error the browser reports only as "network
 // error". A stated limit produces a clear, actionable message instead.
-const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 100);
+// 25 MB, matching the client-side cap (see useFileUpload.ts). Photos are
+// downscaled in the browser, so this is really a ceiling for PDFs and drawings.
+const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 25);
 const upload = multer({ storage: uploadStorage, limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024, files: 25 } });
 // Multer reports storage failures (read-only filesystem, disk full, bad path) to
 // the Express error handler, which answers with an HTML page — so the browser

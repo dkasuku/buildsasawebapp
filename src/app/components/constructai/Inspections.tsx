@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { MultiAssign, parseAssignees, assigneeNames } from "./MultiAssign";
 import { toast } from "sonner";
 import {
   Plus, Search, X, Trash2, ClipboardCheck, CheckCircle2, Clock, AlertTriangle, Camera, Video, User, FileText,
@@ -10,7 +11,6 @@ import api, { type InspectionDto } from "../../services/api";
 import jsPDF from "jspdf";
 import { ImageLightbox } from "./ImageLightbox";
 
-const USERS = ["Alice (Consultant)", "Bob (Consultant)", "Carlos (Site Eng)", "Diana (QA/QC)"];
 
 const STATUS_COLOR: Record<string, string> = {
   draft: "#5B6675",
@@ -354,7 +354,7 @@ export default function Inspections({ role = "Contractor" }: { role?: Role }) {
                     <td className="px-3 py-2.5 text-[#8A95A5]">{i.date}</td>
                     <td className="px-3 py-2.5">{statusBadge(i.status)}</td>
                     <td className="px-3 py-2.5 text-[#8A95A5]">{template?.title || i.templateId || "—"}</td>
-                    <td className="px-3 py-2.5 text-[#8A95A5]">{i.assignedTo || "—"}</td>
+                    <td className="px-3 py-2.5 text-[#8A95A5]">{assigneeNames(i.assignedTo) || "—"}</td>
                     <td className="px-3 py-2.5">
                       <div className="flex gap-2 text-[10px] text-[#8A95A5]">
                         {rCount > 0 && <span className="flex items-center gap-0.5"><ImagePlus className="w-3 h-3" />{rCount}</span>}
@@ -390,7 +390,7 @@ export default function Inspections({ role = "Contractor" }: { role?: Role }) {
                 <div className="text-[12px] text-white">{i.inspector} <span className="text-[#8A95A5]">· {i.date}</span></div>
                 <div className="flex items-center justify-between text-[11px] text-[#8A95A5]">
                   <div className="flex gap-2">
-                    {i.assignedTo && <span className="flex items-center gap-0.5"><User className="w-3 h-3" />{i.assignedTo}</span>}
+                    {i.assignedTo && <span className="flex items-center gap-0.5"><User className="w-3 h-3" />{assigneeNames(i.assignedTo)}</span>}
                     {i.templateId && <span className="flex items-center gap-0.5"><FileText className="w-3 h-3" />Template</span>}
                   </div>
                   <div className="flex gap-2">
@@ -437,10 +437,7 @@ export default function Inspections({ role = "Contractor" }: { role?: Role }) {
                 </div>
                 <div>
                   <div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Assign to Consultant</div>
-                  <select value={form.assignedTo || ""} onChange={(e) => setForm({ ...form, assignedTo: e.target.value || null })} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white">
-                    <option value="">None</option>
-                    {USERS.map((u) => <option key={u} value={u}>{u}</option>)}
-                  </select>
+                  <MultiAssign label="" value={parseAssignees(form.assignedTo)} onChange={(ids) => setForm({ ...form, assignedTo: ids.length ? ids.join(",") : null })} />
                 </div>
               </div>
               <div>
@@ -539,7 +536,7 @@ export default function Inspections({ role = "Contractor" }: { role?: Role }) {
               </div>
               <div className="space-y-1">
                 <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Consultant</div>
-                <div className="text-white">{detailInspection.assignedTo || "—"}</div>
+                <div className="text-white">{assigneeNames(detailInspection.assignedTo) || "—"}</div>
               </div>
               <div className="space-y-1">
                 <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Template</div>

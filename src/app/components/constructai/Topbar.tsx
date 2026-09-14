@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Search, Bell, Plus, Menu, ChevronDown, Check, Eye, Sun, Moon, Coins, Sparkles } from "lucide-react";
+import { ArrowLeft, Search, Bell, Plus, Menu, ChevronDown, Check, Eye, Sun, Moon, Coins, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import type { Role } from "./roles";
 import { ROLES, ROLE_COLORS } from "./roles";
@@ -51,9 +51,12 @@ export function Topbar({
   onOpenAi,
   theme,
   setTheme,
+  back,
 }: {
   title: string;
   subtitle?: string;
+  /** Where "Back" goes — the page the user came from, when there is one. */
+  back?: { label: string; onClick: () => void } | null;
   onMenu: () => void;
   onNewOrder: () => void;
   role: Role;
@@ -134,19 +137,26 @@ export function Topbar({
 
   return (
     <div className={`min-h-[64px] shrink-0 border-b flex flex-col sm:flex-row sm:items-center sm:justify-between px-4 sm:px-7 gap-3 sm:gap-4 py-3 sm:py-0 relative ${theme === "light" ? "bg-white border-[#E2E8F0]" : "bg-[#0A0E14] border-[#222A35]"}`}>
-      <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto">
+      <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto sm:flex-1">
         <button onClick={onMenu} className={`lg:hidden h-9 w-9 rounded-md border flex items-center justify-center shrink-0 ${theme === "light" ? "bg-[#F1F5F9] border-[#E2E8F0] text-[#1A1D23]" : "bg-[#11161D] border-[#222A35] text-white"}`}>
           <Menu className="w-4 h-4" />
         </button>
+        {back && (
+          <button onClick={back.onClick} title={`Back to ${back.label}`} className={`h-9 px-2.5 rounded-md border flex items-center gap-1.5 shrink-0 text-[12px] ${theme === "light" ? "bg-[#F1F5F9] border-[#E2E8F0] text-[#475569] hover:text-[#1A1D23]" : "bg-[#11161D] border-[#222A35] text-[#8A95A5] hover:text-white"}`}>
+            <ArrowLeft className="w-3.5 h-3.5" /><span className="hidden md:inline">Back to {back.label}</span><span className="md:hidden">Back</span>
+          </button>
+        )}
         <div className="min-w-0">
-          <div className={`hidden sm:flex items-center gap-2 text-[12px] ${theme === "light" ? "text-[#64748B]" : "text-[#5B6675]"}`}>
-            <span>Workspace</span><span>/</span><span className={theme === "light" ? "text-[#475569]" : "text-[#8A95A5]"}>{title}</span>
+          <div className={`hidden sm:flex items-center gap-2 text-[12px] whitespace-nowrap overflow-hidden ${theme === "light" ? "text-[#64748B]" : "text-[#5B6675]"}`}>
+            <span className="hidden xl:inline">Workspace</span><span className="hidden xl:inline">/</span>
+            {back && <><button onClick={back.onClick} className="text-[12px] hover:underline truncate">{back.label}</button><span>/</span></>}
+            <span className={theme === "light" ? "text-[#475569]" : "text-[#8A95A5]"}>{title}</span>
           </div>
           <div className={`text-[15px] sm:text-[18px] tracking-tight truncate font-display ${theme === "light" ? "text-[#1A1D23]" : "text-white"}`}>{subtitle || title}</div>
         </div>
       </div>
 
-      <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-2.5 w-full sm:w-auto justify-start sm:justify-end">
+      <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-2.5 w-full sm:w-auto sm:shrink-0 justify-start sm:justify-end">
         {/* Search */}
         <div ref={searchRef} className={`relative ${mobileSearchOpen ? "block w-full order-last mt-2 lg:order-none lg:mt-0 lg:w-auto" : "hidden"} lg:block`}>
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#5B6675]" />
@@ -156,7 +166,7 @@ export function Topbar({
             onChange={(e) => { setQ(e.target.value); setShowResults(true); }}
             onFocus={() => setShowResults(true)}
             placeholder="Search projects, orders, people, drawings…"
-            className={`w-full lg:w-[340px] h-9 rounded-md pl-8 pr-3 text-[12px] focus:outline-none focus:border-[#FF6B1A] border ${theme === "light" ? "bg-white border-[#E2E8F0] text-[#1A1D23] placeholder:text-[#94A3B8]" : "bg-[#11161D] border-[#222A35] text-white placeholder:text-[#5B6675]"}`}
+            className={`w-full lg:w-[190px] xl:w-[260px] 2xl:w-[340px] h-9 rounded-md pl-8 pr-3 text-[12px] focus:outline-none focus:border-[#FF6B1A] border ${theme === "light" ? "bg-white border-[#E2E8F0] text-[#1A1D23] placeholder:text-[#94A3B8]" : "bg-[#11161D] border-[#222A35] text-white placeholder:text-[#5B6675]"}`}
           />
           {showResults && (
             <div className={`absolute top-11 left-0 right-0 rounded-md shadow-2xl z-50 overflow-hidden border ${theme === "light" ? "bg-white border-[#E2E8F0]" : "bg-[#11161D] border-[#222A35]"}`}>

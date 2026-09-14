@@ -19,7 +19,7 @@ import { toast } from "sonner";
 import {
   AlertCircle, ArrowLeft, BarChart3, Calculator, Calendar, CalendarDays, CheckCircle2, ClipboardList, Clock, FileStack,
   FileText, Flag, HardHat, Image as ImageIcon, LayoutDashboard, Loader2, MapPin, Pencil, Receipt, RefreshCw, ShieldAlert,
-  UserCircle, Wallet, Wrench, Check, AlertTriangle,
+  UserCircle, Wallet, Wrench, Check, AlertTriangle, ArrowUpRight, ChevronRight,
 } from "lucide-react";
 import api, { absoluteFileUrl, type ProjectHubDto } from "../../services/api";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
@@ -249,7 +249,7 @@ export function ProjectDetail({
 function HeaderTile({ icon: Icon, label, value, sub, onClick, hidden }: { icon: any; label: string; value: React.ReactNode; sub?: React.ReactNode; onClick?: () => void; tone?: string; hidden?: boolean }) {
   const inner = (
     <>
-      <div className="text-[11px] text-[#8A95A5] flex items-center gap-1.5"><Icon className="w-3.5 h-3.5" /> {label}{onClick && <Pencil className="w-2.5 h-2.5 ml-auto opacity-50" />}</div>
+      <div className="text-[11px] text-[#8A95A5] flex items-center gap-1.5"><Icon className="w-3.5 h-3.5" /> {label}{onClick && <span className="ml-auto flex items-center gap-0.5 text-[10px] text-[#5B6675]"><Pencil className="w-2.5 h-2.5" /> edit</span>}</div>
       <div className="text-[18px] sm:text-[20px] text-white font-display mt-1 leading-tight break-words">{hidden ? "••••" : value}</div>
       {sub && <div className="text-[10.5px] text-[#5B6675] mt-1 leading-snug">{hidden ? "hidden for your role" : sub}</div>}
     </>
@@ -347,8 +347,8 @@ function Overview({ data, images, onEdit, onLightbox, go, showFin, fmt, compact 
 function GlanceTile({ icon: Icon, label, value, sub, onClick, tone }: { icon: any; label: string; value: string; sub?: string; onClick: () => void; tone?: "warn" | "bad" | "good" }) {
   const color = tone === "bad" ? "text-[#EF4444]" : tone === "warn" ? "text-[#F5A623]" : tone === "good" ? "text-[#22C55E]" : "text-white";
   return (
-    <button onClick={onClick} className="rounded-xl border border-[#222A35] bg-[#11161D] p-3.5 text-left hover:border-[#FF6B1A]/50 transition min-w-0">
-      <div className="flex items-center gap-2 text-[11px] text-[#8A95A5]"><Icon className="w-3.5 h-3.5 text-[#FF6B1A]" /> <span className="truncate">{label}</span></div>
+    <button onClick={onClick} className="rounded-xl border border-[#222A35] bg-[#11161D] p-3.5 text-left hover:border-[#FF6B1A]/50 transition min-w-0 group">
+      <div className="flex items-center gap-2 text-[11px] text-[#8A95A5]"><Icon className="w-3.5 h-3.5 text-[#FF6B1A]" /> <span className="truncate flex-1">{label}</span><ArrowUpRight className="w-3.5 h-3.5 text-[#5B6675] group-hover:text-[#FF6B1A] shrink-0" /></div>
       <div className={`text-[19px] font-display mt-1 leading-tight truncate ${color}`}>{value}</div>
       {sub && <div className="text-[10.5px] text-[#5B6675] mt-0.5 truncate">{sub}</div>}
     </button>
@@ -361,20 +361,22 @@ function Signal({ ok, label, value, onClick }: { ok: boolean; label: string; val
       {ok ? <CheckCircle2 className="w-4 h-4 text-[#22C55E] shrink-0" /> : <AlertTriangle className="w-4 h-4 text-[#F5A623] shrink-0" />}
       <span className="text-[12px] text-[#C2CAD6] flex-1">{label}</span>
       <span className={`text-[12.5px] font-display ${ok ? "text-[#22C55E]" : "text-[#F5A623]"}`}>{value}</span>
+      <ChevronRight className="w-3.5 h-3.5 text-[#5B6675]" />
     </button>
   );
 }
 
 function ContractModal({ project, onClose, onSaved }: { project: ProjectHubDto["project"]; onClose: () => void; onSaved: () => Promise<void> }) {
+  const money = useMoney();
   const toInput = (d?: string | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
-  const [f, setF] = useState({ contractSumKES: project.contractSumKES != null ? String(project.contractSumKES) : "", startDate: toInput(project.startDate), targetEndDate: toInput(project.targetEndDate) });
+  const [f, setF] = useState({ contractSum: money.fromBase(project.contractSumKES), startDate: toInput(project.startDate), targetEndDate: toInput(project.targetEndDate) });
   const [busy, setBusy] = useState(false);
   const days = f.startDate && f.targetEndDate ? Math.round((new Date(f.targetEndDate).getTime() - new Date(f.startDate).getTime()) / 86400000) : null;
   const save = async () => {
     if (days != null && days < 0) return toast.error("The completion date is before the start date");
     setBusy(true);
     try {
-      await api.updateProjectContract(project.id, { contractSumKES: f.contractSumKES === "" ? null : Number(f.contractSumKES), startDate: f.startDate || null, targetEndDate: f.targetEndDate || null });
+      await api.updateProjectContract(project.id, { contractSumKES: f.contractSum === "" ? null : money.toBase(f.contractSum), startDate: f.startDate || null, targetEndDate: f.targetEndDate || null });
       toast.success("Contract details saved");
       await onSaved();
     } catch (e: any) { toast.error(e?.message || "Could not save"); }
@@ -383,8 +385,8 @@ function ContractModal({ project, onClose, onSaved }: { project: ProjectHubDto["
   return (
     <Modal title="Contract value & timeline" subtitle="The agreed sum is the base every variation and certificate is measured against." onClose={onClose}>
       <div className="space-y-3">
-        <Field label="Contract sum (KES)" hint={project.value ? `Shown on the project card as “${project.value}”` : undefined}>
-          <input autoFocus type="number" min={0} value={f.contractSumKES} onChange={(e) => setF((x) => ({ ...x, contractSumKES: e.target.value }))} placeholder="e.g. 45000000" className={input} />
+        <Field label={money.unit("Contract sum")} hint={`Entered in ${money.code} — switch the currency in the top bar to enter it in ${money.code === "KES" ? "USD" : "KES"}.${project.value ? ` Shown on the project card as “${project.value}”.` : ""}`}>
+          <input autoFocus type="number" min={0} value={f.contractSum} onChange={(e) => setF((x) => ({ ...x, contractSum: e.target.value }))} placeholder={money.code === "KES" ? "e.g. 45000000" : "e.g. 350000"} className={input} />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Start (possession of site)"><input type="date" value={f.startDate} onChange={(e) => setF((x) => ({ ...x, startDate: e.target.value }))} className={input} /></Field>

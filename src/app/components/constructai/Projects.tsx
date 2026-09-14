@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { MapPin, Calendar, MoreHorizontal, Filter, LayoutGrid, List, Plus, TrendingUp, AlertCircle, X, ImagePlus, UploadCloud, UserCircle, ClipboardList, ChevronDown, ChevronRight, Star, ChevronLeft, ChevronRight as ChevronRightIcon, FolderKanban, SearchX } from "lucide-react";
+import { ArrowUpRight, MapPin, Calendar, MoreHorizontal, Filter, LayoutGrid, List, Plus, TrendingUp, AlertCircle, X, ImagePlus, UploadCloud, UserCircle, ClipboardList, ChevronDown, ChevronRight, Star, ChevronLeft, ChevronRight as ChevronRightIcon, FolderKanban, SearchX } from "lucide-react";
 import { MapPicker } from "./MapPicker";
 import { EmptyState } from "./EmptyState";
 import { ImageLightbox } from "./ImageLightbox";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
 import { useFileUpload } from "./useFileUpload";
+import { ProjectFilesSection, commitProjectFiles, pendingFileCount, EMPTY_PROJECT_FILES, type PendingProjectFiles } from "./project-hub/ProjectFilesSection";
 import { UploadTray } from "./UploadTray";
 import { refreshProjects } from "./useProjects";
 import { resolveName, useTeam } from "./useTeam";
@@ -277,6 +278,9 @@ export function Projects({
   const [editForm, setEditForm] = useState<ProjectForm | null>(null);
   // Uploads for the New and Edit dialogs. Each appends only the URLs that
   // actually stored, so a partial failure keeps the successful images.
+  // Documents/drawings queued in the dialogs; uploaded and filed after save.
+  const [newFiles, setNewFiles] = useState<PendingProjectFiles>(EMPTY_PROJECT_FILES);
+  const [editFiles, setEditFiles] = useState<PendingProjectFiles>(EMPTY_PROJECT_FILES);
   const newImages = useFileUpload({
     onUploaded: (urls) => setForm((s) => ({ ...s, images: [...s.images, ...urls] })),
   });
@@ -284,7 +288,7 @@ export function Projects({
     onUploaded: (urls) => setEditForm((s) => (s ? { ...s, images: [...s.images, ...urls] } : s)),
   });
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    details: true, progress: true, team: true, images: true, checklist: false,
+    details: true, progress: true, team: true, images: true, files: false, checklist: false,
   });
   // Tracks whether the backend has responded — lets us tell a genuinely empty
   // workspace (show empty state) apart from "backend offline" (keep seed demo).
@@ -490,6 +494,11 @@ export function Projects({
       // failure must not read as "the project wasn't created" — but it must not be
       // silent either, which is what Promise.allSettled did here.
       await saveTeam(pid, form, "created");
+      if (pendingFileCount(newFiles)) {
+        const r = await commitProjectFiles(pid, newFiles);
+        if (r.saved) toast.success(`${r.saved} file${r.saved === 1 ? "" : "s"} filed on the project`);
+      }
+      setNewFiles(EMPTY_PROJECT_FILES);
       await reloadProjects();
       setForm({ name: "", code: "", city: "", lat: null, lng: null, description: "", valueCurrency: "KSh", valueAmount: "", status: "Planning", progress: 0, changeOrders: 0, exposureCurrency: "KSh", exposureAmount: "0", images: [], pm: NO_MEMBER, architect: NO_MEMBER, qs: NO_MEMBER, checklist: { items: [] } });
       newImages.reset();
@@ -535,6 +544,11 @@ export function Projects({
         images,
       } as any);
       await saveTeam(pid, editForm, "updated");
+      if (pendingFileCount(editFiles)) {
+        const r = await commitProjectFiles(pid, editFiles);
+        if (r.saved) toast.success(`${r.saved} file${r.saved === 1 ? "" : "s"} filed on the project`);
+      }
+      setEditFiles(EMPTY_PROJECT_FILES);
       await reloadProjects();
       setEditingProject(null);
       setEditForm(null);
@@ -795,9 +809,13 @@ export function Projects({
                 <ImageWithFallback src={cover} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
                 <span className={`absolute top-3 left-3 px-2 py-0.5 rounded-full text-[10px] border ${statusColor(p.status)}`}>{p.status}</span>
-                <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent">
-                  <div className="text-[10px] text-white font-mono" style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,1)' }}>{p.code}</div>
-                  <div className="text-[15px] text-white tracking-tight font-display" style={{ color: '#ffffff', textShadow: '0 2px 4px rgba(0,0,0,1)' }}>{p.name}</div>
+                <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent flex items-end justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[10px] text-white font-mono" style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,1)' }}>{p.code}</div>
+                    <div className="text-[15px] text-white tracking-tight font-display truncate" style={{ color: '#ffffff', textShadow: '0 2px 4px rgba(0,0,0,1)' }}>{p.name}</div>
+                  </div>
+                  {/* Says "this opens" — a card with no visible affordance reads as a static tile. */}
+                  <span className="shrink-0 h-7 px-2 rounded-md bg-[#FF6B1A] text-white text-[10.5px] flex items-center gap-1 shadow-lg group-hover:bg-[#FF7E33]">Open <ArrowUpRight className="w-3 h-3" /></span>
                 </div>
               </div>
               <div className="absolute top-3 right-3 z-30" onClick={(e) => e.stopPropagation()}>
@@ -923,7 +941,7 @@ export function Projects({
               </thead>
               <tbody className="text-[12px]">
                 {filtered.map((p) => (
-                  <tr key={p.code} onClick={() => openProject(p)} className="border-t border-[#222A35] hover:bg-[#161C24] cursor-pointer">
+                  <tr key={p.code} onClick={() => openProject(p)} title="Open project" className="border-t border-[#222A35] hover:bg-[#161C24] cursor-pointer group">
                     <td className="px-5 py-3 text-white">{p.name}</td>
                     <td className="px-3 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] border ${statusColor(p.status)}`}>{p.status}</span></td>
                     <td className="px-3 py-3 text-[#8A95A5]">{p.city}</td>
@@ -1134,7 +1152,7 @@ export function Projects({
                 <label className="text-[11px] text-[#8A95A5] block mb-2">Project images</label>
                 <label className="flex items-center gap-2 px-3 py-2 rounded-md border border-dashed border-[#222A35] bg-[#0A0E14] text-[11px] text-[#8A95A5] cursor-pointer hover:border-[#FF6B1A]/50 hover:text-white">
                   <ImagePlus className="w-4 h-4" />
-                  <span>{form.images.length ? `${form.images.length} image${form.images.length === 1 ? "" : "s"} attached` : "Attach project images"}</span>
+                  <span>{form.images.length ? `${form.images.length} image${form.images.length === 1 ? "" : "s"} attached` : "Attach project images — select as many as you like"}</span>
                   <span className="ml-auto flex items-center gap-1 text-[10px] text-[#5B6675]">
                     <UploadCloud className="w-3 h-3" /> Browse
                   </span>
@@ -1222,6 +1240,10 @@ export function Projects({
                 )}
               </div>
 
+              <div>
+                <label className="text-[11px] text-[#8A95A5] block mb-2">Documents & drawings{pendingFileCount(newFiles) ? ` · ${pendingFileCount(newFiles)} queued` : ""}</label>
+                <ProjectFilesSection value={newFiles} onChange={setNewFiles} />
+              </div>
             </div>
             <div className="flex items-center justify-end gap-2 mt-5">
               <button onClick={() => setShowNew(false)} className="h-9 px-3 rounded-md border border-[#222A35] text-[12px] text-[#8A95A5] hover:text-white">Cancel</button>
@@ -1409,7 +1431,7 @@ export function Projects({
                   <div className="p-3 space-y-3">
                     <label className="flex items-center gap-2 px-3 py-2 rounded-md border border-dashed border-[#222A35] bg-[#0A0E14] text-[11px] text-[#8A95A5] cursor-pointer hover:border-[#FF6B1A]/50 hover:text-white">
                       <ImagePlus className="w-4 h-4" />
-                      <span>{editForm.images.length ? `${editForm.images.length} image${editForm.images.length === 1 ? "" : "s"} attached` : "Attach project images"}</span>
+                      <span>{editForm.images.length ? `${editForm.images.length} image${editForm.images.length === 1 ? "" : "s"} attached` : "Attach project images — select as many as you like"}</span>
                       <span className="ml-auto flex items-center gap-1 text-[10px] text-[#5B6675]">
                         <UploadCloud className="w-3 h-3" /> Browse
                       </span>
@@ -1495,6 +1517,23 @@ export function Projects({
                 )}
               </div>
 
+              {/* Section 5: Documents & drawings */}
+              <div className="rounded-lg border border-[#222A35] overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setExpandedSections((p) => ({ ...p, files: !p.files }))}
+                  className="w-full flex items-center justify-between px-3 py-2.5 bg-[#0A0E14] text-left"
+                >
+                  <span className="text-[12px] text-white font-display">Documents & Drawings{pendingFileCount(editFiles) ? <span className="text-[#FF6B1A]"> · {pendingFileCount(editFiles)} to upload</span> : null}</span>
+                  {expandedSections.files ? <ChevronDown className="w-3.5 h-3.5 text-[#5B6675]" /> : <ChevronRight className="w-3.5 h-3.5 text-[#5B6675]" />}
+                </button>
+                {expandedSections.files && (
+                  <div className="p-3">
+                    <ProjectFilesSection value={editFiles} onChange={setEditFiles} />
+                    <div className="text-[10.5px] text-[#5B6675] mt-2">Files already on the project are in its folders — open the project to see them.</div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Sticky footer */}

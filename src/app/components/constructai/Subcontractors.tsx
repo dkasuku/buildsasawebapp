@@ -223,7 +223,8 @@ function ContactForm({ onClose, onDone }: { onClose: () => void; onDone: () => P
 }
 
 function PaymentForm({ row, onClose, onDone }: { row: SubcontractorRowDto; onClose: () => void; onDone: () => Promise<void> }) {
-  const { fmt } = useMoney();
+  const money = useMoney();
+  const { fmt } = money;
   const [f, setF] = useState({ commitmentId: row.commitments[0]?.id || "", amount: "", date: new Date().toISOString().slice(0, 10), reference: "", note: "" });
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF((x) => ({ ...x, [k]: e.target.value }));
@@ -231,9 +232,9 @@ function PaymentForm({ row, onClose, onDone }: { row: SubcontractorRowDto; onClo
   const balance = chosen ? (Number(chosen.contractValue) || 0) + (Number(chosen.approvedVariations) || 0) - (Number(chosen.paidToDate) || 0) : 0;
   const save = async () => {
     if (!f.commitmentId) return toast.error("Pick the subcontract");
-    if (!(Number(f.amount) > 0)) return toast.error("Enter the amount paid");
+    if (!(money.toBase(f.amount) > 0)) return toast.error("Enter the amount paid");
     setBusy(true);
-    try { await api.recordSubcontractorPayment({ commitmentId: f.commitmentId, amount: Number(f.amount), date: f.date, reference: f.reference || undefined, note: f.note || undefined }); toast.success("Payment recorded"); await onDone(); }
+    try { await api.recordSubcontractorPayment({ commitmentId: f.commitmentId, amount: money.toBase(f.amount), date: f.date, reference: f.reference || undefined, note: f.note || undefined }); toast.success("Payment recorded"); await onDone(); }
     catch (e: any) { toast.error(e?.message || "Could not record the payment"); }
     finally { setBusy(false); }
   };
@@ -247,7 +248,7 @@ function PaymentForm({ row, onClose, onDone }: { row: SubcontractorRowDto; onClo
         </Field>
         {chosen && <div className="text-[11.5px] text-[#8A95A5] flex items-center gap-1.5"><Wallet className="w-3.5 h-3.5" /> Balance before this payment: <span className="text-white">{fmt(balance)}</span></div>}
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Amount paid (KES)"><input autoFocus type="number" min={0} value={f.amount} onChange={set("amount")} className={input} /></Field>
+          <Field label={money.unit("Amount paid")}><input autoFocus type="number" min={0} value={f.amount} onChange={set("amount")} className={input} /></Field>
           <Field label="Date"><input type="date" value={f.date} onChange={set("date")} className={input} /></Field>
         </div>
         <Field label="Reference"><input value={f.reference} onChange={set("reference")} placeholder="Cheque no., M-Pesa code, transfer ref" className={input} /></Field>

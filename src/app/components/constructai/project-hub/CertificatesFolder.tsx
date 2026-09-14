@@ -145,19 +145,23 @@ function CertRow({ c, projectId, canEdit, onChanged, onStatus, fmt }: { c: Certi
 }
 
 function CertificateForm({ projectId, previousCertified, nextNumber, onClose, onDone }: { projectId: string; previousCertified: number; nextNumber: string; onClose: () => void; onDone: () => Promise<void> }) {
-  const { fmt } = useMoney();
+  const money = useMoney();
+  const { fmt } = money;
   const uploader = useFileUpload();
   const [f, setF] = useState({ number: nextNumber, period: "", periodEnd: "", mode: "period" as "period" | "todate", amount: "", retentionPct: "5", advanceRecovery: "0", status: "submitted", comments: "" });
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF((x) => ({ ...x, [k]: e.target.value }));
 
-  const thisPeriod = f.mode === "todate" ? (Number(f.amount) || 0) - previousCertified : (Number(f.amount) || 0);
+  // Typed in the chosen currency; everything below is in the KES base.
+  const amountKES = money.toBase(f.amount);
+  const advanceKES = money.toBase(f.advanceRecovery);
+  const thisPeriod = f.mode === "todate" ? amountKES - previousCertified : amountKES;
   const retention = Math.round(thisPeriod * (Number(f.retentionPct) || 0)) / 100;
-  const net = thisPeriod - retention - (Number(f.advanceRecovery) || 0);
+  const net = thisPeriod - retention - advanceKES;
 
   const save = async () => {
-    if (!(Number(f.amount) > 0)) return toast.error("Enter the certified amount");
+    if (!(amountKES > 0)) return toast.error("Enter the certified amount");
     if (thisPeriod <= 0) return toast.error(`The valuation to date must be more than the ${fmt(previousCertified)} already certified`);
     setBusy(true);
     try {
@@ -165,8 +169,8 @@ function CertificateForm({ projectId, previousCertified, nextNumber, onClose, on
       if (file) { const [u] = await uploader.upload([file]); fileUrl = u; }
       await api.createCertificate(projectId, {
         number: f.number || undefined, period: f.period || undefined, periodEnd: f.periodEnd || undefined,
-        ...(f.mode === "todate" ? { valuationToDate: Number(f.amount) } : { amount: Number(f.amount) }),
-        retentionPct: Number(f.retentionPct) || 0, advanceRecovery: Number(f.advanceRecovery) || 0, status: f.status, fileUrl, comments: f.comments || undefined,
+        ...(f.mode === "todate" ? { valuationToDate: amountKES } : { amount: amountKES }),
+        retentionPct: Number(f.retentionPct) || 0, advanceRecovery: advanceKES, status: f.status, fileUrl, comments: f.comments || undefined,
       });
       toast.success(`${f.number || "Certificate"} recorded`);
       await onDone();
@@ -189,9 +193,9 @@ function CertificateForm({ projectId, previousCertified, nextNumber, onClose, on
               <option value="todate">Gross valuation to date</option>
             </select>
           </Field>
-          <Field label="Amount (KES)"><input type="number" min={0} value={f.amount} onChange={set("amount")} className={input} /></Field>
+          <Field label={money.unit("Amount")}><input type="number" min={0} value={f.amount} onChange={set("amount")} className={input} /></Field>
           <Field label="Retention %"><input type="number" min={0} max={20} step={0.5} value={f.retentionPct} onChange={set("retentionPct")} className={input} /></Field>
-          <Field label="Advance recovered (KES)"><input type="number" min={0} value={f.advanceRecovery} onChange={set("advanceRecovery")} className={input} /></Field>
+          <Field label={money.unit("Advance recovered")}><input type="number" min={0} value={f.advanceRecovery} onChange={set("advanceRecovery")} className={input} /></Field>
         </div>
         <div className="rounded-lg border border-[#222A35] bg-[#0A0E14] p-3 grid grid-cols-3 gap-2 text-center">
           <div><div className="text-[10px] text-[#5B6675] uppercase">This period</div><div className="text-[13px] text-white tabular-nums">{fmt(Math.max(0, thisPeriod))}</div></div>

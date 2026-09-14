@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { Plus, Trash2, Loader2, ChevronDown, ChevronRight, Calculator, AlertTriangle, Check, BookOpen } from "lucide-react";
 import api, { type BoqDto, type BoqSectionDto } from "../../services/api";
 import { useCurrency } from "./CurrencyContext";
-import { formatCurrency } from "./currency";
+import { formatCurrency, fromKES, toKES, roundForCurrency } from "./currency";
 import { EmptyState } from "./EmptyState";
 
 // The units a bill is actually priced in on site here.
@@ -33,9 +33,11 @@ export function BoqEditor({ projectId, canEdit, refreshKey, onPickRate, onChange
   onChanged?: () => void;
 }) {
   const { currency } = useCurrency();
-  // BOQ rates are entered and stored in the KES base, like every other figure the
-  // estimator works with.
+  // BOQ rates are STORED in the KES base; they are typed and shown in whichever
+  // currency is picked in the top bar.
   const fmt = (kes: number) => formatCurrency(Math.round(Number(kes) || 0), currency);
+  const typedToKES = (v: string | number) => Math.round(toKES(Number(v) || 0, currency) * 100) / 100;
+  const kesToTyped = (kes: number) => String(roundForCurrency(fromKES(kes, currency), currency));
 
   const [boq, setBoq] = useState<BoqDto | null>(null);
   const [loading, setLoading] = useState(false);
@@ -64,7 +66,7 @@ export function BoqEditor({ projectId, canEdit, refreshKey, onPickRate, onChange
   // line is saved rather than after it has moved the total.
   const draftAmount = (sectionId: string) => {
     const d = draftFor(sectionId);
-    return (Number(d.quantity) || 0) * (Number(d.rate) || 0);
+    return (Number(d.quantity) || 0) * typedToKES(d.rate);
   };
 
   const addSection = async () => {
@@ -89,7 +91,7 @@ export function BoqEditor({ projectId, canEdit, refreshKey, onPickRate, onChange
         description: d.description.trim(),
         unit: d.unit,
         quantity: Number(d.quantity) || 0,
-        rate: Number(d.rate) || 0,
+        rate: typedToKES(d.rate),
       });
       setDraft((x) => ({ ...x, [sectionId]: blankDraft }));
       await reload();
@@ -207,7 +209,7 @@ export function BoqEditor({ projectId, canEdit, refreshKey, onPickRate, onChange
                             <th className="text-left px-3 py-2">Description</th>
                             <th className="text-left px-3 py-2">Unit</th>
                             <th className="text-right px-3 py-2">Qty</th>
-                            <th className="text-right px-3 py-2">Rate</th>
+                            <th className="text-right px-3 py-2">Rate ({currency})</th>
                             <th className="text-right px-3 py-2">Amount</th>
                             {canEdit && <th className="px-3 py-2" />}
                           </tr>
@@ -251,9 +253,9 @@ export function BoqEditor({ projectId, canEdit, refreshKey, onPickRate, onChange
                         </select>
                         <input value={d.quantity} onChange={(e) => setDraftFor(s.id, { quantity: e.target.value })} type="number" placeholder="Qty" className="h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white text-right placeholder:text-[#3A4350] focus:outline-none focus:border-[#FF6B1A]" />
                         <div className="flex items-center gap-1">
-                          <input value={d.rate} onChange={(e) => setDraftFor(s.id, { rate: e.target.value })} type="number" placeholder="Rate" className="h-9 min-w-0 flex-1 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white text-right placeholder:text-[#3A4350] focus:outline-none focus:border-[#FF6B1A]" />
+                          <input value={d.rate} onChange={(e) => setDraftFor(s.id, { rate: e.target.value })} type="number" placeholder={`Rate (${currency})`} title={`Rate per unit, in ${currency}`} className="h-9 min-w-0 flex-1 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white text-right placeholder:text-[#3A4350] focus:outline-none focus:border-[#FF6B1A]" />
                           {onPickRate && (
-                            <button type="button" title="Pick a fair rate from the library" onClick={() => onPickRate((r) => setDraftFor(s.id, { rate: String(r.rate), unit: UNITS.includes(r.unit) ? r.unit : d.unit, description: d.description || r.description, code: d.code || (r.code ?? "") }))} className="h-9 w-9 shrink-0 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-[#FF6B1A] hover:border-[#FF6B1A]/50 flex items-center justify-center">
+                            <button type="button" title="Pick a fair rate from the library" onClick={() => onPickRate((r) => setDraftFor(s.id, { rate: kesToTyped(r.rate), unit: UNITS.includes(r.unit) ? r.unit : d.unit, description: d.description || r.description, code: d.code || (r.code ?? "") }))} className="h-9 w-9 shrink-0 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-[#FF6B1A] hover:border-[#FF6B1A]/50 flex items-center justify-center">
                               <BookOpen className="w-3.5 h-3.5" />
                             </button>
                           )}

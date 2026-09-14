@@ -196,11 +196,12 @@ function VariationRows({ v, expanded, counted, projectId, canEdit, canApprove, o
 }
 
 function VariationForm({ projectId, initial, canApprove, onClose, onDone }: { projectId: string; initial?: VariationDto; canApprove: boolean; onClose: () => void; onDone: () => Promise<void> }) {
+  const money = useMoney();
   const [f, setF] = useState({
     title: initial?.title || "",
     cause: initial?.trigger || CAUSES[0],
     kind: (initial?.amountKES ?? 0) < 0 ? "omission" : "addition",
-    amount: initial ? String(Math.abs(initial.amountKES)) : "",
+    amount: initial ? money.fromBase(Math.abs(initial.amountKES)) : "",
     description: initial?.description || "",
     status: initial?.status || "drafted",
     scheduleImpactDays: String(initial?.scheduleImpactDays ?? 0),
@@ -210,7 +211,7 @@ function VariationForm({ projectId, initial, canApprove, onClose, onDone }: { pr
 
   const save = async () => {
     if (!f.title.trim()) return toast.error("Give the variation a title");
-    const amt = Math.abs(Number(f.amount) || 0);
+    const amt = Math.abs(money.toBase(f.amount));
     if (!amt) return toast.error("Enter the value of the variation");
     const amountKES = f.kind === "omission" ? -amt : amt;
     setBusy(true);
@@ -235,7 +236,7 @@ function VariationForm({ projectId, initial, canApprove, onClose, onDone }: { pr
               <option value="omission">Omission (−)</option>
             </select>
           </Field>
-          <Field label="Amount (KES)"><input type="number" min={0} value={f.amount} onChange={set("amount")} placeholder="0" className={input} /></Field>
+          <Field label={money.unit("Amount")}><input type="number" min={0} value={f.amount} onChange={set("amount")} placeholder="0" className={input} /></Field>
           <Field label="Time impact (days)"><input type="number" value={f.scheduleImpactDays} onChange={set("scheduleImpactDays")} className={input} /></Field>
         </div>
         <Field label="Description"><textarea value={f.description} onChange={set("description")} placeholder="What changed, where, and what was instructed." className={textarea} /></Field>

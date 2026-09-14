@@ -7,7 +7,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { X, ExternalLink, Trash2, FileText, Image as ImageIcon, FileSpreadsheet, File as FileIcon, Loader2 } from "lucide-react";
 import { absoluteFileUrl, type DocumentDto } from "../../../services/api";
 import { useCurrency } from "../CurrencyContext";
-import { formatCurrency, formatCompactCurrency } from "../currency";
+import { formatCurrency, formatCompactCurrency, fromKES, toKES, roundForCurrency, CURRENCIES } from "../currency";
 
 export const fmtDate = (d?: string | null, opts?: Intl.DateTimeFormatOptions) => {
   if (!d) return "—";
@@ -18,10 +18,22 @@ export const fmtDate = (d?: string | null, opts?: Intl.DateTimeFormatOptions) =>
 export const fileSizeLabel = (bytes: number) =>
   bytes > 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
 
-/** Amounts in the hub are KES; the viewer's currency preference decides display. */
+/**
+ * Amounts in the hub are STORED in KES; the currency picked in the top bar
+ * decides how they are shown and — via toBase/fromBase — the unit every amount
+ * field is typed in. Switch the picker to USD and a form asks for dollars.
+ */
 export function useMoney() {
   const { currency } = useCurrency();
   return {
+    code: currency,
+    symbol: CURRENCIES[currency].symbol,
+    /** Label suffix for an amount field: "Amount (USD)". */
+    unit: (label: string) => `${label} (${currency})`,
+    /** What the user typed, in the chosen currency → KES for storage. */
+    toBase: (typed: number | string) => Math.round(toKES(Number(typed) || 0, currency) * 100) / 100,
+    /** A stored KES figure → the number to put in an input, in the chosen currency. */
+    fromBase: (kes: number | null | undefined) => (kes == null ? "" : String(roundForCurrency(fromKES(Number(kes) || 0, currency), currency))),
     fmt: (kes: number | null | undefined) => (kes == null ? "—" : formatCurrency(Math.round(Number(kes) || 0), currency)),
     compact: (kes: number | null | undefined) => (kes == null ? "—" : formatCompactCurrency(Math.round(Number(kes) || 0), currency)),
     /** Signed, for variations: +KSh 1.2M / −KSh 300K. */

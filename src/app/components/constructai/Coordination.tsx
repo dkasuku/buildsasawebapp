@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
+import { MultiAssign } from "./MultiAssign";
+import { resolveName } from "./useTeam";
 import { toast } from "sonner";
 import { Plus, Search, X, Briefcase, MessageSquare, Send, AlertCircle, CheckCircle2, Clock3 } from "lucide-react";
 import type { Role } from "./roles";
@@ -197,7 +199,8 @@ function NewIssueModal({ onClose, onCreate }: { onClose: () => void; onCreate: (
   const [title, setTitle] = useState("");
   const [type, setType] = useState<Issue["type"]>("RFI");
   const [priority, setPriority] = useState<Issue["priority"]>("medium");
-  const [assignedTo, setAssignedTo] = useState("");
+  // Several people can own an RFI; names are stored so the list reads well.
+  const [assignees, setAssignees] = useState<string[]>([]);
   // Real projects, replacing three hardcoded demo names.
   const [project, setProject] = useState<{ id: string; name: string } | null>(null);
   const [description, setDescription] = useState("");
@@ -208,7 +211,7 @@ function NewIssueModal({ onClose, onCreate }: { onClose: () => void; onCreate: (
     onCreate({
       id: `RFI-${String(Math.floor(Math.random() * 900) + 100).padStart(3, "0")}`,
       title: title.trim(), type, status: "open", priority,
-      raisedBy: "You", assignedTo: assignedTo.trim() || "Unassigned",
+      raisedBy: "You", assignedTo: assignees.map((id) => resolveName(id)).join(", ") || "Unassigned",
       project: project.name, projectId: project.id,
       date: new Date().toISOString().slice(0, 10),
       description: description.trim(), comments: [],
@@ -234,7 +237,7 @@ function NewIssueModal({ onClose, onCreate }: { onClose: () => void; onCreate: (
             </select>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <input value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} placeholder="Assign to" className="h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
+            <MultiAssign label="" value={assignees} onChange={setAssignees} />
             <ProjectSelect value={project?.id} onChange={setProject} />
           </div>
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe the issue, reference drawings…" rows={3} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-lg px-3 py-2 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A] resize-none" />

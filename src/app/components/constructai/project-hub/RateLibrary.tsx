@@ -120,15 +120,16 @@ export function RateLibraryDrawer({ onClose, onPick, canEdit }: { onClose: () =>
 }
 
 function RateForm({ initial, onClose, onSaved }: { initial?: Partial<RateLibraryItemDto>; onClose: () => void; onSaved: (r: RateLibraryItemDto) => void }) {
-  const [f, setF] = useState({ code: initial?.code || "", description: initial?.description || "", unit: initial?.unit || "m2", rate: initial?.rate != null ? String(initial.rate) : "", category: initial?.category || "", source: initial?.source || "", notes: initial?.notes || "" });
+  const money = useMoney();
+  const [f, setF] = useState({ code: initial?.code || "", description: initial?.description || "", unit: initial?.unit || "m2", rate: initial?.rate != null ? money.fromBase(initial.rate) : "", category: initial?.category || "", source: initial?.source || "", notes: initial?.notes || "" });
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF((x) => ({ ...x, [k]: e.target.value }));
   const save = async () => {
     if (!f.description.trim()) return toast.error("Describe the item");
-    if (!(Number(f.rate) > 0)) return toast.error("Enter the rate");
+    if (!(money.toBase(f.rate) > 0)) return toast.error("Enter the rate");
     setBusy(true);
     try {
-      const payload = { ...f, rate: Number(f.rate), code: f.code || null, category: f.category || null, source: f.source || null, notes: f.notes || null };
+      const payload = { ...f, rate: money.toBase(f.rate), code: f.code || null, category: f.category || null, source: f.source || null, notes: f.notes || null };
       onSaved(initial?.id ? await api.updateRate(initial.id, payload) : await api.createRate(payload));
       toast.success("Saved to the library");
     } catch (e: any) { toast.error(e?.message || "Could not save"); }
@@ -140,7 +141,7 @@ function RateForm({ initial, onClose, onSaved }: { initial?: Partial<RateLibrary
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <Field label="Description" className="sm:col-span-3"><input value={f.description} onChange={set("description")} placeholder="12mm cement/sand plaster to internal walls" className={input} /></Field>
         <Field label="Unit"><select value={f.unit} onChange={set("unit")} className={input}>{UNITS.map((u) => <option key={u}>{u}</option>)}</select></Field>
-        <Field label="Rate (KES)"><input type="number" value={f.rate} onChange={set("rate")} className={input} /></Field>
+        <Field label={money.unit("Rate")}><input type="number" value={f.rate} onChange={set("rate")} className={input} /></Field>
         <Field label="Category"><input value={f.category} onChange={set("category")} placeholder="Finishes" className={input} /></Field>
         <Field label="Ref code"><input value={f.code} onChange={set("code")} placeholder="F-12" className={input} /></Field>
         <Field label="Source" className="sm:col-span-2"><input value={f.source} onChange={set("source")} placeholder="Quote from ABC Ltd, Aug 2026" className={input} /></Field>

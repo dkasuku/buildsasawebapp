@@ -19,7 +19,8 @@ import { ImageWithFallback } from "../../figma/ImageWithFallback";
 import { ImageLightbox } from "../ImageLightbox";
 import { pickFiles, useFileUpload } from "../useFileUpload";
 import { UploadTray } from "../UploadTray";
-import { useTeam, resolveName } from "../useTeam";
+import { resolveName } from "../useTeam";
+import { MultiAssign } from "../MultiAssign";
 import { DocumentFolder } from "./DocumentFolder";
 import { Bar, Empty, Field, Kpi, Modal, Panel, Pill, btnGhost, btnPrimary, fmtDate, input, statusLabel, statusTone, textarea } from "./shared";
 
@@ -342,10 +343,10 @@ function Defects({ projectId, items, canEdit, onChanged }: { projectId: string; 
 }
 
 function DefectForm({ projectId, onClose, onDone }: { projectId: string; onClose: () => void; onDone: () => Promise<void> }) {
-  const team = useTeam();
   const uploader = useFileUpload();
   const [photos, setPhotos] = useState<string[]>([]);
-  const [f, setF] = useState({ title: "", desc: "", area: "", trade: "", assignee: "", priority: "medium", dueDate: "" });
+  const [assignees, setAssignees] = useState<string[]>([]);
+  const [f, setF] = useState({ title: "", desc: "", area: "", trade: "", priority: "medium", dueDate: "" });
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF((x) => ({ ...x, [k]: e.target.value }));
   const addPhotos = async () => {
@@ -358,7 +359,7 @@ function DefectForm({ projectId, onClose, onDone }: { projectId: string; onClose
     if (!f.title.trim()) return toast.error("Describe the defect");
     setBusy(true);
     try {
-      await api.createPunchItem({ projectId, title: f.title.trim(), desc: f.desc || f.title.trim(), area: f.area || "—", trade: f.trade || undefined, assignees: f.assignee ? [f.assignee] : [], priority: f.priority, dueDate: f.dueDate || undefined, photos, status: "open", category: "other" });
+      await api.createPunchItem({ projectId, title: f.title.trim(), desc: f.desc || f.title.trim(), area: f.area || "—", trade: f.trade || undefined, assignees, priority: f.priority, dueDate: f.dueDate || undefined, photos, status: "open", category: "other" });
       toast.success("Defect logged");
       await onDone();
     } catch (e: any) { toast.error(e?.message || "Could not save"); }
@@ -372,9 +373,7 @@ function DefectForm({ projectId, onClose, onDone }: { projectId: string; onClose
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Location / area"><input value={f.area} onChange={set("area")} placeholder="Ground floor lobby" className={input} /></Field>
           <Field label="Responsible trade"><input value={f.trade} onChange={set("trade")} placeholder="Tiling subcontractor" className={input} /></Field>
-          <Field label="Assign to (team)">
-            <select value={f.assignee} onChange={set("assignee")} className={input}><option value="">—</option>{team.map((m) => <option key={m.id} value={m.id}>{m.name} · {m.role}</option>)}</select>
-          </Field>
+          <div><MultiAssign compact label="Assign to (team)" value={assignees} onChange={setAssignees} /></div>
           <Field label="Priority"><select value={f.priority} onChange={set("priority")} className={input}>{["low", "medium", "high"].map((p) => <option key={p} value={p}>{statusLabel(p)}</option>)}</select></Field>
           <Field label="Due"><input type="date" value={f.dueDate} onChange={set("dueDate")} className={input} /></Field>
         </div>

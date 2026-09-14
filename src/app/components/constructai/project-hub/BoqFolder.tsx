@@ -160,6 +160,7 @@ function ImportPreview({ projectId, file, result, hasExisting, onClose, onDone }
   return (
     <Modal title={`Import ${file.name}`} subtitle={`Read from sheet “${result.sheetName}” — ${result.itemCount} items in ${result.sections.length} sections, ${fmt(result.total)}`} onClose={onClose} wide>
       <div className="space-y-4">
+        <div className="text-[11px] text-[#8A95A5]">Rates in the file are read as Kenyan shillings (KES), whatever currency the top bar is set to.</div>
         {result.warnings.map((w, i) => (
           <div key={i} className="rounded-lg border border-[#F5A623]/40 bg-[#F5A623]/10 px-3 py-2 text-[12px] text-[#E6EAF0] flex gap-2"><AlertTriangle className="w-4 h-4 text-[#F5A623] shrink-0 mt-0.5" />{w}</div>
         ))}

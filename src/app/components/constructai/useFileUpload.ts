@@ -15,6 +15,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import api from "../../services/api";
+import { rejectReason, shrinkImage } from "../../services/uploadPolicy";
+export { MAX_DOCUMENT_MB, MAX_IMAGE_MB, rejectReason, shrinkImage } from "../../services/uploadPolicy";
 
 export type PendingUpload = {
   /** Stable key for React lists. */
@@ -48,7 +50,17 @@ export function useFileUpload(options?: { onUploaded?: (urls: string[]) => void 
    * Previews appear immediately; each file reports its own outcome.
    */
   const upload = useCallback(async (files: FileList | File[] | null): Promise<string[]> => {
-    const list = Array.from(files || []);
+    const picked = Array.from(files || []);
+    if (!picked.length) return [];
+    // Refuse oversized files up front, by name, and shrink big photos before
+    // they are even shown in the tray (api.uploadFile would do both anyway;
+    // doing it here means the preview is of the file that is actually sent).
+    const list: File[] = [];
+    for (const f of picked) {
+      const why = rejectReason(f);
+      if (why) { toast.error(why, { duration: 8000 }); continue; }
+      list.push(await shrinkImage(f));
+    }
     if (!list.length) return [];
 
     const items: PendingUpload[] = list.map((file) => {

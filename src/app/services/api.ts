@@ -1,3 +1,5 @@
+import { rejectReason, shrinkImage } from "./uploadPolicy";
+
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 const TOKEN_KEY = "constructai-token";
@@ -1018,6 +1020,11 @@ export const api = {
   // broken. Without a callback it stays on fetch.
   uploadFile: async (file: File, onProgress?: (pct: number) => void): Promise<string> => {
     if (!file) throw new Error("No file was selected");
+    // Size policy: oversized files are refused with the reason; big photos are
+    // downscaled first. Enforced here so no caller can skip it.
+    const why = rejectReason(file);
+    if (why) throw new Error(why);
+    file = await shrinkImage(file);
     // A zero-byte file is almost always a failed pick (a cloud-only file on
     // Android/iCloud that never downloaded). Uploading it "succeeds" and stores
     // an empty image, which then renders as a broken thumbnail — say so instead.
@@ -1043,9 +1050,14 @@ export const api = {
   uploadFiles: async (files: File[], onProgress?: (pct: number) => void): Promise<{ urls: string[]; failed: { name: string; error: string }[] }> => {
     const list = Array.from(files || []);
     if (!list.length) return { urls: [], failed: [] };
-    const empty = list.filter((f) => f.size === 0);
-    const usable = list.filter((f) => f.size > 0);
-    const failed = empty.map((f) => ({ name: f.name, error: "the file is empty (0 bytes)" }));
+    const failed: { name: string; error: string }[] = [];
+    const usable: File[] = [];
+    for (const f of list) {
+      if (f.size === 0) { failed.push({ name: f.name, error: "the file is empty (0 bytes)" }); continue; }
+      const why = rejectReason(f);
+      if (why) { failed.push({ name: f.name, error: why }); continue; }
+      usable.push(await shrinkImage(f));
+    }
     if (!usable.length) return { urls: [], failed };
     const fd = new FormData();
     usable.forEach((f) => fd.append("file", f));
