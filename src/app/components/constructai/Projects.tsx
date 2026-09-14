@@ -1022,23 +1022,26 @@ export function Projects({
       </div>
 
       {showNew && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-start sm:items-center justify-center p-4 overflow-y-auto" onClick={() => setShowNew(false)}>
-          <div className="w-full max-w-[480px] max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-3rem)] overflow-y-auto rounded-xl border border-[#222A35] bg-[#11161D] p-5 sm:p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
+        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={() => setShowNew(false)}>
+          {/* Full-height sheet on phones (keyboard-safe via dvh), centred dialog from
+              tablets up, wider on desktop so the two-column rows have room. Header
+              and footer stay put while the body scrolls. */}
+          <div className="w-full sm:max-w-[560px] lg:max-w-[680px] h-[100dvh] sm:h-auto sm:max-h-[90vh] rounded-none sm:rounded-xl border-0 sm:border border-[#222A35] bg-[#11161D] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[#222A35] shrink-0">
               <div>
                 <div className="text-[15px] text-white font-display">New Project</div>
                 <div className="text-[11px] text-[#8A95A5]">Create a new project workspace</div>
               </div>
-              <button onClick={() => setShowNew(false)} className="w-7 h-7 rounded-md text-[#8A95A5] hover:text-white hover:bg-[#161C24] flex items-center justify-center">
+              <button onClick={() => setShowNew(false)} className="w-8 h-8 rounded-md text-[#8A95A5] hover:text-white hover:bg-[#161C24] flex items-center justify-center">
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="space-y-3">
+            <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-3 overscroll-contain">
               <div>
                 <label className="text-[11px] text-[#8A95A5] block mb-1">Project name *</label>
                 <input value={form.name} onChange={(e) => { const name = e.target.value; setForm((f) => ({ ...f, name, code: codeTouched ? f.code : autoCode(name) })); }} placeholder="e.g. Eastside Office Park" className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] text-[#8A95A5] block mb-1">Project code <span className="text-[#5B6675] font-normal">(auto or edit)</span></label>
                   <input value={form.code} onChange={(e) => { setCodeTouched(true); setForm({ ...form, code: e.target.value }); }} placeholder="auto — type a name" className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]" />
@@ -1049,7 +1052,7 @@ export function Projects({
                     <select
                       value={form.valueCurrency}
                       onChange={(e) => setForm({ ...form, valueCurrency: e.target.value })}
-                      className="h-9 px-2 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]"
+                      className="h-9 px-2 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A] shrink-0"
                     >
                       {CURRENCY_OPTIONS.map((currency) => (
                         <option key={currency} value={currency}>{currency}</option>
@@ -1059,7 +1062,7 @@ export function Projects({
                       value={form.valueAmount}
                       onChange={(e) => setForm({ ...form, valueAmount: e.target.value })}
                       placeholder="50M"
-                      className="flex-1 h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]"
+                      className="flex-1 min-w-0 h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]"
                     />
                   </div>
                 </div>
@@ -1083,7 +1086,7 @@ export function Projects({
                   className="w-full px-3 py-2 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A] resize-y"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] text-[#8A95A5] block mb-1">Progress %</label>
                   <input
@@ -1113,7 +1116,7 @@ export function Projects({
                   <select
                     value={form.exposureCurrency}
                     onChange={(e) => setForm({ ...form, exposureCurrency: e.target.value })}
-                    className="h-9 px-2 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]"
+                    className="h-9 px-2 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A] shrink-0"
                   >
                     {CURRENCY_OPTIONS.map((currency) => (
                       <option key={currency} value={currency}>{currency}</option>
@@ -1123,7 +1126,7 @@ export function Projects({
                     value={form.exposureAmount}
                     onChange={(e) => setForm({ ...form, exposureAmount: e.target.value })}
                     placeholder="2.4M"
-                    className="flex-1 h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]"
+                    className="flex-1 min-w-0 h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]"
                   />
                 </div>
               </div>
@@ -1174,7 +1177,7 @@ export function Projects({
                 </label>
                 <UploadTray state={newImages} />
                 {form.images.length > 0 && (
-                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mt-3">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-2 mt-3">
                     {form.images.map((src, idx) => (
                       <div key={`${src}-${idx}`} className="relative group">
                         <img src={src} alt="Project" onClick={() => setLightbox({ images: form.images, index: idx })} className={`h-16 w-full rounded-md object-cover border cursor-pointer ${idx === 0 ? "border-[#FF6B1A]" : "border-[#222A35]"}`} />
@@ -1245,15 +1248,15 @@ export function Projects({
                 <ProjectFilesSection value={newFiles} onChange={setNewFiles} />
               </div>
             </div>
-            <div className="flex items-center justify-end gap-2 mt-5">
-              <button onClick={() => setShowNew(false)} className="h-9 px-3 rounded-md border border-[#222A35] text-[12px] text-[#8A95A5] hover:text-white">Cancel</button>
-              <button onClick={createProject} disabled={saving || newImages.busy} title={newImages.busy ? "Waiting for the images to finish uploading" : undefined} className="h-9 px-4 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] disabled:opacity-60 disabled:cursor-wait text-white text-[12px]">{saving ? "Creating…" : newImages.busy ? "Uploading images…" : "Create project"}</button>
+            <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center sm:justify-end gap-2 px-4 sm:px-6 py-3 border-t border-[#222A35] shrink-0 bg-[#11161D]" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
+              <button onClick={() => setShowNew(false)} className="h-10 sm:h-9 px-3 rounded-md border border-[#222A35] text-[12px] text-[#8A95A5] hover:text-white">Cancel</button>
+              <button onClick={createProject} disabled={saving || newImages.busy} title={newImages.busy ? "Waiting for the images to finish uploading" : undefined} className="h-10 sm:h-9 px-4 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] disabled:opacity-60 disabled:cursor-wait text-white text-[12px]">{saving ? "Creating…" : newImages.busy ? "Uploading images…" : "Create project"}</button>
             </div>
           </div>
         </div>
       )}
       {editingProject && editForm && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => { setEditingProject(null); setEditForm(null); }}>
+        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => { setEditingProject(null); setEditForm(null); }}>
           <div className="w-full max-w-[520px] max-h-[92vh] sm:max-h-[85vh] rounded-xl border border-[#222A35] bg-[#11161D] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
             {/* Sticky header */}
             <div className="flex items-center justify-between p-5 sm:p-6 pb-4 shrink-0">
