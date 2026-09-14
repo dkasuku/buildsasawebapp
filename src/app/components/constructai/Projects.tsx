@@ -133,7 +133,7 @@ const TABS = ["All", "Active", "At Risk", "Planning", "Closing", "Archived"];
 const STATUS_FILTERS = ["On Track", "At Risk", "Planning", "Closing", "Archived"];
 // Shillings and dollars only. €, £ and AED were selectable here with hardcoded,
 // unmaintained conversion rates behind them.
-const CURRENCY_OPTIONS = ["KSh", "$"];
+const CURRENCY_OPTIONS = ["$", "KSh"];
 
 const statusColor = (s: string) =>
   s === "On Track" ? "bg-[#22C55E]/15 text-[#22C55E] border-[#22C55E]/30"
@@ -274,7 +274,7 @@ export function Projects({
   const autoCode = (name: string) => name.trim() ? name.split(" ").filter(Boolean).map((w) => w[0]).join("").toUpperCase().slice(0, 4) + "-" + String(projects.length + 1).padStart(2, "0") : "";
   const [actionMenu, setActionMenu] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
-  const [form, setForm] = useState<ProjectForm>({ name: "", code: "", city: "", lat: null, lng: null, description: "", valueCurrency: "KSh", valueAmount: "", status: "Planning", progress: 0, changeOrders: 0, exposureCurrency: "KSh", exposureAmount: "0", images: [], pm: NO_MEMBER, architect: NO_MEMBER, qs: NO_MEMBER, checklist: { items: [] } });
+  const [form, setForm] = useState<ProjectForm>({ name: "", code: "", city: "", lat: null, lng: null, description: "", valueCurrency: "$", valueAmount: "", status: "Planning", progress: 0, changeOrders: 0, exposureCurrency: "$", exposureAmount: "0", images: [], pm: NO_MEMBER, architect: NO_MEMBER, qs: NO_MEMBER, checklist: { items: [] } });
   const [editForm, setEditForm] = useState<ProjectForm | null>(null);
   // Uploads for the New and Edit dialogs. Each appends only the URLs that
   // actually stored, so a partial failure keeps the successful images.
@@ -500,7 +500,7 @@ export function Projects({
       }
       setNewFiles(EMPTY_PROJECT_FILES);
       await reloadProjects();
-      setForm({ name: "", code: "", city: "", lat: null, lng: null, description: "", valueCurrency: "KSh", valueAmount: "", status: "Planning", progress: 0, changeOrders: 0, exposureCurrency: "KSh", exposureAmount: "0", images: [], pm: NO_MEMBER, architect: NO_MEMBER, qs: NO_MEMBER, checklist: { items: [] } });
+      setForm({ name: "", code: "", city: "", lat: null, lng: null, description: "", valueCurrency: "$", valueAmount: "", status: "Planning", progress: 0, changeOrders: 0, exposureCurrency: "$", exposureAmount: "0", images: [], pm: NO_MEMBER, architect: NO_MEMBER, qs: NO_MEMBER, checklist: { items: [] } });
       newImages.reset();
       setShowNew(false);
       toast.success(`Project ${form.name.trim()} created`);

@@ -21,7 +21,7 @@ export const CURRENCIES: Record<CurrencyCode, Currency> = {
 
 // Every supported currency, for building pickers. Iterate this rather than
 // hardcoding a list, so a picker cannot drift out of step with what is supported.
-export const CURRENCY_CODES: CurrencyCode[] = ["KES", "USD"];
+export const CURRENCY_CODES: CurrencyCode[] = ["USD", "KES"];
 
 // Conversion rates (example rates - in production, these would come from an API)
 const RATES: Record<CurrencyCode, number> = {
@@ -96,14 +96,13 @@ export function formatCompactCurrency(amountKES: number, currency: CurrencyCode 
 // Pick a sensible starting currency from the browser's timezone. Only KES and USD
 // exist, so this is a two-way choice: East Africa gets shillings, everywhere else
 // starts on dollars. The user can switch at any time.
+// Dollars by default, everywhere, until the user picks shillings from the
+// currency dropdown (top bar, or the per-field pickers on the project form).
+// This used to guess KES from the timezone, so two users in the same company
+// could see the same figure in different currencies.
+export const DEFAULT_CURRENCY: CurrencyCode = "USD";
 export function detectCurrency(): CurrencyCode {
-  try {
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (/Nairobi|Mombasa|Kampala|Dar_es_Salaam|Kigali/i.test(timezone)) return "KES";
-    return "USD";
-  } catch {
-    return "KES";
-  }
+  return DEFAULT_CURRENCY;
 }
 
 // Parse amount string (removes currency symbols and commas)

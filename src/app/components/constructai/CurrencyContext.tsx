@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
-import { type CurrencyCode, detectCurrency, CURRENCIES } from "./currency";
+import { type CurrencyCode, detectCurrency, CURRENCIES, DEFAULT_CURRENCY } from "./currency";
 
 interface CurrencyContextType {
   currency: CurrencyCode;
@@ -10,7 +10,7 @@ interface CurrencyContextType {
 const CurrencyContext = createContext<CurrencyContextType | undefined>(undefined);
 
 export function CurrencyProvider({ children }: { children: ReactNode }) {
-  const [currency, setCurrencyState] = useState<CurrencyCode>("KES");
+  const [currency, setCurrencyState] = useState<CurrencyCode>(DEFAULT_CURRENCY);
 
   // Load saved currency preference on mount
   useEffect(() => {
