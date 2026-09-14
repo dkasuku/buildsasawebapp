@@ -54,10 +54,10 @@ export function DrawingViewer({ seed, role, onClose, appRole = "Contractor" as R
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#0A0E14] flex flex-col text-[#E6EAF0]">
+    <div className="fixed inset-0 z-[58] bg-[#0A0E14] flex flex-col text-[#E6EAF0]">
       <Header vm={vm} onClose={onClose} />
       <Toolbar vm={vm} panel={panel} setPanel={setPanel} onShare={() => setShareOpen(true)} moreOpen={moreOpen} setMoreOpen={setMoreOpen} punchMode={punchMode} setPunchMode={setPunchMode} />
-      <div className="flex-1 flex min-h-0">
+      <div className="flex-1 flex min-h-0 relative">
         <DrawingCanvas vm={vm} punchPins={punchPins} punchActive={punchMode} onPunchPlace={(x, y) => { setPlacing({ x, y }); setPunchMode(false); }} onPunchClick={(id) => setDetailPunchId(id)} />
         {panel !== "none" && <SidePanel vm={vm} panel={panel} setPanel={setPanel} />}
       </div>
@@ -117,7 +117,7 @@ function Toolbar({ vm, panel, setPanel, onShare, moreOpen, setMoreOpen, punchMod
     toast.success("Downloading current revision");
   };
   return (
-    <div className="shrink-0 px-3 py-2 border-b border-[#222A35] bg-[#0A0E14] flex items-center gap-1.5 flex-wrap">
+    <div className="shrink-0 px-3 py-2 border-b border-[#222A35] bg-[#0A0E14] flex items-center gap-1.5 flex-nowrap sm:flex-wrap overflow-x-auto">
       <ToolBtn active={tool("pin")} disabled={!caps.canMarkup} onClick={() => toggleTool("pin")} icon={MapPin} label="Pin" />
       <ToolBtn active={tool("text")} disabled={!caps.canMarkup} onClick={() => toggleTool("text")} icon={Type} label="Text" />
       <ToolBtn active={tool("note")} disabled={!caps.canMarkup} onClick={() => toggleTool("note")} icon={StickyNote} label="Note Box" />
@@ -132,7 +132,7 @@ function Toolbar({ vm, panel, setPanel, onShare, moreOpen, setMoreOpen, punchMod
       <button onClick={zoomIn} className="w-9 h-9 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center"><ZoomIn className="w-4 h-4" /></button>
       <button onClick={fitToScreen} title="Fit to screen" className="w-9 h-9 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center hidden sm:flex"><Maximize2 className="w-4 h-4" /></button>
 
-      <div className="flex-1" />
+      <div className="flex-1 min-w-2" />
 
       <button onClick={download} disabled={!caps.canDownload} className="h-9 px-2.5 rounded-md border border-[#222A35] text-[11px] text-[#8A95A5] hover:text-white flex items-center gap-1.5 disabled:opacity-40"><Download className="w-3.5 h-3.5" /><span className="hidden md:inline">Download</span></button>
       <button onClick={onShare} disabled={!caps.canShare} className="h-9 px-2.5 rounded-md bg-[#FF6B1A] text-white text-[11px] flex items-center gap-1.5 hover:bg-[#FF7E33] disabled:opacity-40"><Share2 className="w-3.5 h-3.5" /><span className="hidden md:inline">Share</span></button>
@@ -156,11 +156,13 @@ function Toolbar({ vm, panel, setPanel, onShare, moreOpen, setMoreOpen, punchMod
 /* ─────────────────────── Side panel (markups + versions) ─────────────────────── */
 function SidePanel({ vm, panel, setPanel }: { vm: DrawingViewerState; panel: string; setPanel: (p: any) => void }) {
   return (
-    <div className="w-[300px] shrink-0 border-l border-[#222A35] bg-[#11161D] flex flex-col">
+    // Bottom sheet over the drawing on phones; a fixed side column from md up.
+    <div className="absolute inset-x-0 bottom-0 h-[55%] md:static md:h-auto md:w-[300px] shrink-0 border-t md:border-t-0 md:border-l border-[#222A35] bg-[#11161D] flex flex-col rounded-t-xl md:rounded-none shadow-2xl md:shadow-none z-10">
       <div className="flex border-b border-[#222A35]">
         {(["markups", "versions"] as const).map((t) => (
           <button key={t} onClick={() => setPanel(t)} className={`flex-1 h-10 text-[12px] capitalize ${panel === t ? "text-white border-b-2 border-[#FF6B1A]" : "text-[#8A95A5] hover:text-white"}`}>{t}</button>
         ))}
+        <button onClick={() => setPanel("none")} className="md:hidden w-10 h-10 flex items-center justify-center text-[#8A95A5] hover:text-white" title="Hide panel"><X className="w-4 h-4" /></button>
       </div>
       {panel === "markups" ? <MarkupList vm={vm} /> : <VersionList vm={vm} />}
     </div>
@@ -295,7 +297,7 @@ function Footer({ vm }: { vm: DrawingViewerState }) {
         <span className="hidden sm:inline flex items-center gap-1"><Users className="w-3 h-3" /> {d.recipients} recipients</span>
         <span className="hidden sm:inline">Viewing Rev {r.rev}{r.isLatest ? " (latest)" : ""}</span>
       </div>
-      <span className="hidden md:inline">drag to pan · ⌘/Ctrl + scroll to zoom</span>
+      <span className="hidden md:inline">drag to pan · ⌘/Ctrl + scroll or pinch to zoom</span>
     </div>
   );
 }

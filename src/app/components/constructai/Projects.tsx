@@ -613,7 +613,7 @@ export function Projects({
         {[
           { l: "Active Projects", v: String(activeProjectsCount), s: "sites & jobs in progress" },
           { l: "Combined Value", v: combinedValueLabel, s: "in active contracts" },
-          { l: "CO Exposure", v: coExposureLabel, s: "across your projects", c: "text-[#FF6B1A]" },
+          { l: "Money at risk", v: coExposureLabel, s: "pending change orders, all projects", c: "text-[#FF6B1A]" },
           { l: "Project Health", v: projectHealthLabel, s: "on or ahead of schedule", c: "text-[#22C55E]" },
         ].map((s) => (
           <div key={s.l} className="rounded-xl border border-[#222A35] bg-[#11161D] p-4">
@@ -703,7 +703,7 @@ export function Projects({
                       onChange={(e) => setHighExposureOnly(e.target.checked)}
                       className="h-3.5 w-3.5 accent-[#FF6B1A]"
                     />
-                    <span className="text-[#E6EAF0]">High exposure (&gt; $1M)</span>
+                    <span className="text-[#E6EAF0]">Over $1M at risk (pending changes)</span>
                   </label>
                   <label className="flex items-center gap-2">
                     <input
@@ -914,7 +914,7 @@ export function Projects({
                   </div>
                   {showFin && (
                   <div>
-                    <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Exposure</div>
+                    <div className="text-[10px] text-[#5B6675] uppercase tracking-wider" title="Value of change orders not yet approved">At risk</div>
                     <div className="text-[13px] text-[#FF6B1A] mt-0.5 flex items-center gap-1"><TrendingUp className="w-3 h-3" />{p.exposureKES ? formatCompactCurrency(p.exposureKES, currency) : p.exposure}</div>
                   </div>
                   )}
@@ -1111,7 +1111,8 @@ export function Projects({
                 </div>
               </div>
               <div>
-                <label className="text-[11px] text-[#8A95A5] block mb-1">Exposure</label>
+                <label className="text-[11px] text-[#8A95A5] block mb-1">Money at risk from pending changes <span className="text-[#5B6675] font-normal">(optional)</span></label>
+                <div className="text-[10px] text-[#5B6675] mb-1.5">The value of change orders raised but not yet approved — extra cost the client has not agreed to yet. Leave at 0 if there are none.</div>
                 <div className="flex gap-2">
                   <select
                     value={form.exposureCurrency}
@@ -1368,7 +1369,8 @@ export function Projects({
                       </div>
                     </div>
                     <div>
-                      <label className="text-[11px] text-[#8A95A5] block mb-1">Exposure</label>
+                      <label className="text-[11px] text-[#8A95A5] block mb-1">Money at risk from pending changes <span className="text-[#5B6675] font-normal">(optional)</span></label>
+                      <div className="text-[10px] text-[#5B6675] mb-1.5">Value of change orders raised but not yet approved.</div>
                       <div className="flex gap-2">
                         <select
                           value={editForm.exposureCurrency}

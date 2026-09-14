@@ -326,8 +326,8 @@ export function PunchForm({ role, projects, initial, onClose, onSaved }: { role:
   const inputCls ="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]";
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl border border-[#222A35] bg-[#11161D]" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[60] bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div className="w-full sm:max-w-2xl max-h-[92dvh] sm:max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-xl border border-[#222A35] bg-[#11161D]" onClick={(e) => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-[#222A35] flex items-center justify-between sticky top-0 bg-[#11161D]">
           <div className="text-[15px] text-white font-display">{initial.id ? "Edit punch item" : "Create punch item"}</div>
           <button onClick={onClose} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button>
@@ -335,7 +335,7 @@ export function PunchForm({ role, projects, initial, onClose, onSaved }: { role:
         <div className="p-5 space-y-3">
           <Field label="Title *"><input value={f.title} onChange={(e) => set("title", e.target.value)} placeholder="Short summary of the deficiency" className={inputCls} /></Field>
           <Field label="Description"><textarea value={f.description} onChange={(e) => set("description", e.target.value)} rows={2} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-2 py-1.5 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A] resize-none" /></Field>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Field label="Project"><select value={f.projectId} onChange={(e) => set("projectId", e.target.value)} className={inputCls}>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
             <Field label="Location"><input value={f.location} onChange={(e) => set("location", e.target.value)} placeholder="Bldg / Level / Room" className={inputCls} /></Field>
             <Field label="Type / Category"><select value={f.category} onChange={(e) => set("category", e.target.value)} className={inputCls}>{CATEGORIES.map((c) => <option key={c} value={c} className="capitalize">{c}</option>)}</select></Field>
@@ -357,9 +357,9 @@ export function PunchForm({ role, projects, initial, onClose, onSaved }: { role:
           </div>
           <label className="flex items-center gap-2 text-[12px] text-[#8A95A5]"><input type="checkbox" checked={f.isPrivate} onChange={(e) => set("isPrivate", e.target.checked)} className="accent-[#FF6B1A]" /> Private (restrict visibility)</label>
         </div>
-        <div className="px-5 py-4 border-t border-[#222A35] flex gap-2 sticky bottom-0 bg-[#11161D]">
-          <button onClick={onClose} className="flex-1 h-10 rounded-md border border-[#222A35] text-[12px] text-white">Cancel</button>
-          {!initial.id && <button disabled={saving} onClick={() => save(true)} className="flex-1 h-10 rounded-md border border-[#FF6B1A]/40 text-[12px] text-[#FF6B1A] disabled:opacity-50">Save & create new</button>}
+        <div className="px-5 py-4 border-t border-[#222A35] flex flex-wrap gap-2 sticky bottom-0 bg-[#11161D]">
+          <button onClick={onClose} className="flex-1 min-w-[100px] h-10 rounded-md border border-[#222A35] text-[12px] text-white">Cancel</button>
+          {!initial.id && <button disabled={saving} onClick={() => save(true)} className="flex-1 min-w-[150px] h-10 rounded-md border border-[#FF6B1A]/40 text-[12px] text-[#FF6B1A] disabled:opacity-50">Save & create new</button>}
           <button disabled={saving} onClick={() => save(false)} className="flex-1 h-10 rounded-md bg-[#FF6B1A] text-white text-[12px] disabled:opacity-50">{saving ? "Saving…" : "Save"}</button>
         </div>
       </div>

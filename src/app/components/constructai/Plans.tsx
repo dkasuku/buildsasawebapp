@@ -622,8 +622,8 @@ export function Plans({ role }: { role: Role }) {
 
       {/* Upload modal */}
       {uploadOpen && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setUploadOpen(false)}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-[560px] bg-[#11161D] border border-[#222A35] rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={() => setUploadOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="w-full sm:max-w-[560px] bg-[#11161D] border border-[#222A35] rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[92dvh] flex flex-col">
             <div className="p-5 border-b border-[#222A35] flex items-center justify-between">
               <div>
                 <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Upload drawings</div>
@@ -710,8 +710,8 @@ export function Plans({ role }: { role: Role }) {
 
       {/* Share modal */}
       {shareOpen && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setShareOpen(null)}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-[520px] bg-[#11161D] border border-[#222A35] rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={() => setShareOpen(null)}>
+          <div onClick={(e) => e.stopPropagation()} className="w-full sm:max-w-[520px] bg-[#11161D] border border-[#222A35] rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[92dvh] flex flex-col">
             <div className="p-5 border-b border-[#222A35] flex items-center justify-between">
               <div className="min-w-0">
                 <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Share drawing</div>

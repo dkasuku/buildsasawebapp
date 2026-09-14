@@ -58,17 +58,46 @@ export function DrawingCanvas({ vm, punchPins = [], punchActive = false, onPunch
     window.addEventListener("pointerup", onUp);
   };
 
-  // Pan the page (only when no tool is armed and you grab empty space).
+  // Pan with one finger / mouse drag (only when no tool is armed and you grab
+  // empty space); pinch with two fingers to zoom. Pointer events cover mouse,
+  // pen and touch alike; `touch-none` on the container stops the browser from
+  // scrolling the page instead.
+  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchRef = useRef<{ dist: number; zoom: number } | null>(null);
   const startPan = (e: React.PointerEvent) => {
     if (activeTool) return;
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointersRef.current.size === 2) {
+      const [a, b] = Array.from(pointersRef.current.values());
+      pinchRef.current = { dist: Math.hypot(a.x - b.x, a.y - b.y), zoom };
+      panRef.current = null;
+      return;
+    }
     panRef.current = { startX: e.clientX, startY: e.clientY, origX: pan.x, origY: pan.y };
     const onMove = (ev: PointerEvent) => {
+      if (pointersRef.current.has(ev.pointerId)) pointersRef.current.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (pinchRef.current && pointersRef.current.size >= 2) {
+        const [p1, p2] = Array.from(pointersRef.current.values());
+        const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        if (pinchRef.current.dist > 0) setZoom(Math.max(0.25, Math.min(4, +(pinchRef.current.zoom * (dist / pinchRef.current.dist)).toFixed(2))));
+        return;
+      }
       if (!panRef.current) return;
       setPan({ x: panRef.current.origX + (ev.clientX - panRef.current.startX), y: panRef.current.origY + (ev.clientY - panRef.current.startY) });
     };
-    const onUp = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); panRef.current = null; };
+    const onUp = (ev: PointerEvent) => {
+      pointersRef.current.delete(ev.pointerId);
+      if (pointersRef.current.size < 2) pinchRef.current = null;
+      if (pointersRef.current.size === 0) {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+        panRef.current = null;
+      }
+    };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   };
 
   const onWheel = useCallback((e: React.WheelEvent) => {
@@ -84,7 +113,7 @@ export function DrawingCanvas({ vm, punchPins = [], punchActive = false, onPunch
 
   return (
     <div
-      className={`relative flex-1 overflow-hidden bg-[#050709] ${activeTool || punchActive ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
+      className={`relative flex-1 min-w-0 overflow-hidden bg-[#050709] touch-none ${activeTool || punchActive ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
       onWheel={onWheel}
       onPointerDown={startPan}
       onMouseMove={(e) => setCursor(pct(e.clientX, e.clientY))}

@@ -625,7 +625,7 @@ function ByRegionPanel() {
     <>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 rounded-xl border border-[#222A35] bg-[#11161D] p-5">
-          <div className="text-[13px] text-white font-display">Regional CO Exposure</div>
+          <div className="text-[13px] text-white font-display">Money at risk by region</div>
           <div className="text-[11px] text-[#8A95A5]">Millions · YTD</div>
           <div className="h-[280px] mt-3">
             <ResponsiveContainer>
