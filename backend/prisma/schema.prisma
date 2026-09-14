@@ -62,6 +62,11 @@ model Project {
   images    String?
   startDate DateTime?
   targetEndDate DateTime?
+  // The agreed contract sum as a NUMBER, in KES. `value` above is a display string
+  // ("KES 45M") typed on the project card; running totals — original sum +/-
+  // variations = revised sum, certified-to-date as a share of the contract — need
+  // a figure that can be added to, so this is the one the project hub uses.
+  contractSumKES Float?
   // ── Closeout ──
   // A project's life ended at "Archived" with nothing in between. There was no
   // handover, no defects period and no final account, so the phase where a
@@ -190,6 +195,12 @@ model DailyLog {
   notes     String
   // Optional weather/site conditions — standard on a daily site record.
   weather   String?
+  // A site diary records more than a headcount: who was on site by trade, what
+  // plant was running and what was delivered. Free text, one line per entry.
+  labour    String?
+  plant     String?
+  materials String?
+  photos    String?  // JSON array of URLs
   project   Project  @relation(fields: [projectId], references: [id])
   projectId String
   createdAt DateTime @default(now())
@@ -329,6 +340,10 @@ model ChangeOrder {
   trigger            String?  // design clarification | owner request | unforeseen condition | code compliance | weather
   rfi                String?
   costUSD            Int      @default(0)  // can be negative (credit)
+  // The variation value in KES, signed: positive adds to the contract sum, negative
+  // is an omission. costUSD is kept in step for the Change Orders module; this is
+  // the figure the project hub's running total (original +/- variations) uses.
+  amountKES          Float?
   scheduleImpactDays Int      @default(0)
   assignees          String?  // JSON array of userIds (multi-assignee)
   requestedBy        String?
@@ -407,6 +422,8 @@ model PaymentApplication {
   // same way retention is.
   advanceRecovery         Float?  @default(0)
   netPayable              Float?
+  // The signed/scanned certificate itself, when one is uploaded.
+  fileUrl                 String?
   status    String   @default("draft") // draft | submitted | under_review | approved | rejected | paid
   costCodeId   String?
   approvedById String?
@@ -471,6 +488,16 @@ model Document {
   url       String
   size      String
   updated   String
+  // Which folder of the project hub the file lives in:
+  //   contract | drawing | boq | variation | certificate | site | general
+  category  String   @default("general")
+  // Optional link to the record the file supports, e.g. an instruction letter
+  // filed against a variation (linkedType "variation", linkedId = ChangeOrder.id)
+  // or a scanned certificate (linkedType "certificate").
+  linkedType String?
+  linkedId   String?
+  note       String?
+  uploadedBy String?
   project   Project? @relation(fields: [projectId], references: [id])
   projectId String?
   createdAt DateTime @default(now())
@@ -1266,4 +1293,43 @@ model BoqItem {
   updatedAt   DateTime @updatedAt
 
   @@index([sectionId])
+}
+
+// A frozen copy of the whole bill at a point in time. The working BOQ (sections
+// and items above) is edited in place; before an import replaces it, or whenever
+// the estimator asks, the current state is written here so a revised bill never
+// overwrites the original that was tendered on.
+model BoqRevision {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  projectId   String
+  version     Int      // V1, V2, ...
+  label       String?  // e.g. "Tender", "Post-VE revision"
+  note        String?
+  snapshot    String   // JSON: [{ code, title, items: [{ code, description, unit, quantity, rate, amount }] }]
+  total       Float    @default(0)
+  itemCount   Int      @default(0)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
+}
+
+// Workspace-wide library of fair rates for common BOQ items, so an estimator
+// pricing a bill has a reference figure to check a quote against rather than
+// pricing from memory. Indicative, and edited to the company's own market.
+model RateLibraryItem {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  code        String?
+  description String
+  unit        String
+  rate        Float    @default(0) // KES per unit
+  category    String?  // Substructure, Superstructure, Finishes, Services, ...
+  source      String?  // where the figure came from: quote, IQSK, last project...
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([workspaceId])
 }

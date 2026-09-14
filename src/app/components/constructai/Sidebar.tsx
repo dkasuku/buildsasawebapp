@@ -33,6 +33,7 @@ export type View =
   | "correspondence"
   | "crews"
   | "directory"
+  | "subcontractors"
   | "company-docs"
   | "role-manager"
   | "bidding"
@@ -41,7 +42,8 @@ export type View =
   | "safety-incidents"
   | "equipment"
   | "attendance"
-  | "buildflex-ai"  | "checklists"
+  | "buildflex-ai"
+  | "checklists"
   | "billing";
 
 type NavItem = { key: View; label: string; icon: any };
@@ -114,6 +116,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "People",
     items: [
       { key: "directory", label: "Directory", icon: Users },
+      { key: "subcontractors", label: "Subcontractors", icon: Handshake },
       { key: "crews", label: "Crews", icon: UsersRound },
       { key: "team", label: "Team", icon: Users },
       { key: "attendance", label: "Attendance", icon: Clock },

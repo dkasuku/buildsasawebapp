@@ -15,7 +15,7 @@ import type { Role } from "./roles";
 import { ROLES } from "./roles";
 import type { Checklist } from "./ChecklistBuilder";
 import { useCurrency } from "./CurrencyContext";
-import { formatCompactCurrency, formatCurrency } from "./currency";
+import { formatCompactCurrency, formatCurrency, USD_TO_KES } from "./currency";
 import { warnSaveFailed } from "./saveFeedback";
 
 const $toKES = (dollars: number) => Math.round(dollars * 130);
@@ -190,6 +190,15 @@ const parseValue = (value: string) => {
   const currency = normalizeCurrency(currencyMatch?.[0] ?? "$");
   const amount = trimmed.replace(currencyMatch?.[0] ?? "", "").trim();
   return { currency, amount: amount || "0" };
+};
+
+// The numeric contract sum (KES) behind the display string, for the project
+// hub's running totals. "KSh 45M" → 45,000,000; "$ 1.2M" → converted at the
+// product's fixed rate. Zero/unparseable → null so nothing is invented.
+const contractSumFrom = (currency: string, amount: string): number | null => {
+  const n = parseCompactValue(amount || "");
+  if (!n) return null;
+  return Math.round(currency === "$" ? n * USD_TO_KES : n);
 };
 
 const formatValue = (currency: string, amount: string) => {
@@ -468,6 +477,7 @@ export function Projects({
         lat: form.lat ?? null,
         lng: form.lng ?? null,
         value: formatValue(form.valueCurrency, form.valueAmount),
+        contractSumKES: contractSumFrom(form.valueCurrency, form.valueAmount),
         status: form.status,
         progress: form.progress || 0,
         exposure: formatExposure(form.exposureCurrency, form.exposureAmount),
@@ -516,6 +526,9 @@ export function Projects({
         city: editForm.city.trim() || "—",
         description: editForm.description.trim(),
         value: formatValue(editForm.valueCurrency, editForm.valueAmount),
+        // Only fill the numeric sum when none has been set in the project hub —
+        // a figure typed there is more precise than a card label like "45M".
+        ...((editingProject as any).contractSumKES == null ? { contractSumKES: contractSumFrom(editForm.valueCurrency, editForm.valueAmount) } : {}),
         status: editForm.status,
         progress: Number.isFinite(editForm.progress) ? editForm.progress : editingProject.progress,
         exposure: formatExposure(editForm.exposureCurrency, editForm.exposureAmount),

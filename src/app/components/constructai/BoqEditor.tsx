@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Loader2, ChevronDown, ChevronRight, Calculator, AlertTriangle, Check } from "lucide-react";
+import { Plus, Trash2, Loader2, ChevronDown, ChevronRight, Calculator, AlertTriangle, Check, BookOpen } from "lucide-react";
 import api, { type BoqDto, type BoqSectionDto } from "../../services/api";
 import { useCurrency } from "./CurrencyContext";
 import { formatCurrency } from "./currency";
@@ -18,7 +18,20 @@ import { EmptyState } from "./EmptyState";
 // The units a bill is actually priced in on site here.
 const UNITS = ["m", "m2", "m3", "kg", "tonne", "no", "item", "sum", "days", "hours"];
 
-export function BoqEditor({ projectId, canEdit }: { projectId?: string; canEdit: boolean }) {
+/** A rate picked from the library, handed back to fill the item being drafted. */
+export type RatePick = { description: string; unit: string; rate: number; code?: string | null };
+
+export function BoqEditor({ projectId, canEdit, refreshKey, onPickRate, onChanged }: {
+  projectId?: string;
+  canEdit: boolean;
+  /** Bump to reload from the server, e.g. after an import or a restore. */
+  refreshKey?: number;
+  /** When given, each draft row shows a "rates" button that opens the library;
+   *  call `apply` with the chosen rate to fill the row. */
+  onPickRate?: (apply: (r: RatePick) => void) => void;
+  /** Fired after any successful write, so a parent showing totals can refresh. */
+  onChanged?: () => void;
+}) {
   const { currency } = useCurrency();
   // BOQ rates are entered and stored in the KES base, like every other figure the
   // estimator works with.
@@ -38,7 +51,9 @@ export function BoqEditor({ projectId, canEdit }: { projectId?: string; canEdit:
     catch (e: any) { toast.error(e?.message || "Could not load the bill of quantities"); setBoq(null); }
     finally { setLoading(false); }
   }, [projectId]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, refreshKey]);
+  // Tell the parent the bill moved, without it having to know how.
+  const reload = useCallback(async () => { await load(); onChanged?.(); }, [load, onChanged]);
 
   const blankDraft = { code: "", description: "", unit: "m3", quantity: "", rate: "" };
   const draftFor = (sectionId: string) => draft[sectionId] || blankDraft;
@@ -59,7 +74,7 @@ export function BoqEditor({ projectId, canEdit }: { projectId?: string; canEdit:
     try {
       await api.addBoqSection(projectId, { title: newSection.title.trim(), code: newSection.code.trim() || undefined });
       setNewSection({ code: "", title: "" });
-      await load();
+      await reload();
     } catch (e: any) { toast.error(e?.message || "Could not add that section"); }
     finally { setBusy(false); }
   };
@@ -77,14 +92,14 @@ export function BoqEditor({ projectId, canEdit }: { projectId?: string; canEdit:
         rate: Number(d.rate) || 0,
       });
       setDraft((x) => ({ ...x, [sectionId]: blankDraft }));
-      await load();
+      await reload();
     } catch (e: any) { toast.error(e?.message || "Could not add that item"); }
     finally { setBusy(false); }
   };
 
   const removeItem = async (id: string) => {
     setBusy(true);
-    try { await api.deleteBoqItem(id); await load(); }
+    try { await api.deleteBoqItem(id); await reload(); }
     catch (e: any) { toast.error(e?.message || "Could not remove that item"); }
     finally { setBusy(false); }
   };
@@ -92,7 +107,7 @@ export function BoqEditor({ projectId, canEdit }: { projectId?: string; canEdit:
   const removeSection = async (s: BoqSectionDto) => {
     if (!confirm(`Delete "${s.title}" and its ${s.items.length} priced item${s.items.length === 1 ? "" : "s"}?`)) return;
     setBusy(true);
-    try { await api.deleteBoqSection(s.id); await load(); }
+    try { await api.deleteBoqSection(s.id); await reload(); }
     catch (e: any) { toast.error(e?.message || "Could not delete that section"); }
     finally { setBusy(false); }
   };
@@ -235,7 +250,14 @@ export function BoqEditor({ projectId, canEdit }: { projectId?: string; canEdit:
                           {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
                         </select>
                         <input value={d.quantity} onChange={(e) => setDraftFor(s.id, { quantity: e.target.value })} type="number" placeholder="Qty" className="h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white text-right placeholder:text-[#3A4350] focus:outline-none focus:border-[#FF6B1A]" />
-                        <input value={d.rate} onChange={(e) => setDraftFor(s.id, { rate: e.target.value })} type="number" placeholder="Rate" className="h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white text-right placeholder:text-[#3A4350] focus:outline-none focus:border-[#FF6B1A]" />
+                        <div className="flex items-center gap-1">
+                          <input value={d.rate} onChange={(e) => setDraftFor(s.id, { rate: e.target.value })} type="number" placeholder="Rate" className="h-9 min-w-0 flex-1 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white text-right placeholder:text-[#3A4350] focus:outline-none focus:border-[#FF6B1A]" />
+                          {onPickRate && (
+                            <button type="button" title="Pick a fair rate from the library" onClick={() => onPickRate((r) => setDraftFor(s.id, { rate: String(r.rate), unit: UNITS.includes(r.unit) ? r.unit : d.unit, description: d.description || r.description, code: d.code || (r.code ?? "") }))} className="h-9 w-9 shrink-0 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-[#FF6B1A] hover:border-[#FF6B1A]/50 flex items-center justify-center">
+                              <BookOpen className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                         <div className="flex items-center gap-2">
                           <span className="flex-1 text-right text-[11px] text-[#8A95A5] tabular-nums">{draftAmount(s.id) > 0 ? fmt(draftAmount(s.id)) : ""}</span>
                           <button onClick={() => addItem(s.id)} disabled={busy} className="h-9 px-3 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white disabled:opacity-60 shrink-0">Add</button>

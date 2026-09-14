@@ -233,6 +233,8 @@ export type ProjectDto = {
   images?: string[];
   startDate?: string | null;
   targetEndDate?: string | null;
+  /** Agreed contract sum in KES — the number running totals are built on. */
+  contractSumKES?: number | null;
   assignments?: { id?: string; role: string; userId: string }[];
   changeOrderCount?: number;
   createdAt?: string;
@@ -345,7 +347,12 @@ export type DailyLogDto = {
   location: string;
   notes: string;
   weather?: string | null;
+  labour?: string | null;
+  plant?: string | null;
+  materials?: string | null;
+  photos?: string[] | string | null;
   projectId?: string;
+  createdAt?: string;
 };
 
 export type CrewMemberDto = { id: string; name: string; trade: string };
@@ -408,6 +415,8 @@ export type CommitmentDto = {
   advanceRecovered?: number | null;
   advanceRecoveryPct?: number | null;
   status?: string | null; // active | completed | overdue | on_hold
+  projectId?: string;
+  createdAt?: string;
 };
 
 export type PaymentApplicationDto = {
@@ -431,6 +440,58 @@ export type PaymentApplicationDto = {
   rejectedById?: string | null;
   rejectedAt?: string | null;
   comments?: string | null;
+  fileUrl?: string | null;
+  advanceRecovery?: number | null;
+  createdAt?: string;
+};
+
+// ── Project hub ──────────────────────────────────────────────────────────────
+export type BoqRevisionDto = {
+  id: string; version: number; label?: string | null; note?: string | null;
+  total: number; itemCount: number; createdBy?: string | null; createdAt: string;
+};
+export type RateLibraryItemDto = {
+  id: string; code?: string | null; description: string; unit: string; rate: number;
+  category?: string | null; source?: string | null; notes?: string | null; updatedAt?: string;
+};
+export type VariationDto = {
+  id: string; number: string; title: string; description?: string | null; status: string;
+  trigger?: string | null; area?: string | null; amountKES: number; costUSD?: number;
+  scheduleImpactDays?: number; requestedBy?: string | null; submittedDate?: string | null;
+  runningTotal: number | null; documents: DocumentDto[]; createdAt: string; projectId: string;
+};
+export type CertificateDto = PaymentApplicationDto & { cumulative: number; pctOfContract: number | null; documents: DocumentDto[] };
+export type DrawingSheetDto = { number: string; title: string; discipline: string; status?: string; latest: DrawingDto; versions: DrawingDto[] };
+export type CashflowMonthDto = { month: string; cashIn: number; cashOut: number; certified: number; forecastOut: number; forecastIn: number; cumulative: number };
+export type CostControlDto = {
+  contractSum: number | null; approvedVariations: number; pendingVariations: number; revisedContractSum: number | null;
+  originalBudget: number; budgetSource: "boq" | "categories" | "none"; revisedBudget: number;
+  actual: number; committed: number; paidToSubs: number; costToComplete: number; forecastFinalCost: number; variance: number;
+  certifiedToDate: number; paidToDate: number; retentionHeld: number;
+  categories: { id: string; name: string; budget: number; actual: number }[];
+  cashflow: CashflowMonthDto[];
+};
+export type ProjectHubDto = {
+  project: ProjectDto & { contractSumKES?: number | null };
+  team: { id?: string; role: string; userId: string }[];
+  timeline: { startDate?: string | null; targetEndDate?: string | null; durationDays: number | null; elapsedDays: number | null; remainingDays: number | null; elapsedPct: number | null };
+  progress: { reported: number; schedule: number | null; scheduleItems: number; milestonesDone: number; milestonesTotal: number; overdueItems: number; blockedItems: number };
+  schedule: ScheduleItemDto[];
+  documents: DocumentDto[];
+  drawings: DrawingSheetDto[];
+  boq: { total: number; itemCount: number; sections: number; revisions: BoqRevisionDto[] };
+  variations: VariationDto[];
+  certificates: CertificateDto[];
+  site: { dailyLogs: (DailyLogDto & { photos: string[] })[]; punchItems: any[]; punchOpen: number; safetyIncidents: SafetyIncidentDto[]; inspections: InspectionDto[] };
+  commitments: CommitmentDto[];
+  costs: CostControlDto;
+  counts: Record<string, number>;
+};
+export type SubcontractorRowDto = {
+  contact: { id: string; name: string; company?: string | null; role?: string | null; category: string; phone?: string | null; email?: string | null; projects?: string } | null;
+  vendor?: string;
+  commitments: (CommitmentDto & { projectName: string; payments: PaymentApplicationDto[] })[];
+  totals: { contractValue: number; paidToDate: number; retentionHeld: number; balanceRemaining: number };
 };
 
 export type RetentionRecordDto = {
@@ -472,7 +533,16 @@ export type DocumentDto = {
   size: string;
   updated: string;
   projectId?: string | null;
+  /** Which project-hub folder the file lives in. */
+  category?: DocCategory;
+  linkedType?: string | null;
+  linkedId?: string | null;
+  note?: string | null;
+  uploadedBy?: string | null;
+  createdAt?: string;
 };
+
+export type DocCategory = "contract" | "drawing" | "boq" | "variation" | "certificate" | "site" | "general";
 
 export type BidDto = {
   id: string;
@@ -1308,6 +1378,39 @@ export const api = {
   createCompanyDoc: (payload: any) => http<any>("/api/company-docs", { method: "POST", body: JSON.stringify(payload) }),
   updateCompanyDoc: (id: string, payload: any) => http<any>(`/api/company-docs/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteCompanyDoc: (id: string) => http(`/api/company-docs/${id}`, { method: "DELETE" }),
+  // ── Project hub ──
+  getProjectHub: (projectId: string) => http<ProjectHubDto>(`/api/projects/${projectId}/hub`),
+  updateProjectContract: (projectId: string, payload: { contractSumKES?: number | null; startDate?: string | null; targetEndDate?: string | null }) =>
+    http<ProjectDto>(`/api/projects/${projectId}/contract`, { method: "PUT", body: JSON.stringify(payload) }),
+  getProjectDocuments: (projectId: string, params?: { category?: string; linkedType?: string; linkedId?: string }) =>
+    http<DocumentDto[]>(`/api/projects/${projectId}/documents?${new URLSearchParams((params || {}) as Record<string, string>).toString()}`),
+  createProjectDocument: (projectId: string, payload: Partial<DocumentDto>) => http<DocumentDto>(`/api/projects/${projectId}/documents`, { method: "POST", body: JSON.stringify(payload) }),
+  updateDocument: (id: string, payload: Partial<DocumentDto>) => http<DocumentDto>(`/api/documents/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  addDrawingRevision: (projectId: string, number: string, payload: { fileUrl: string; fileName?: string; fileSize?: number; title?: string; status?: string }) =>
+    http<DrawingDto>(`/api/projects/${projectId}/drawings/${encodeURIComponent(number)}/revisions`, { method: "POST", body: JSON.stringify(payload) }),
+  getBoqRevisions: (projectId: string) => http<BoqRevisionDto[]>(`/api/projects/${projectId}/boq/revisions`),
+  saveBoqRevision: (projectId: string, payload: { label?: string; note?: string }) => http<BoqRevisionDto>(`/api/projects/${projectId}/boq/revisions`, { method: "POST", body: JSON.stringify(payload) }),
+  getBoqRevision: (id: string) => http<BoqRevisionDto & { snapshot: { code?: string | null; title: string; items: { code?: string | null; description: string; unit: string; quantity: number; rate: number; amount: number }[] }[] }>(`/api/boq/revisions/${id}`),
+  restoreBoqRevision: (id: string) => http<{ ok: boolean }>(`/api/boq/revisions/${id}/restore`, { method: "POST" }),
+  importBoq: (projectId: string, payload: { sections: { code?: string; title: string; items: { code?: string; description: string; unit?: string; quantity?: number; rate?: number }[] }[]; mode?: "replace" | "append"; label?: string }) =>
+    http<{ ok: boolean; mode: string; sections: number; items: number; snapshotVersion: number | null }>(`/api/projects/${projectId}/boq/import`, { method: "POST", body: JSON.stringify(payload) }),
+  getRateLibrary: (q?: string) => http<RateLibraryItemDto[]>(`/api/rate-library${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  createRate: (payload: Partial<RateLibraryItemDto>) => http<RateLibraryItemDto>("/api/rate-library", { method: "POST", body: JSON.stringify(payload) }),
+  updateRate: (id: string, payload: Partial<RateLibraryItemDto>) => http<RateLibraryItemDto>(`/api/rate-library/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteRate: (id: string) => http(`/api/rate-library/${id}`, { method: "DELETE" }),
+  seedRateLibrary: () => http<{ ok: boolean; created: number }>("/api/rate-library/seed", { method: "POST", body: JSON.stringify({}) }),
+  createVariation: (projectId: string, payload: { title: string; amountKES: number; cause?: string; description?: string; status?: string; scheduleImpactDays?: number; number?: string }) =>
+    http<any>(`/api/projects/${projectId}/variations`, { method: "POST", body: JSON.stringify(payload) }),
+  updateVariation: (projectId: string, id: string, payload: { title?: string; amountKES?: number; cause?: string; description?: string; status?: string; scheduleImpactDays?: number }) =>
+    http<any>(`/api/projects/${projectId}/variations/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  createCertificate: (projectId: string, payload: { number?: string; period?: string; periodStart?: string; periodEnd?: string; amount?: number; valuationToDate?: number; retentionPct?: number; advanceRecovery?: number; fileUrl?: string; comments?: string; status?: string }) =>
+    http<PaymentApplicationDto>(`/api/projects/${projectId}/certificates`, { method: "POST", body: JSON.stringify(payload) }),
+  updateCertificate: (projectId: string, id: string, payload: { status?: string; fileUrl?: string | null; comments?: string; period?: string }) =>
+    http<PaymentApplicationDto>(`/api/projects/${projectId}/certificates/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  updateDailyLog: (projectId: string, id: string, payload: Partial<DailyLogDto>) => http<DailyLogDto>(`/api/projects/${projectId}/daily-log/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  getSubcontractors: () => http<{ subcontractors: SubcontractorRowDto[]; unlinked: SubcontractorRowDto[]; projects: { id: string; name: string; code: string }[] }>("/api/subcontractors"),
+  recordSubcontractorPayment: (payload: { commitmentId: string; amount: number; date?: string; reference?: string; note?: string }) =>
+    http<{ payment: PaymentApplicationDto; commitment: CommitmentDto }>("/api/subcontractors/payments", { method: "POST", body: JSON.stringify(payload) }),
   // Announcements
   getAnnouncements: () => http<any[]>("/api/announcements"),
   createAnnouncement: (payload: any) => http<any>("/api/announcements", { method: "POST", body: JSON.stringify(payload) }),

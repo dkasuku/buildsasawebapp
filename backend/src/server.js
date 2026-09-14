@@ -30,6 +30,7 @@ const TENANT_MODELS = new Set([
   'DirectoryContact', 'CompanyDoc', 'Announcement', 'FormTemplate', 'Conversation',
   'PaymentApplication', 'RetentionRecord', 'CostCode', 'Approval',
   'InventoryItem', 'InventoryMovement',
+  'BoqRevision', 'RateLibraryItem',
 ]);
 const prismaBase = new PrismaClient();
 const delegateOf = (m) => prismaBase[m.charAt(0).toLowerCase() + m.slice(1)];
@@ -829,13 +830,14 @@ app.get('/api/projects/:projectId', auth, async (req, res) => {
 
 app.post('/api/projects', auth, async (req, res) => {
   try {
-    const { code, name, city, lat, lng, value, status, progress, exposure, description, images, startDate, targetEndDate } = req.body;
+    const { code, name, city, lat, lng, value, status, progress, exposure, description, images, startDate, targetEndDate, contractSumKES } = req.body;
     if (!name || !String(name).trim()) return res.status(400).json({ error: 'Project name is required' });
     const data = {
       code, name, city: city || '—', value: value || '', status: status || 'Planning',
       progress: Number(progress) || 0, exposure, description: description || null,
       images: serializeImages(images),
     };
+    if (contractSumKES != null && contractSumKES !== '') data.contractSumKES = Number(contractSumKES) || null;
     if (lat != null) data.lat = Number(lat);
     if (lng != null) data.lng = Number(lng);
     if (startDate) data.startDate = new Date(startDate);
@@ -852,10 +854,11 @@ app.post('/api/projects', auth, async (req, res) => {
 
 app.put('/api/projects/:projectId', auth, async (req, res) => {
   try {
-    const { code, name, city, lat, lng, value, status, progress, exposure, description, images, startDate, targetEndDate } = req.body;
+    const { code, name, city, lat, lng, value, status, progress, exposure, description, images, startDate, targetEndDate, contractSumKES } = req.body;
     // Only assign what the caller actually sent. A blanket assignment wiped
     // fields that were merely absent from a partial update.
     const data = {};
+    if (contractSumKES !== undefined) data.contractSumKES = contractSumKES == null || contractSumKES === '' ? null : (Number(contractSumKES) || null);
     for (const [k, v] of Object.entries({ code, name, city, value, status, exposure })) {
       if (v !== undefined) data[k] = v;
     }
@@ -1175,7 +1178,7 @@ app.get('/api/projects/:projectId/daily-log', auth, async (req, res) => {
 });
 app.post('/api/projects/:projectId/daily-log', auth, async (req, res) => {
   try {
-    const { date, crew, crewId, headcount, location, notes, weather } = req.body;
+    const { date, crew, crewId, headcount, location, notes, weather, labour, plant, materials, photos } = req.body;
     if (!crew || !String(crew).trim()) return res.status(400).json({ error: 'Pick a crew for this log' });
     // An absent/invalid date used to become `Invalid Date` and be rejected by
     // Postgres with an opaque error; default to today instead.
@@ -1185,6 +1188,8 @@ app.post('/api/projects/:projectId/daily-log', auth, async (req, res) => {
         date: isNaN(when.getTime()) ? new Date() : when,
         crew, crewId: crewId || null, headcount: Number(headcount) || 0,
         location: location || '', notes: notes || '', weather: weather || null,
+        labour: labour || null, plant: plant || null, materials: materials || null,
+        photos: Array.isArray(photos) ? JSON.stringify(photos) : (photos || null),
         projectId: req.params.projectId,
       },
     });
@@ -1193,12 +1198,13 @@ app.post('/api/projects/:projectId/daily-log', auth, async (req, res) => {
 });
 app.put('/api/projects/:projectId/daily-log/:id', auth, async (req, res) => {
   try {
-    const { date, crew, crewId, headcount, location, notes, weather } = req.body;
+    const { date, crew, crewId, headcount, location, notes, weather, labour, plant, materials, photos } = req.body;
     const data = {};
     if (date !== undefined) { const w = new Date(date); if (!isNaN(w.getTime())) data.date = w; }
-    for (const [k, v] of Object.entries({ crew, crewId, location, notes, weather })) {
+    for (const [k, v] of Object.entries({ crew, crewId, location, notes, weather, labour, plant, materials })) {
       if (v !== undefined) data[k] = v;
     }
+    if (photos !== undefined) data.photos = Array.isArray(photos) ? JSON.stringify(photos) : (photos || null);
     if (headcount !== undefined) data.headcount = Number(headcount) || 0;
     const row = await prisma.dailyLog.update({ where: { id: req.params.id }, data });
     res.json(row);
@@ -1362,7 +1368,7 @@ app.delete('/api/punch/:id', auth, async (req, res) => {
 });
 
 // ===== CHANGE ORDERS =====
-const CO_FIELDS = ['number', 'title', 'area', 'description', 'status', 'trigger', 'rfi', 'costUSD', 'scheduleImpactDays', 'requestedBy', 'submittedDate', 'projectId'];
+const CO_FIELDS = ['number', 'title', 'area', 'description', 'status', 'trigger', 'rfi', 'costUSD', 'amountKES', 'scheduleImpactDays', 'requestedBy', 'submittedDate', 'projectId'];
 // Who may create/edit a change order, and who may approve/reject one. Mirrors
 // the role permissions used in the UI (createCO / approveAny).
 const CAN_CREATE_CO = ['Contractor', 'Quantity Surveyor', 'Executive', 'Project Manager', 'Superintendent', 'Trade Lead'];
@@ -1371,6 +1377,11 @@ const hasRole = (req, list) => !!(req.user && list.includes(req.user.role));
 const pickCO = (body) => {
   const d = {};
   for (const f of CO_FIELDS) if (body[f] !== undefined) d[f] = body[f];
+  // The Change Orders module edits the dollar figure; the project hub reads the
+  // shilling one. Whichever side moved, the other follows so they never disagree.
+  const rate = Number(process.env.USD_TO_KES) || 130;
+  if (d.amountKES !== undefined) { d.amountKES = Number(d.amountKES) || 0; if (d.costUSD === undefined) d.costUSD = Math.round(d.amountKES / rate); }
+  else if (d.costUSD !== undefined) { d.costUSD = Number(d.costUSD) || 0; d.amountKES = Math.round(d.costUSD * rate * 100) / 100; }
   if (body.assignees !== undefined) d.assignees = body.assignees == null ? null : (typeof body.assignees === 'string' ? body.assignees : JSON.stringify(body.assignees));
   return d;
 };
@@ -1719,7 +1730,7 @@ const calcPaymentApp = (data) => {
   data.netPayable = +(requested - retentionAmount).toFixed(2);
   return data;
 };
-const PA_FIELDS = ['commitmentId', 'number', 'period', 'periodStart', 'periodEnd', 'workCompletedThisPeriod', 'previousCertified', 'requestedAmount', 'retentionPct', 'costCodeId', 'comments'];
+const PA_FIELDS = ['commitmentId', 'number', 'period', 'periodStart', 'periodEnd', 'workCompletedThisPeriod', 'previousCertified', 'requestedAmount', 'retentionPct', 'costCodeId', 'comments', 'fileUrl'];
 const pickPaymentApp = (body) => {
   const d = {};
   for (const f of PA_FIELDS) {
@@ -1924,16 +1935,23 @@ app.get('/api/approvals', auth, async (req, res) => {
 });
 
 // Documents (global or per-project)
-app.get('/api/documents', auth, async (_req, res) => {
+app.get('/api/documents', auth, async (req, res) => {
   try {
-    const rows = await prisma.document.findMany({ orderBy: { updatedAt: 'desc' } });
+    const where = {};
+    if (req.query.projectId) where.projectId = String(req.query.projectId);
+    if (req.query.category) where.category = String(req.query.category);
+    const rows = await prisma.document.findMany({ where, orderBy: { updatedAt: 'desc' } });
     res.json(rows || []);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/documents', auth, async (req, res) => {
   try {
-    const { name, url, size, updated, projectId } = req.body;
-    const row = await prisma.document.create({ data: { name, url, size, updated, projectId } });
+    const { name, url, size, updated, projectId, category, linkedType, linkedId, note } = req.body;
+    const row = await prisma.document.create({ data: {
+      name, url, size, updated, projectId: projectId || null,
+      category: category || 'general', linkedType: linkedType || null, linkedId: linkedId || null, note: note || null,
+      uploadedBy: (req.user && (req.user.name || req.user.email)) || null,
+    } });
     res.json(row);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -5053,6 +5071,13 @@ app.post('/api/ai/extract-checklist-from-document', auth, singleFile('file'), as
     console.error('Extract checklist error:', e);
     res.status(500).json({ error: e.message || 'Extraction failed' });
   }
+});
+
+// ===== PROJECT HUB (one page per project: documents, drawings, BOQ, variations,
+// certificates, site diary, cost control) — see src/project-hub.js =====
+require('./project-hub')(app, {
+  prisma, auth, hasRole, CAN_MANAGE_BIDS, CAN_REVIEW_FINANCE, CAN_CREATE_CO,
+  logCO, recomputeCommitment, boqAmount, projectDto,
 });
 
 // ===== GENERIC SECTION CRUD (Observations, Coordination, Action Plans, etc.) =====

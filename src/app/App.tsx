@@ -45,6 +45,7 @@ import CorrespondenceModule from "./components/constructai/Correspondence";
 import Crews from "./components/constructai/Crews";
 import Directory from "./components/constructai/Directory";
 import CompanyDocs from "./components/constructai/CompanyDocs";
+import Subcontractors from "./components/constructai/Subcontractors";
 import type { Role } from "./components/constructai/roles";
 import { ROLES } from "./components/constructai/roles";
 import { CurrencyProvider } from "./components/constructai/CurrencyContext";
@@ -58,7 +59,7 @@ import ShemmySupport from "./components/constructai/ShemmySupport";
 const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Executive overview" },
   projects: { title: "Projects", subtitle: "Your sites and jobs" },
-  "project-detail": { title: "Project", subtitle: "Dashboard, progress & everything linked to it" },
+  "project-detail": { title: "Project", subtitle: "Contract, drawings, BOQ, variations, certificates, site & costs — in one place" },
   "change-orders": { title: "Change Orders", subtitle: "Cost & schedule impact · approvals" },
   billing: { title: "Billing & Plan", subtitle: "Subscription & payments" },
   plans: { title: "Plans & Drawings", subtitle: "Architectural sheets & sharing" },
@@ -81,6 +82,7 @@ const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }
   correspondence: { title: "Correspondence", subtitle: "Letters, submittals & transmittals" },
   crews: { title: "Crews", subtitle: "Crew rosters & schedules" },
   directory: { title: "Directory", subtitle: "Global contacts & companies" },
+  subcontractors: { title: "Subcontractors", subtitle: "Subcontractor & supplier database · engagements & payments" },
   "company-docs": { title: "Company Documents", subtitle: "Organization-wide vault" },
   "role-manager": { title: "Role Manager", subtitle: "Configure team roles and permissions" },
   bidding: { title: "Bidding", subtitle: "Subcontractor bids and tendering" },
@@ -90,7 +92,8 @@ const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }
   "safety-incidents": { title: "Safety Incidents", subtitle: "OSHA-style incident reporting and tracking" },
   equipment: { title: "Inventory", subtitle: "Materials, equipment, tools & stock levels" },
   attendance: { title: "Attendance", subtitle: "Check in/out, breaks, leaves & time tracking" },
-  "buildflex-ai": { title: "Buildsasa AI", subtitle: "AI assistant for reports & building expertise" },};
+  "buildflex-ai": { title: "Buildsasa AI", subtitle: "AI assistant for reports & building expertise" },
+};
 
 export default function App() {
   const [view, setView] = useState<View>(() => {
@@ -489,6 +492,7 @@ export default function App() {
             {effectiveView === "correspondence" && <CorrespondenceModule role={role} />}
             {effectiveView === "crews" && <Crews role={role} />}
             {effectiveView === "directory" && <Directory role={role} />}
+            {effectiveView === "subcontractors" && <Subcontractors role={role} />}
             {effectiveView === "company-docs" && <CompanyDocs role={role} />}
             {effectiveView === "role-manager" && <RoleManager role={role} />}
             {effectiveView === "bidding" && <Bidding role={role} />}

@@ -2,8 +2,10 @@ import { useState, useMemo, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import { Plus, Search, X, FolderOpen, FileText, Download, Trash2, UploadCloud, File, FileSpreadsheet, FileImage, Shield, BookOpen, Award } from "lucide-react";
 import type { Role } from "./roles";
-import api from "../../services/api";
+import api, { absoluteFileUrl } from "../../services/api";
 import { warnSaveFailed } from "./saveFeedback";
+import { useFileUpload } from "./useFileUpload";
+import { UploadTray } from "./UploadTray";
 
 type Doc = {
   id: string;
@@ -13,6 +15,9 @@ type Doc = {
   size: string;
   uploadedBy: string;
   date: string;
+  /** Durable URL of the stored file. Older rows have none — they were recorded
+   *  without the file ever being uploaded, so there is nothing to download. */
+  url?: string | null;
 };
 
 const CATEGORIES: { key: Doc["category"]; icon: any }[] = [
@@ -37,13 +42,15 @@ export default function CompanyDocs({ role }: { role: Role }) {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [uploadCategory, setUploadCategory] = useState<Doc["category"]>("Policies");
   const [showUpload, setShowUpload] = useState(false);
+  const uploader = useFileUpload();
+  const me = (() => { try { return JSON.parse(localStorage.getItem("constructai-user") || "null")?.name || "You"; } catch { return "You"; } })();
 
   // Load persisted documents; the API response is authoritative (including empty)
   useEffect(() => {
     (async () => {
       try {
         const rows = await api.getCompanyDocs();
-        setDocs((rows ?? []).map((r: any) => ({ id: r.id, name: r.name, category: r.category, type: r.type || "file", size: r.size || "", uploadedBy: r.uploadedBy || "", date: r.date || "" })));
+        setDocs((rows ?? []).map((r: any) => ({ id: r.id, name: r.name, category: r.category, type: r.type || "file", size: r.size || "", uploadedBy: r.uploadedBy || "", date: r.date || "", url: r.url || null })));
       } catch { /* offline — leave list empty */ }
     })();
   }, []);
@@ -60,25 +67,32 @@ export default function CompanyDocs({ role }: { role: Role }) {
     return counts;
   }, [docs]);
 
-  const handleFiles = (files: FileList | null) => {
+  // Upload the bytes first, then record the row with its URL — so every
+  // document listed here can actually be opened and downloaded. This used to
+  // record the name only and toast "Downloading…" on a file that was never stored.
+  const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const newDocs: Doc[] = Array.from(files).map((f, i) => ({
-      id: `d${Date.now()}-${i}`,
-      name: f.name,
-      category: uploadCategory,
-      type: f.name.split(".").pop()?.toLowerCase() || "file",
-      size: f.size > 1024 * 1024 ? `${(f.size / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(f.size / 1024)} KB`,
-      uploadedBy: "You",
-      date: new Date().toISOString().slice(0, 10),
-    }));
-    setDocs((prev) => [...newDocs, ...prev]);
+    const list = Array.from(files);
     setShowUpload(false);
-    toast.success(`${newDocs.length} document${newDocs.length > 1 ? "s" : ""} uploaded`);
-    newDocs.forEach((d) => {
-      api.createCompanyDoc({ name: d.name, category: d.category, type: d.type, size: d.size, uploadedBy: d.uploadedBy, date: d.date })
-        .then((saved: any) => setDocs((prev) => prev.map((x) => x.id === d.id ? { ...x, id: saved.id } : x)))
-        .catch(warnSaveFailed("company doc creation"));
-    });
+    const urls = await uploader.upload(list);
+    let saved = 0;
+    for (let i = 0; i < list.length; i++) {
+      const f = list[i]; const url = urls[i];
+      if (!url) continue;
+      const row = {
+        name: f.name, category: uploadCategory,
+        type: f.name.split(".").pop()?.toLowerCase() || "file",
+        size: f.size > 1024 * 1024 ? `${(f.size / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(f.size / 1024)} KB`,
+        uploadedBy: me, date: new Date().toISOString().slice(0, 10), url,
+      };
+      try {
+        const created: any = await api.createCompanyDoc(row);
+        setDocs((prev) => [{ ...row, id: created.id }, ...prev]);
+        saved += 1;
+      } catch (e) { warnSaveFailed("company doc creation")(e); }
+    }
+    uploader.reset();
+    if (saved) toast.success(`${saved} document${saved > 1 ? "s" : ""} uploaded`);
   };
 
   const remove = (id: string) => {
@@ -107,6 +121,8 @@ export default function CompanyDocs({ role }: { role: Role }) {
         <button onClick={() => setShowUpload(true)} className="h-9 px-4 bg-[#FF6B1A] text-black rounded-lg text-[12px] font-medium flex items-center gap-1.5"><UploadCloud className="w-3.5 h-3.5" /> Upload</button>
       </div>
 
+      {uploader.pending.length > 0 && <div className="mb-3"><UploadTray state={uploader} /></div>}
+
       <div className="bg-[#11161D] border border-[#222A35] rounded-xl overflow-hidden">
         <div className="hidden sm:grid grid-cols-[1fr_120px_90px_120px_100px_40px] gap-2 px-4 py-2.5 border-b border-[#222A35] text-[10px] text-[#5B6675] uppercase tracking-wider">
           <span>Name</span><span>Category</span><span>Size</span><span>Uploaded by</span><span>Date</span><span></span>
@@ -116,16 +132,25 @@ export default function CompanyDocs({ role }: { role: Role }) {
           const Icon = fileIcon(d.type);
           return (
             <div key={d.id} className="grid grid-cols-1 sm:grid-cols-[1fr_120px_90px_120px_100px_40px] gap-2 px-4 py-3 border-b border-[#222A35] last:border-0 hover:bg-[#161C24]/50 transition items-center group">
-              <button onClick={() => toast.info(`Opening ${d.name}…`)} className="flex items-center gap-2.5 text-left min-w-0">
-                <Icon className="w-4 h-4 text-[#FF6B1A] shrink-0" />
-                <span className="text-[12px] text-white truncate hover:underline">{d.name}</span>
-              </button>
+              {d.url ? (
+                <a href={absoluteFileUrl(d.url)} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 text-left min-w-0">
+                  <Icon className="w-4 h-4 text-[#FF6B1A] shrink-0" />
+                  <span className="text-[12px] text-white truncate hover:underline">{d.name}</span>
+                </a>
+              ) : (
+                <button onClick={() => toast.error("This entry was recorded without its file. Delete it and upload the document again.")} className="flex items-center gap-2.5 text-left min-w-0" title="No file stored">
+                  <Icon className="w-4 h-4 text-[#5B6675] shrink-0" />
+                  <span className="text-[12px] text-[#8A95A5] truncate">{d.name}</span>
+                </button>
+              )}
               <span className="text-[11px] text-[#8A95A5]">{d.category}</span>
               <span className="text-[11px] text-[#8A95A5]">{d.size}</span>
               <span className="text-[11px] text-[#8A95A5] truncate">{d.uploadedBy}</span>
               <span className="text-[11px] text-[#8A95A5]">{d.date}</span>
               <div className="flex items-center gap-1.5">
-                <button onClick={() => toast.info(`Downloading ${d.name}…`)} className="text-[#5B6675] hover:text-white"><Download className="w-3.5 h-3.5" /></button>
+                {d.url
+                  ? <a href={absoluteFileUrl(d.url)} download={d.name} target="_blank" rel="noreferrer" title="Download" className="text-[#5B6675] hover:text-white"><Download className="w-3.5 h-3.5" /></a>
+                  : <span title="No file stored" className="text-[#3A4350]"><Download className="w-3.5 h-3.5" /></span>}
                 <button onClick={() => remove(d.id)} className="text-[#5B6675] hover:text-[#EF4444]"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
             </div>
