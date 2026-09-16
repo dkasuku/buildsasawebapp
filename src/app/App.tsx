@@ -11,7 +11,6 @@ import { ErrorBoundary } from "./components/constructai/ErrorBoundary";
 import { Dashboard } from "./components/constructai/Dashboard";
 import { Projects } from "./components/constructai/Projects";
 import { ProjectDetail } from "./components/constructai/ProjectDetail";
-import { MobileCreate } from "./components/constructai/MobileCreate";
 import { FieldView } from "./components/constructai/FieldView";
 import { Reports } from "./components/constructai/Reports";
 import { Plans } from "./components/constructai/Plans";
@@ -33,7 +32,6 @@ import Bidding from "./components/constructai/Bidding";
 import Invoicing from "./components/constructai/Invoicing";
 import Inspections from "./components/constructai/Inspections";
 import SafetyIncidents from "./components/constructai/SafetyIncidents";
-import Equipment from "./components/constructai/Equipment";
 import Inventory from "./components/constructai/Inventory";
 import Attendance from "./components/constructai/Attendance";
 import BuildflexAI from "./components/constructai/BuildflexAI";
@@ -65,14 +63,13 @@ const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }
   plans: { title: "Plans & Drawings", subtitle: "Architectural sheets & sharing" },
   tasks: { title: "Tasks & Trades", subtitle: "Assign forms & checklists to trades and track their progress" },
   schedule: { title: "Schedule", subtitle: "Project timeline — Gantt, dates & milestones" },
-  documents: { title: "Project Documents", subtitle: "Per-project docs and shared files" },
+  documents: { title: "Unfiled Documents", subtitle: "Documents with no project — file them into one" },
   "daily-log": { title: "Daily Log", subtitle: "Crew headcount, locations, notes" },
   "punch-list": { title: "Punch List", subtitle: "Deficiencies and closeouts" },
   commitments: { title: "Commitments", subtitle: "Subcontracts, POs, obligations" },
   reports: { title: "Reports", subtitle: "Financial & operational analytics" },
   financials: { title: "Financials", subtitle: "Cash flow, budgets, and exports" },
   team: { title: "Team", subtitle: "Members, roles & workflows" },
-  "mobile-create": { title: "AI Creation Flow", subtitle: "Mobile — field capture" },
   "field-view": { title: "Field Supervisor", subtitle: "Mobile — jobsite operations" },
   inbox: { title: "Inbox", subtitle: "Internal messages & project conversations" },
   announcements: { title: "Announcements", subtitle: "Company-wide broadcasts & notices" },
@@ -499,7 +496,6 @@ export default function App() {
             {effectiveView === "daily-log" && <DailyLog />}
             {effectiveView === "punch-list" && <PunchListPro role={role} />}
             {effectiveView === "commitments" && <Commitments />}
-            {effectiveView === "mobile-create" && <MobileCreate />}
             {effectiveView === "field-view" && <FieldView role={role} />}
             {effectiveView === "reports" && <Reports />}
             {effectiveView === "financials" && <Financials role={role} />}

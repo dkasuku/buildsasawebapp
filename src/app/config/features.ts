@@ -22,7 +22,8 @@ import type { View } from "../components/constructai/Sidebar";
 export const CORE_VIEWS: View[] = [
   "dashboard",
   "projects",
-  "checklists",
+  "checklists",
+
   "buildflex-ai",
   "team",
   "billing",
@@ -46,17 +47,9 @@ export function setSimpleMode(on: boolean): void {
 }
 
 // Screens that are not finished and must not be reachable by customers.
-//
-// "mobile-create" (labelled "AI Creation Flow") is a static design mockup: it
-// makes zero API calls and renders a hardcoded change order for a project called
-// "Harborfront Tower", assigned to "Tomás Nguyen" — neither of which exists in
-// any real workspace. Nothing on it saves anything. It was listed in 8 roles'
-// nav, so most users could open it and reasonably conclude the product was
-// broken or full of someone else's data.
-//
-// Hidden here rather than deleted, so the work is preserved: remove the entry
-// once the screen is wired to real projects and actually persists a draft.
-const UNFINISHED_VIEWS: View[] = ["mobile-create"];
+// Empty right now: "mobile-create" (a static mockup showing another company's
+// invented data) was deleted rather than left hidden.
+const UNFINISHED_VIEWS: View[] = [];
 
 // Is a given view allowed to appear right now?
 // Default: everything visible. Simple mode: only the core set.

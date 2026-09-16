@@ -295,6 +295,9 @@ module.exports = function mountProjectHub(app, deps) {
       if (b.linkedType !== undefined) data.linkedType = b.linkedType || null;
       if (b.linkedId !== undefined) data.linkedId = b.linkedId || null;
       if (b.note !== undefined) data.note = b.note || null;
+      // Filing an unfiled document into a project — the only way a document with
+      // no projectId can reach a project's folders.
+      if (b.projectId !== undefined) data.projectId = b.projectId || null;
       res.json(await prisma.document.update({ where: { id: req.params.id }, data }));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });

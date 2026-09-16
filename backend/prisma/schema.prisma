@@ -1023,21 +1023,6 @@ model Correspondence {
   updatedAt   DateTime @updatedAt
 }
 
-model WorkTask {
-  id          String   @id @default(cuid())
-  workspaceId String?
-  title       String
-  description String?
-  trade       String?  @default("General")
-  assignees   String?  // JSON array of userIds
-  priority    String?  @default("medium") // low | medium | high
-  status      String   @default("open")   // open | in_progress | blocked | done
-  dueDate     String?
-  projectId   String?
-  createdById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
 
 // A project schedule activity / milestone shown on the Gantt timeline.
 model ScheduleItem {

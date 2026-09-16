@@ -20,7 +20,6 @@ export type View =
   | "daily-log"
   | "punch-list"
   | "commitments"
-  | "mobile-create"
   | "field-view"
   | "reports"
   | "financials"
@@ -106,7 +105,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Documents & Comms",
     items: [
-      { key: "documents", label: "Project Documents", icon: FileText },
+      { key: "documents", label: "Unfiled Documents", icon: FileText },
       { key: "company-docs", label: "Company Documents", icon: FolderOpen },
       { key: "correspondence", label: "Correspondence", icon: MessageSquare },
       { key: "coordination", label: "Coordination Issues", icon: Briefcase },
@@ -145,7 +144,22 @@ export function Sidebar({
     setView(v);
     onClose();
   };
-  const allowed = (v: View) => perms.views.includes(v) && isViewVisible(v);
+  // "Unfiled Documents" is a queue, not a permanent home: project files live in
+  // each project's own folders. Show it only while documents without a project
+  // still exist, so a tidy workspace never sees it.
+  const [unfiledDocs, setUnfiledDocs] = useState(0);
+  useEffect(() => {
+    const count = () => apiClient.getUnfiledDocuments().then((d) => setUnfiledDocs(d.length)).catch(() => { /* leave hidden */ });
+    count();
+    window.addEventListener("buildsasa:documents-filed", count);
+    return () => window.removeEventListener("buildsasa:documents-filed", count);
+  }, []);
+  const allowed = (v: View) => {
+    // Keep the item while the user is standing on it, so it cannot vanish
+    // underneath them as they file the last document.
+    if (v === "documents" && unfiledDocs === 0 && view !== "documents") return false;
+    return perms.views.includes(v) && isViewVisible(v);
+  };
 
   // Real logged-in user for the profile card (name, role, avatar). Refreshes
   // when the profile is edited in Settings.

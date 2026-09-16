@@ -1176,6 +1176,8 @@ export const api = {
   // Approvals (audit trail)
   getApprovals: (entityType: string, entityId: string) => http<ApprovalDto[]>(`/api/approvals?entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId)}`),
   getDocuments: () => http<DocumentDto[]>(`/api/documents`),
+  /** Documents that belong to no project — they appear in no project's folders. */
+  getUnfiledDocuments: () => http<DocumentDto[]>(`/api/documents?unfiled=1`),
   createDocument: (payload: Partial<DocumentDto>) => http<DocumentDto>(`/api/documents`, { method: "POST", body: JSON.stringify(payload) }),
   deleteDocument: (id: string) => http(`/api/documents/${id}`, { method: "DELETE" }),
   presignUpload: (filename: string, contentType: string) => http<{ url: string; publicUrl: string }>("/api/upload/presign", { method: "POST", body: JSON.stringify({ filename, contentType }) }),
@@ -1280,10 +1282,6 @@ export const api = {
   submitPublicForm: (token: string, payload: { respondentName?: string; respondentEmail?: string; data: any }) => http<{ ok: boolean }>(`/api/public/forms/${token}/submit`, { method: "POST", body: JSON.stringify(payload) }),
   getTemplateSubmissions: (id: string) => http<any[]>(`/api/checklist-templates/${id}/submissions`),
   // Work tasks (Tasks & Trades assignment hub)
-  listWorkTasks: () => http<any[]>("/api/work-tasks"),
-  createWorkTask: (payload: any) => http<any>("/api/work-tasks", { method: "POST", body: JSON.stringify(payload) }),
-  updateWorkTask: (id: string, payload: any) => http<any>(`/api/work-tasks/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
-  deleteWorkTask: (id: string) => http(`/api/work-tasks/${id}`, { method: "DELETE" }),
   // CSV / AI upload to template
   uploadChecklistCSV: (payload: { title: string; trade?: string; category?: string; csvText: string; source?: string }) => http<{ template: ChecklistTemplateDto; parsedItems: any[] }>("/api/checklist-templates/from-csv", { method: "POST", body: JSON.stringify(payload) }),
   // File upload preview (.csv / .xlsx)

@@ -26,7 +26,7 @@ const TENANT_MODELS = new Set([
   'User', 'Project', 'LedgerEntry', 'ExpenseCategory', 'DailyLog', 'PunchItem', 'Subscription', 'BillingInvoice',
   'ChangeOrder', 'ChangeOrderActivity', 'Commitment', 'Document', 'Bid', 'BidPackage', 'Invoice', 'Inspection', 'SafetyIncident',
   'Equipment', 'ChecklistTemplate', 'Checklist', 'Drawing', 'DrawingVersion', 'PlanMarkup', 'ScheduledReport', 'Attendance',
-  'Observation', 'CoordinationIssue', 'ActionPlan', 'Correspondence', 'WorkTask', 'ScheduleItem', 'Crew',
+  'Observation', 'CoordinationIssue', 'ActionPlan', 'Correspondence', 'ScheduleItem', 'Crew',
   'DirectoryContact', 'CompanyDoc', 'Announcement', 'FormTemplate', 'Conversation',
   'PaymentApplication', 'RetentionRecord', 'CostCode', 'Approval',
   'InventoryItem', 'InventoryMovement',
@@ -1941,6 +1941,9 @@ app.get('/api/documents', auth, async (req, res) => {
   try {
     const where = {};
     if (req.query.projectId) where.projectId = String(req.query.projectId);
+    // Documents uploaded before files were filed per project have no projectId,
+    // so they appear in no project's folders. ?unfiled=1 finds them.
+    else if (req.query.unfiled === '1') where.projectId = null;
     if (req.query.category) where.category = String(req.query.category);
     const rows = await prisma.document.findMany({ where, orderBy: { updatedAt: 'desc' } });
     res.json(rows || []);
@@ -5129,8 +5132,6 @@ crudRoutes('correspondence', 'correspondence',
   ['subject', 'type', 'direction', 'status', 'fromParty', 'toParty', 'project', 'projectId', 'date', 'body', 'attachments'], ['attachments']);
 crudRoutes('crews', 'crew',
   ['name', 'trade', 'foreman', 'project', 'projectId', 'location', 'shift', 'status', 'members'], ['members']);
-crudRoutes('work-tasks', 'workTask',
-  ['title', 'description', 'trade', 'assignees', 'priority', 'status', 'dueDate', 'projectId', 'createdById'], ['assignees']);
 crudRoutes('directory-contacts', 'directoryContact',
   ['name', 'company', 'role', 'category', 'phone', 'email', 'projects'], ['projects']);
 crudRoutes('company-docs', 'companyDoc',
