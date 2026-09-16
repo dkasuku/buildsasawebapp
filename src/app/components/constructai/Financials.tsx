@@ -2,8 +2,7 @@ import { FileSpreadsheet, FileText, TrendingUp, TrendingDown, Wallet, PiggyBank,
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
-import { jsPDF } from "jspdf";
-import "jspdf-autotable";
+import { jsPDF } from "../../services/pdf";
 import { useCurrency } from "./CurrencyContext";
 import { CURRENCIES, USD_TO_KES, formatCurrency, toKES } from "./currency";
 import type { Role } from "./roles";

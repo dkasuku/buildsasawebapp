@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import api, { type ScheduledReportDto, type ProjectDto } from "../../services/api";
-import { jsPDF } from "jspdf";
+import { jsPDF } from "../../services/pdf";
 import * as XLSX from "xlsx";
 import { Download, Calendar, Filter, TrendingUp, Plus, GripVertical, X, MapPin, Building2, Clock, AlertTriangle, CheckCircle2, Bell, Mail, Repeat, Trash2, Play } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, RadialBarChart, RadialBar, PieChart, Pie, Cell, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, AreaChart, Area } from "recharts";

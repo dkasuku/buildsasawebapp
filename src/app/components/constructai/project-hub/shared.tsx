@@ -34,6 +34,9 @@ export function useMoney() {
     toBase: (typed: number | string) => Math.round(toKES(Number(typed) || 0, currency) * 100) / 100,
     /** A stored KES figure → the number to put in an input, in the chosen currency. */
     fromBase: (kes: number | null | undefined) => (kes == null ? "" : String(roundForCurrency(fromKES(Number(kes) || 0, currency), currency))),
+    /** A stored KES figure as a NUMBER in the chosen currency — for spreadsheet
+     *  cells, which must stay numeric so they can be summed and formatted. */
+    amount: (kes: number | null | undefined) => roundForCurrency(fromKES(Number(kes) || 0, currency), currency),
     fmt: (kes: number | null | undefined) => (kes == null ? "—" : formatCurrency(Math.round(Number(kes) || 0), currency)),
     compact: (kes: number | null | undefined) => (kes == null ? "—" : formatCompactCurrency(Math.round(Number(kes) || 0), currency)),
     /** Signed, for variations: +KSh 1.2M / −KSh 300K. */

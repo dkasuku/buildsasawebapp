@@ -19,7 +19,7 @@ import { toast } from "sonner";
 import {
   AlertCircle, ArrowLeft, BarChart3, Calculator, Calendar, CalendarDays, CheckCircle2, ClipboardList, Clock, FileStack,
   FileText, Flag, HardHat, Image as ImageIcon, LayoutDashboard, Loader2, MapPin, Pencil, Receipt, RefreshCw, ShieldAlert,
-  UserCircle, Wallet, Wrench, Check, AlertTriangle, ArrowUpRight, ChevronRight,
+  UserCircle, Wallet, Wrench, Check, AlertTriangle, ArrowUpRight, ChevronRight, FileBarChart,
 } from "lucide-react";
 import api, { absoluteFileUrl, type ProjectHubDto } from "../../services/api";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
@@ -36,9 +36,10 @@ import { VariationsFolder } from "./project-hub/VariationsFolder";
 import { CertificatesFolder } from "./project-hub/CertificatesFolder";
 import { SiteFolder } from "./project-hub/SiteFolder";
 import { CostControlFolder } from "./project-hub/CostControlFolder";
+import { ReportFolder } from "./project-hub/ReportFolder";
 import { Bar, Field, Modal, Panel, Pill, btnGhost, btnPrimary, fmtDate, input, statusTone, useMoney } from "./project-hub/shared";
 
-type Folder = "overview" | "contract" | "drawings" | "boq" | "variations" | "certificates" | "site" | "costs" | "closeout";
+type Folder = "overview" | "contract" | "drawings" | "boq" | "variations" | "certificates" | "site" | "costs" | "report" | "closeout";
 
 export function ProjectDetail({
   projectId,
@@ -93,9 +94,10 @@ export function ProjectDetail({
       ...(showFin ? [{ key: "certificates" as Folder, label: "Payment Certificates", icon: Receipt, count: c.certificates }] : []),
       { key: "site", label: "Site Execution", icon: HardHat, count: c.punchOpen, hint: c.punchOpen ? "open defects" : undefined },
       ...(showFin ? [{ key: "costs" as Folder, label: "Cost Control", icon: BarChart3 }] : []),
+      ...(perms.viewReports ? [{ key: "report" as Folder, label: "Project Report", icon: FileBarChart }] : []),
       { key: "closeout", label: "Closeout", icon: Flag },
     ];
-  }, [data, showFin]);
+  }, [data, showFin, perms.viewReports]);
 
   if (loading) {
     return (
@@ -228,6 +230,7 @@ export function ProjectDetail({
           )}
           {folder === "site" && <SiteFolder projectId={projectId} site={data.site} progress={progress} schedule={data.schedule} docs={data.documents} canEdit={perms.completeTasks || canEditDocs} onChanged={refresh} />}
           {folder === "costs" && showFin && <CostControlFolder costs={costs} setView={setView} onSetContractSum={() => setContractModal(true)} />}
+          {folder === "report" && perms.viewReports && <ReportFolder data={data} setView={setView} />}
           {folder === "closeout" && <ProjectCloseout projectId={projectId} canEdit={canManageBids(role)} />}
         </div>
       </div>
