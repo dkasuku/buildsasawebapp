@@ -5211,8 +5211,12 @@ app.get('/api/billing/subscription', auth, async (req, res) => {
     const sub = active || await prisma.subscription.findFirst({ where: {}, orderBy: { createdAt: 'desc' } });
     // Who actually handles billing for this workspace. Everyone else rides on the
     // workspace's status and is never sent to a checkout they cannot complete.
-    const isBillingOwner = !!sub && sub.userId === req.user.sub;
-    res.json(sub ? { ...sub, isBillingOwner } : { status: 'inactive', isBillingOwner: false });
+    // With no subscription row yet (a workspace that has never checked out) there
+    // is nobody to compare against, and answering `false` told the one person who
+    // CAN pay to go ask someone else — the paywall then had no way out. Fall back
+    // to the account role: a Contractor owns the workspace and its billing.
+    const isBillingOwner = sub ? sub.userId === req.user.sub : req.user?.role === 'Contractor';
+    res.json(sub ? { ...sub, isBillingOwner } : { status: 'inactive', isBillingOwner });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
