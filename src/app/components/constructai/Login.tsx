@@ -1,4 +1,4 @@
-import { ArrowRight, ShieldCheck, Zap, Wallet, Sun, Moon } from "lucide-react";
+import { ArrowRight, ArrowLeft, ShieldCheck, Zap, Wallet, Sun, Moon } from "lucide-react";
 import { useState, useEffect } from "react";
 import api from "../../services/api";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
@@ -67,6 +67,19 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
       <div className="flex flex-col px-8 lg:px-16 py-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
+            {/* Signup and reset are detours off the sign-in page. Without a way
+                back, the only exit was the small link under the form (and on
+                reset, below the fold on short screens). */}
+            {mode !== "login" && (
+              <button
+                onClick={() => { setMode("login"); setError(""); setInfo(""); setDevLink(""); }}
+                className="h-9 w-9 -ml-1 mr-0.5 rounded-md border border-[#222A35] bg-[#11161D] flex items-center justify-center text-[#8A95A5] hover:text-white hover:border-[#2C3744] shrink-0"
+                title="Back to sign in"
+                aria-label="Back to sign in"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+            )}
             <div className="w-9 h-9 rounded-lg overflow-hidden flex items-center justify-center">
               <img src="/Buildsasa.png" alt="Buildsasa" className="w-full h-full object-cover" />
             </div>

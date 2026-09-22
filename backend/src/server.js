@@ -645,7 +645,7 @@ app.post('/api/auth/forgot', async (req, res) => {
         const html = emailShell('Reset your password',
           `<p style="font-size:14px;color:#11161D">Hi ${user.name || ''}, we received a request to reset your Buildsasa password. This link expires in 1 hour.</p>
            ${button(link, 'Reset password')}
-           <p style="font-size:12px;color:#8A95A5">Or paste this link into your browser:<br/>${link}</p>`);
+           <p style="font-size:12px;color:#8A95A5">Or paste this link into your browser:<br/><a href="${link}" style="color:#FF6B1A;word-break:break-all">${link}</a></p>`);
         const mail = await sendEmail({ to: em, subject: 'Reset your Buildsasa password', html });
         if (!mail.sent) return res.json({ ok: true, devLink: link });
       }
