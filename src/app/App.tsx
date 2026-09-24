@@ -95,19 +95,11 @@ const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }
 export default function App() {
   const [view, setView] = useState<View>(() => {
     try {
-      // Google OAuth redirect: /?token=…&user=… — persist the session, clean the
-      // URL, and land on the dashboard (role is read from the stored user below).
       const params = new URLSearchParams(window.location.search);
-      const gToken = params.get("token");
-      if (gToken) {
-        localStorage.setItem("constructai-token", gToken);
-        const gRefresh = params.get("refresh");
-        if (gRefresh) localStorage.setItem("constructai-refresh", gRefresh);
-        const gUser = params.get("user");
-        if (gUser) localStorage.setItem("constructai-user", gUser);
-        window.history.replaceState({}, "", window.location.pathname);
-        return "dashboard";
-      }
+      // Google OAuth redirect: /?handoff=… — a single-use code, exchanged for the
+      // real session by the effect below. The session token used to arrive in
+      // this URL directly, which put it in history and in every log on the way.
+      if (params.get("handoff")) return "login";
       // Returning from Paystack checkout (?reference=…): land on Billing so the
       // payment is verified there (Billing reads the query param).
       const payRef = params.get("reference") || params.get("trxref");
@@ -293,6 +285,35 @@ export default function App() {
     } catch { /* noop */ }
   }, []);
 
+  // Trade the one-time Google handoff code for the real session. Held on a
+  // loading screen while it runs so the login form never flashes behind it.
+  const [oauthExchanging, setOauthExchanging] = useState(() => {
+    try { return !!new URLSearchParams(window.location.search).get("handoff"); } catch { return false; }
+  });
+  useEffect(() => {
+    let handoff: string | null = null;
+    try { handoff = new URLSearchParams(window.location.search).get("handoff"); } catch { /* noop */ }
+    if (!handoff) return;
+    // Drop the code from the URL immediately: it is single-use, so a reload or a
+    // shared link must not look like it can sign anyone in.
+    try { window.history.replaceState({}, "", window.location.pathname); } catch { /* noop */ }
+    api.exchangeGoogleHandoff(handoff)
+      .then((res) => {
+        try {
+          localStorage.setItem("constructai-token", res.token);
+          if (res.refreshToken) localStorage.setItem("constructai-refresh", res.refreshToken);
+          if (res.user) localStorage.setItem("constructai-user", JSON.stringify(res.user));
+        } catch { /* noop */ }
+        if (res.user?.role && ROLES[res.user.role as Role]) setRole(res.user.role as Role);
+        setView("dashboard");
+      })
+      .catch((e: any) => {
+        toast.error(e?.message || "Google sign-in could not be completed. Please try again.");
+        setView("login");
+      })
+      .finally(() => setOauthExchanging(false));
+  }, []);
+
   // Deep-link straight into the Change Orders list with that record's panel open.
   // This used to switch to a separate full-page detail screen — a second view of
   // the same record, and the one still rendering invented figures.
@@ -330,6 +351,20 @@ export default function App() {
     return (
       <div className={theme === "light" ? "theme-light" : ""}>
         <PublicBidSubmit token={bidToken} theme={theme} />
+        <Toaster theme={theme} position="top-right" />
+      </div>
+    );
+  }
+
+  // Mid-handoff: we have no token yet but one is seconds away. Showing the login
+  // form here would tell a user who just authenticated that they are signed out.
+  if (oauthExchanging) {
+    return (
+      <div className={`h-screen w-full flex items-center justify-center ${theme === "light" ? "theme-light bg-[#F4F6FA]" : "bg-[#0A0E14]"}`}>
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 rounded-full border-2 border-[#222A35] border-t-[#FF6B1A] animate-spin" />
+          <div className="text-[12.5px] text-[#8A95A5]">Signing you in…</div>
+        </div>
         <Toaster theme={theme} position="top-right" />
       </div>
     );

@@ -7,6 +7,7 @@ const bcrypt = require('bcryptjs');
 const { PrismaClient } = require('@prisma/client');
 const AWS = require('aws-sdk');
 const http = require('http');
+const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const xlsx = require('xlsx');
 const { parse: csvParse } = require('csv-parse/sync');
@@ -336,6 +337,15 @@ app.get('/api/auth/google', (req, res) => {
   res.redirect('https://accounts.google.com/o/oauth2/v2/auth?' + params.toString());
 });
 
+// Single-use OAuth handoff codes: code -> { expires, payload }. In memory, like
+// the rate limiter, which is fine for a single instance; move it to Redis before
+// running more than one. Entries are deleted on first read and swept on expiry.
+const OAUTH_HANDOFFS = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of OAUTH_HANDOFFS) if (v.expires < now) OAUTH_HANDOFFS.delete(k);
+}, 60_000).unref();
+
 // Step 2 — Google redirects back here with a code; exchange it, find/create the
 // user (linked by email), issue our own session token, and bounce to the frontend.
 app.get('/api/auth/google/callback', async (req, res) => {
@@ -363,14 +373,34 @@ app.get('/api/auth/google/callback', async (req, res) => {
       try { user = await prisma.user.update({ where: { id: user.id }, data: { avatar: profile.picture } }); } catch { /* ignore */ }
     }
     recordAccess(req, user);
-    const token = issueToken(user);
-    const refreshToken = issueRefreshToken(user);
-    const userParam = encodeURIComponent(JSON.stringify(publicUser(user)));
-    res.redirect(`${FRONTEND_URL}/?token=${encodeURIComponent(token)}&refresh=${encodeURIComponent(refreshToken)}&user=${userParam}`);
+    // Hand the session over via a single-use code, NOT the tokens themselves.
+    // Putting a JWT and its refresh token in the redirect URL writes both into
+    // browser history, into the Referer header of anything the landing page
+    // loads, and into every proxy and server access log along the way — and the
+    // back button walks straight back onto them. The code below is worthless
+    // sixty seconds later and worthless twice.
+    const handoff = crypto.randomBytes(32).toString('hex');
+    OAUTH_HANDOFFS.set(handoff, {
+      expires: Date.now() + 60_000,
+      payload: { token: issueToken(user), refreshToken: issueRefreshToken(user), user: publicUser(user) },
+    });
+    res.redirect(`${FRONTEND_URL}/?handoff=${handoff}`);
   } catch (e) {
     console.error('[google oauth] failed:', e.message);
     res.redirect(`${FRONTEND_URL}/?auth_error=google`);
   }
+});
+
+// Step 3 — the frontend trades the one-time code for the actual session. POST so
+// the code never lands in a URL, and it is consumed on first use: a replayed
+// code (from history, a log, or a shared link) gets nothing.
+app.post('/api/auth/google/exchange', (req, res) => {
+  const code = String((req.body && req.body.handoff) || '');
+  const entry = code && OAUTH_HANDOFFS.get(code);
+  if (!entry) return res.status(400).json({ error: 'This sign-in link has already been used or has expired. Please sign in again.' });
+  OAUTH_HANDOFFS.delete(code);
+  if (entry.expires < Date.now()) return res.status(400).json({ error: 'This sign-in link has expired. Please sign in again.' });
+  res.json(entry.payload);
 });
 
 // Send transactional email via Resend. Falls back to console logging (and

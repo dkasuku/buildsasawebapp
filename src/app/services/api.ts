@@ -998,6 +998,10 @@ export const api = {
   updateMe: (payload: Partial<Omit<UserProfile, "id" | "role" | "email">>) => http<UserProfile>("/api/me", { method: "PUT", body: JSON.stringify(payload) }),
   changePassword: (currentPassword: string, newPassword: string) => http<{ ok: boolean }>("/api/me/password", { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) }),
   forgotPassword: (email: string) => http<{ ok: boolean; devLink?: string }>("/api/auth/forgot", { method: "POST", body: JSON.stringify({ email }) }),
+  // Trades the single-use code from the Google redirect for the real session.
+  // The tokens themselves never travel in a URL — see the callback in server.js.
+  exchangeGoogleHandoff: (handoff: string) =>
+    http<{ token: string; refreshToken: string; user: any }>("/api/auth/google/exchange", { method: "POST", body: JSON.stringify({ handoff }) }),
   resetPassword: (token: string, password: string) => http<{ ok: boolean; email?: string }>("/api/auth/reset", { method: "POST", body: JSON.stringify({ token, password }) }),
   getUsers: () => http<any[]>("/api/users"),
   inviteUser: (payload: { name: string; email: string; role: string; trade?: string; password?: string }) => http<{ user: any; emailed?: boolean; tempPassword?: string; emailReason?: "not_configured" | "send_failed"; emailError?: string }>("/api/users/invite", { method: "POST", body: JSON.stringify(payload) }),
