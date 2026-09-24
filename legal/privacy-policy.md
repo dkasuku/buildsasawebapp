@@ -1,10 +1,10 @@
 # Privacy Policy
 
-**Last updated: [DATE]**
+**Last updated: 24 September 2026**
 
 This Privacy Policy explains how **Buildsasa** ("Buildsasa", "we", "us", or "our") collects, uses, shares, and protects information when you use our construction project‑management platform available at **buildsasa.com** and **console.buildsasa.com**, and any related applications, services, and websites (together, the "Service").
 
-Buildsasa is operated by **[Legal Company Name]**, a company registered in Kenya ([Company Registration Number, if any]), with its registered address at **[Physical Address]**. For the purposes of the Kenya Data Protection Act, 2019, we act as the **data controller** for account and billing information, and as a **data processor** for the project data you and your team enter into the Service.
+Buildsasa is operated by **Buildsasa Technologies Limited**, a company registered in Kenya. For the purposes of the Kenya Data Protection Act, 2019, we act as the **data controller** for account and billing information, and as a **data processor** for the project data you and your team enter into the Service.
 
 If you have any questions about this Policy or your data, contact us at **hello@buildsasa.com**.
 
@@ -134,7 +134,6 @@ We may update this Policy from time to time. When we make material changes, we w
 
 ## 12. Contact us
 
-**[Legal Company Name]**
+**Buildsasa Technologies Limited**
 Email: **hello@buildsasa.com**
 WhatsApp: **+254 769 041607**
-Address: **[Physical Address]**, Kenya

@@ -1,8 +1,8 @@
 # Terms and Conditions
 
-**Last updated: [DATE]**
+**Last updated: 24 September 2026**
 
-These Terms and Conditions ("Terms") govern your access to and use of **Buildsasa**, a construction project‑management platform available at **buildsasa.com** and **console.buildsasa.com**, and any related applications and services (together, the "Service"). The Service is operated by **[Legal Company Name]**, a company registered in Kenya ("Buildsasa", "we", "us", or "our").
+These Terms and Conditions ("Terms") govern your access to and use of **Buildsasa**, a construction project‑management platform available at **buildsasa.com** and **console.buildsasa.com**, and any related applications and services (together, the "Service"). The Service is operated by **Buildsasa Technologies Limited**, a company registered in Kenya ("Buildsasa", "we", "us", or "our").
 
 By creating an account or using the Service, you agree to these Terms. If you do not agree, do not use the Service. If you are using the Service on behalf of a company or organisation, you represent that you have authority to bind that organisation to these Terms.
 
@@ -137,7 +137,6 @@ These Terms are governed by the laws of the **Republic of Kenya**. Any dispute a
 
 ## 17. Contact us
 
-**[Legal Company Name]**
+**Buildsasa Technologies Limited**
 Email: **hello@buildsasa.com**
 WhatsApp: **+254 769 041607**
-Address: **[Physical Address]**, Kenya
