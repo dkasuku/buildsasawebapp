@@ -21,7 +21,7 @@ const WELCOME: SupportMsg = {
   content: "Hi, I'm Shemmy 👋 your Buildsasa support assistant. How can I help you today?",
 };
 
-const WHATSAPP_URL = "https://wa.me/254769041607";
+const WHATSAPP_URL = "https://wa.me/254782223749";
 const SUPPORT_EMAIL = "hello@buildsasa.com";
 
 const ERROR_FALLBACK = "Sorry, I'm having trouble right now — message us on WhatsApp or email hello@buildsasa.com and a person will help.";

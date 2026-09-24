@@ -139,4 +139,5 @@ These Terms are governed by the laws of the **Republic of Kenya**. Any dispute a
 
 **Buildsasa Technologies Limited**
 Email: **hello@buildsasa.com**
-WhatsApp: **+254 769 041607**
+WhatsApp: **+254 782 223 749**  
+Address: **Mirage Towers, Westlands, Nairobi, Kenya**

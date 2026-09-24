@@ -136,4 +136,5 @@ We may update this Policy from time to time. When we make material changes, we w
 
 **Buildsasa Technologies Limited**
 Email: **hello@buildsasa.com**
-WhatsApp: **+254 769 041607**
+WhatsApp: **+254 782 223 749**  
+Address: **Mirage Towers, Westlands, Nairobi, Kenya**
