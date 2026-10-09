@@ -4664,6 +4664,42 @@ app.post('/api/support/chat', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Suzy — the buildsasa.com website assistant. Unlike Shemmy (signed-in users), her
+// audience is mostly prospects, so she also answers sales questions and steers
+// people to a demo, pricing or sign-up. Public, so it is rate limited per IP.
+const SUZY_SYSTEM_PROMPT = `You are Suzy, the friendly assistant on the Buildsasa website (buildsasa.com). Buildsasa Technologies is a Kenyan tech company that builds ERP systems, custom software and ICT solutions; its main product, Buildsasa, is construction project-management software for contractors, project managers, quantity surveyors, architects, developers and county/government project teams in Kenya and East Africa (currency KES, payments via Paystack/M-Pesa). It can run in Buildsasa's cloud or be installed on the client's own servers. Visitors are mostly people evaluating the product, plus some existing customers needing help. Answer questions about what Buildsasa does, who it is for, how it helps, and how to get started; help existing users with how-to questions. Buildsasa's features include: Dashboard; Projects; Daily Log (work done, deliveries, delays, weather, from a phone); Attendance (present/late/absent); Checklists & digitized forms, shareable by public link; Inspections; Safety Incidents; Observations; Action Plans; Punch List with PDF export; Tasks & Trades; Schedule (Gantt, milestones); Plans & Drawings with revisions; Change Orders with an approval pipeline; Bill of quantities with a rate library; Bidding/Tendering with a public bid link; Commitments (subcontracts and orders) with a claim calculator that deducts retention and recovers advances; Financials (budget vs actual, cost codes, payment applications with retention, cash flow); Invoicing with PDF; Inventory (materials stock ledger) and an equipment register; Documents; Correspondence; Coordination Issues; Directory; Subcontractors; Crews; Team & Role Manager (control who sees what); Reports with Excel export; and Buildsasa AI. Pages to point to: pricing at https://buildsasa.com/pricing, book a demo at https://buildsasa.com/contact, sign up or log in at https://console.buildsasa.com. For exact prices, custom ERP/software projects, government or enterprise deals, refunds, account changes or bugs, offer to connect them with the team on WhatsApp at ${SUPPORT_WHATSAPP} or email ${SUPPORT_EMAIL}. When someone shows interest, invite them to book a free demo. Be warm, concise and plain-spoken — many visitors are not technical; avoid jargon; short paragraphs or a few bullets; sentence case; no markdown headings. Never invent features, prices, clients or guarantees that aren't stated here; if unsure, say so and offer the team's contact. Politely decline questions unrelated to Buildsasa, construction or the company's services.`;
+
+const suzyHits = new Map();
+function suzyRateLimited(ip) {
+  const now = Date.now();
+  const hits = (suzyHits.get(ip) || []).filter((t) => now - t < 10 * 60 * 1000);
+  hits.push(now);
+  suzyHits.set(ip, hits);
+  if (suzyHits.size > 5000) suzyHits.clear();
+  return hits.length > 30;
+}
+
+app.post('/api/website/chat', async (req, res) => {
+  try {
+    const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+    if (suzyRateLimited(ip)) {
+      return res.status(429).json({ error: `You're sending messages quickly — please wait a few minutes, or reach us on WhatsApp at ${SUPPORT_WHATSAPP}.` });
+    }
+    const incoming = Array.isArray(req.body?.messages) ? req.body.messages : [];
+    const recent = incoming
+      .filter((m) => m && m.content && (m.role === 'user' || m.role === 'assistant'))
+      .slice(-10)
+      .map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content).slice(0, 2000) }));
+    if (!recent.length) return res.status(400).json({ error: 'messages required' });
+    const messages = [{ role: 'system', content: SUZY_SYSTEM_PROMPT }, ...recent];
+    const reply = await callAi(messages, { temperature: 0.4, max_tokens: 600 });
+    res.json({ reply });
+  } catch (e) {
+    console.error('[suzy]', e.message || e);
+    res.status(500).json({ error: 'Suzy is unavailable right now.' });
+  }
+});
+
 app.post('/api/ai/generate-checklist', auth, async (req, res) => {
   try {
     const { trade, projectType, scope } = req.body;
