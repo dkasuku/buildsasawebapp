@@ -41,6 +41,9 @@ type Drawing = {
 const AVATAR_COLORS = ["#F5A623", "#8B5CF6", "#3B82F6", "#A16207", "#06B6D4", "#22C55E", "#EF4444"];
 const colorFor = (key: string) => AVATAR_COLORS[Array.from(key).reduce((a, c) => a + c.charCodeAt(0), 0) % AVATAR_COLORS.length];
 
+// Flip to true to open the AI Design Studio from Plans & Drawings.
+const AI_DESIGN_LIVE = false;
+
 const DISCIPLINES = ["All", "Architectural", "Mechanical", "Structural", "Electrical", "Civil", "AI Concept"];
 const UPLOAD_DISCIPLINES = ["Auto-detect", "Architectural", "Mechanical", "Structural", "Electrical", "Civil"];
 
@@ -507,11 +510,14 @@ export function Plans({ role }: { role: Role }) {
               )}
             </div>
             <button
-              onClick={() => setStudioOpen(true)}
+              // The AI Design Studio is built but not switched on yet (set AI_DESIGN_LIVE
+              // to true to open it).
+              onClick={() => (AI_DESIGN_LIVE ? setStudioOpen(true) : toast("AI Design is coming soon", { description: "Generate floor plans, 3D renders and interior designs from a description or a photo. We'll let you know when it's ready." }))}
               className="h-10 px-3 rounded-md text-[12px] flex items-center gap-1.5 flex-1 sm:flex-none justify-center border border-[#FF6B1A]/50 text-[#FF6B1A] bg-[#FF6B1A]/10 hover:bg-[#FF6B1A]/20"
-              title="Generate floor plans, 3D renders and interior designs with AI"
+              title={AI_DESIGN_LIVE ? "Generate floor plans, 3D renders and interior designs with AI" : "Coming soon: AI floor plans, 3D renders and interior designs"}
             >
               <Sparkles className="w-3.5 h-3.5" /> AI Design
+              {!AI_DESIGN_LIVE && <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#FF6B1A] text-white">Soon</span>}
             </button>
             {canShare && (
               <button
