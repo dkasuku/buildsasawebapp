@@ -418,6 +418,8 @@ export function Projects({
       name: project.name,
       code: project.code,
       city: project.city,
+      lat: (project as any).lat ?? null,
+      lng: (project as any).lng ?? null,
       description: project.description ?? "",
       valueCurrency: parsedValue.currency,
       valueAmount: parsedValue.amount,
@@ -533,6 +535,8 @@ export function Projects({
         code: editForm.code.trim() || editingProject.code,
         name: editForm.name.trim(),
         city: editForm.city.trim() || "—",
+        lat: editForm.lat ?? null,
+        lng: editForm.lng ?? null,
         description: editForm.description.trim(),
         value: formatValue(editForm.valueCurrency, editForm.valueAmount),
         // Only fill the numeric sum when none has been set in the project hub —
@@ -1315,8 +1319,14 @@ export function Projects({
                       </div>
                     </div>
                     <div>
-                      <label className="text-[11px] text-[#8A95A5] block mb-1">City</label>
-                      <input value={editForm.city} onChange={(e) => setEditForm({ ...editForm, city: e.target.value })} className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
+                      <label className="text-[11px] text-[#8A95A5] block mb-1">Location</label>
+                      <MapPicker
+                        value={editForm.city === "—" ? "" : editForm.city}
+                        latLng={editForm.lat != null && editForm.lng != null ? { lat: editForm.lat, lng: editForm.lng } : null}
+                        onChange={(city) => setEditForm((prev) => (prev ? { ...prev, city } : prev))}
+                        onLatLngChange={(ll) => setEditForm((prev) => (prev ? { ...prev, lat: ll?.lat ?? null, lng: ll?.lng ?? null } : prev))}
+                      />
+                      <div className="text-[10.5px] text-[#5B6675] mt-1">Pin the site so the project shows its weather and a map.</div>
                     </div>
                     <div>
                       <label className="text-[11px] text-[#8A95A5] block mb-1">Description</label>
