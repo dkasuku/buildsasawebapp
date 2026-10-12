@@ -75,7 +75,7 @@ function StatusBadge({ status }: { status?: string | null }) {
   return <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] capitalize ${tone}`}>{s.replace(/_/g, " ")}</span>;
 }
 
-export default function Financials({ role = "Contractor" }: { role?: Role }) {
+export default function Financials({ role = "Contractor", initialTab = "overview" }: { role?: Role; initialTab?: Tab }) {
   const { currency } = useCurrency();
   const perms = ROLES[role];
   const canApprove = !!perms.financials; // "Finance can approve" capability gates approve/pay/release
@@ -88,7 +88,7 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
   const [newLedger, setNewLedger] = useState({ date: "", desc: "", type: "out" as "in" | "out", category: "Materials", amountUSD: 0, invoiceNumber: "", poNumber: "", subcontractNumber: "", changeOrderNumber: "" });
   const [newExpense, setNewExpense] = useState({ name: "", budgetUSD: 0, actualUSD: 0 });
   const [loaded, setLoaded] = useState(false);
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTab] = useState<Tab>(initialTab);
 
   // New-section state
   const [commitments, setCommitments] = useState<CommitmentDto[]>([]);

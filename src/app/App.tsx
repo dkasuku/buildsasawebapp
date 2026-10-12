@@ -25,7 +25,6 @@ import ChangeOrders from "./components/constructai/ChangeOrders";
 import Billing from "./components/constructai/Billing";
 import TeamMembers from "./components/constructai/TeamMembers";
 import api from "./services/api";
-import { Commitments } from "./components/constructai/Commitments";
 import { Inbox } from "./components/constructai/Inbox";
 import { Announcements } from "./components/constructai/Announcements";
 import { RoleManager } from "./components/constructai/RoleManager";
@@ -558,7 +557,8 @@ export default function App() {
             {effectiveView === "documents" && <Documents />}
             {effectiveView === "daily-log" && <DailyLog />}
             {effectiveView === "punch-list" && <PunchListPro role={role} />}
-            {effectiveView === "commitments" && <Commitments />}
+            {/* The old standalone Commitments page read fields the API never returns (blank rows); show the real one inside Financials. */}
+            {effectiveView === "commitments" && <Financials role={role} initialTab="commitments" />}
             {effectiveView === "field-view" && <FieldView role={role} />}
             {effectiveView === "reports" && <Reports />}
             {effectiveView === "financials" && <Financials role={role} />}
