@@ -1453,3 +1453,23 @@ model JobBid {
   @@unique([jobId, workspaceId])
   @@index([workspaceId])
 }
+
+// A design generated in the AI Design Studio (Plans & Drawings): a concept
+// floor plan, 3D render, architectural concept or interior design, with the
+// written recommendations that came with it. Saving one to a project files it
+// as an "AI Concept" sheet in that project's drawings.
+model AiDesign {
+  id            String   @id @default(cuid())
+  workspaceId   String?
+  userId        String?
+  mode          String   // plan2d | render3d | architectural | interior
+  prompt        String
+  imageUrl      String
+  sourceImages  String?  // JSON array of reference photo URLs
+  notes         String?  // design recommendations (markdown-ish text)
+  projectId     String?  // set once saved to a project
+  drawingId     String?
+  createdAt     DateTime @default(now())
+
+  @@index([workspaceId])
+}

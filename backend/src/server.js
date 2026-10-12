@@ -31,7 +31,7 @@ const TENANT_MODELS = new Set([
   'DirectoryContact', 'CompanyDoc', 'Announcement', 'FormTemplate', 'Conversation',
   'PaymentApplication', 'RetentionRecord', 'CostCode', 'Approval',
   'InventoryItem', 'InventoryMovement',
-  'BoqRevision', 'RateLibraryItem', 'Quote', 'Selection',
+  'BoqRevision', 'RateLibraryItem', 'Quote', 'Selection', 'AiDesign',
 ]);
 const prismaBase = new PrismaClient();
 const delegateOf = (m) => prismaBase[m.charAt(0).toLowerCase() + m.slice(1)];
@@ -5610,6 +5610,169 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 const pdfParse = require('pdf-parse');
 const mammoth = require('mammoth');
+
+// ===== AI DESIGN STUDIO =====
+// Concept designs from a prompt, optionally guided by photos the user uploads or
+// takes (a site, a room, a sketch): 2D floor plans, 3D renders, architectural
+// concepts and interior designs, each with written recommendations. The images
+// are AI concepts for discussing ideas with a client, not construction drawings,
+// and the studio says so. Generated images are copied into our own storage so
+// they outlive the provider's temporary links.
+const DESIGN_MODES = {
+  plan2d: 'A clean 2D architectural floor plan drawing, top-down orthographic view, black linework on a white background, walls drawn as thick lines, doors with swing arcs, windows marked, every room labelled with its name and approximate dimensions in metres, furniture shown in simple outline, a north arrow and a scale bar. Professional architectural drafting style, no perspective, no shading.',
+  render3d: 'A photorealistic 3D architectural visualisation, natural daylight, realistic materials and landscaping, eye-level or slight aerial perspective, high detail, suitable for presenting to a client.',
+  architectural: 'An architectural concept design presentation: exterior elevation or massing study with clear form, materials and proportions, presented as a polished architect\'s concept board.',
+  interior: 'A photorealistic interior design visualisation of the space, with a coherent style, realistic lighting, materials, finishes and furniture, styled like a professional interior design portfolio image.',
+};
+const DESIGN_SIZES = { square: '1024x1024', landscape: '1536x1024', portrait: '1024x1536' };
+const IMAGE_MODEL = process.env.AI_IMAGE_MODEL || 'gpt-image-1';
+const DESIGN_DAILY_LIMIT = Number(process.env.AI_DESIGN_DAILY_LIMIT || 30);
+const designUsage = new Map(); // workspace -> { day, count }
+
+function designQuotaLeft(ws) {
+  const day = new Date().toISOString().slice(0, 10);
+  const u = designUsage.get(ws || 'none');
+  return !u || u.day !== day ? DESIGN_DAILY_LIMIT : DESIGN_DAILY_LIMIT - u.count;
+}
+function noteDesignUse(ws) {
+  const day = new Date().toISOString().slice(0, 10);
+  const u = designUsage.get(ws || 'none');
+  designUsage.set(ws || 'none', !u || u.day !== day ? { day, count: 1 } : { day, count: u.count + 1 });
+}
+
+/** Write bytes to storage the same way an upload is stored; returns the public URL. */
+async function storeBuffer(req, buffer, name, mime) {
+  const fs = require('fs');
+  const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${path.extname(name) || '.png'}`;
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  const filePath = path.join(UPLOAD_DIR, filename);
+  fs.writeFileSync(filePath, buffer);
+  const stored = await storeUploadedFile(req, { path: filePath, filename, originalname: name, mimetype: mime, size: buffer.length });
+  return stored.url;
+}
+
+/** Fetch a reference photo (our storage or a local upload) as a file for the image API. */
+async function fetchReference(req, url, i) {
+  let u = String(url || '');
+  if (u.startsWith('/')) u = `${req.protocol}://${req.get('host')}${u}`;
+  const r = await fetch(u);
+  if (!r.ok) throw new Error('A reference photo could not be read. Upload it again.');
+  const type = (r.headers.get('content-type') || 'image/png').split(';')[0];
+  if (!/^image\/(png|jpe?g|webp)$/.test(type)) throw new Error('Reference images must be photos (JPG, PNG or WebP).');
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (buf.length > 20 * 1024 * 1024) throw new Error('A reference photo is too large (over 20 MB).');
+  const { toFile } = require('openai');
+  return toFile(buf, `reference-${i}.${type.split('/')[1].replace('jpeg', 'jpg')}`, { type });
+}
+
+const providerMessage = (e) => {
+  const m = String(e?.message || e || '');
+  if (/safety|content policy|moderation|rejected/i.test(m)) return 'That request was declined by the AI\'s safety filter. Rephrase the prompt and try again.';
+  if (/billing|quota|insufficient/i.test(m)) return 'AI design generation is unavailable right now (the AI account has run out of credit). Please contact Buildsasa support.';
+  if (/verif|organization must be|not have access|model_not_found|does not exist/i.test(m)) return 'MODEL_ACCESS';
+  if (/timed? ?out|ETIMEDOUT|ECONNRESET/i.test(m)) return 'The AI took too long to respond. Please try again.';
+  return 'The design couldn\'t be generated. Please try again.';
+};
+
+app.post('/api/ai/design', auth, async (req, res) => {
+  try {
+    if (!openai) return res.status(503).json({ error: 'AI design generation isn\'t set up on this server yet.' });
+    const ws = currentWs();
+    if (designQuotaLeft(ws) <= 0) return res.status(429).json({ error: `Your company has used today\'s ${DESIGN_DAILY_LIMIT} AI designs. The limit resets at midnight.` });
+    const b = req.body || {};
+    const mode = DESIGN_MODES[b.mode] ? b.mode : 'render3d';
+    const prompt = String(b.prompt || '').trim().slice(0, 2000);
+    if (prompt.length < 8) return res.status(400).json({ error: 'Describe what you want in a sentence or two, e.g. "3-bedroom bungalow, open-plan kitchen, 120 m²".' });
+    const refs = (Array.isArray(b.images) ? b.images : []).filter(Boolean).slice(0, 4);
+    const size = DESIGN_SIZES[b.aspect] || (mode === 'plan2d' ? '1024x1024' : '1536x1024');
+    const style = b.style ? ` Style: ${String(b.style).slice(0, 80)}.` : '';
+    const guide = refs.length
+      ? ` Use the attached photo${refs.length > 1 ? 's' : ''} as the reference for the existing space, site or sketch: keep its layout and proportions where relevant and transform it as described.`
+      : '';
+    const fullPrompt = `${DESIGN_MODES[mode]}${style}${guide} Brief from the client: ${prompt}. Context: a project in Kenya / East Africa; use locally sensible materials and climate-appropriate design.`;
+
+    const generate = async (model) => {
+      if (refs.length) {
+        const files = await Promise.all(refs.map((u, i) => fetchReference(req, u, i)));
+        return openai.images.edit({ model, image: files.length === 1 ? files[0] : files, prompt: fullPrompt, size });
+      }
+      const params = { model, prompt: fullPrompt, n: 1, size };
+      if (model === 'dall-e-3') { params.size = size === '1024x1024' ? '1024x1024' : '1792x1024'; params.response_format = 'b64_json'; params.quality = 'hd'; }
+      else params.quality = b.quality === 'high' ? 'high' : 'medium';
+      return openai.images.generate(params);
+    };
+
+    // Written recommendations run alongside the image (vision when photos are given).
+    const adviceTask = (async () => {
+      try {
+        const content = [{ type: 'text', text: `You are a senior architect and interior designer advising a contractor in Kenya. Mode: ${mode}. Brief: ${prompt}.${refs.length ? ' Photos of the existing space/site are attached.' : ''} Give concise, practical recommendations in plain text with short headings and bullet points: layout/design ideas, materials and finishes available in Kenya, indicative considerations (ventilation, natural light, climate, building code/NCA approvals where relevant), and 3 things to confirm with the client. Under 220 words. No markdown symbols other than "- " bullets.` }];
+        for (const u of refs.slice(0, 2)) content.push({ type: 'image_url', image_url: { url: u.startsWith('/') ? `${req.protocol}://${req.get('host')}${u}` : u } });
+        const c = await openai.chat.completions.create({ model: 'gpt-4o', messages: [{ role: 'user', content }], temperature: 0.5, max_tokens: 500 });
+        return c.choices?.[0]?.message?.content || null;
+      } catch (e) { console.error('[design] advice failed:', e.message); return null; }
+    })();
+
+    let result;
+    try { result = await generate(IMAGE_MODEL); }
+    catch (e) {
+      // Accounts without access to the newest model fall back to DALL·E 3 for
+      // prompt-only designs (it can't work from reference photos).
+      if (providerMessage(e) === 'MODEL_ACCESS' && !refs.length && IMAGE_MODEL !== 'dall-e-3') {
+        console.warn('[design] falling back to dall-e-3:', e.message);
+        result = await generate('dall-e-3');
+      } else {
+        console.error('[design] generation failed:', e.message);
+        const msg = providerMessage(e);
+        return res.status(502).json({ error: msg === 'MODEL_ACCESS' ? 'Working from photos needs the newer AI image model, which isn\'t enabled on this account yet. Try without photos, or contact Buildsasa support.' : msg });
+      }
+    }
+    const item = result?.data?.[0];
+    let buffer = item?.b64_json ? Buffer.from(item.b64_json, 'base64') : null;
+    if (!buffer && item?.url) buffer = Buffer.from(await (await fetch(item.url)).arrayBuffer());
+    if (!buffer) return res.status(502).json({ error: 'The AI didn\'t return an image. Please try again.' });
+    noteDesignUse(ws);
+    const imageUrl = await storeBuffer(req, buffer, `ai-${mode}.png`, 'image/png');
+    const notes = await adviceTask;
+    const row = await prisma.aiDesign.create({ data: { userId: req.user?.sub || null, mode, prompt, imageUrl, sourceImages: refs.length ? JSON.stringify(refs) : null, notes } });
+    res.json({ ...row, sourceImages: refs, remainingToday: designQuotaLeft(ws) });
+  } catch (e) {
+    console.error('[design]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/ai/designs', auth, async (req, res) => {
+  try {
+    const rows = await prisma.aiDesign.findMany({ orderBy: { createdAt: 'desc' }, take: 60 });
+    res.json({ designs: rows.map((r) => ({ ...r, sourceImages: (() => { try { return JSON.parse(r.sourceImages || '[]'); } catch { return []; } })() })), remainingToday: designQuotaLeft(currentWs()), enabled: !!openai });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/ai/designs/:id', auth, async (req, res) => {
+  try { await prisma.aiDesign.delete({ where: { id: req.params.id } }); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// File a design into a project's drawings as an "AI Concept" sheet, so it sits
+// with the project's other drawings, opens in the viewer and can be marked up.
+const DESIGN_LABEL = { plan2d: '2D floor plan concept', render3d: '3D render concept', architectural: 'Architectural concept', interior: 'Interior design concept' };
+app.post('/api/ai/designs/:id/save', auth, async (req, res) => {
+  try {
+    const d = await prisma.aiDesign.findUnique({ where: { id: req.params.id } });
+    if (!d) return res.status(404).json({ error: 'This design no longer exists.' });
+    const projectId = String(req.body?.projectId || '');
+    const project = projectId ? await prisma.project.findUnique({ where: { id: projectId }, select: { id: true, name: true } }) : null;
+    if (!project) return res.status(400).json({ error: 'Choose the project to save this design to.' });
+    const title = String(req.body?.title || '').trim().slice(0, 200) || DESIGN_LABEL[d.mode] || 'AI concept';
+    const count = await prisma.drawing.count({ where: { projectId: project.id, discipline: 'AI Concept' } });
+    const drawing = await prisma.drawing.create({ data: {
+      projectId: project.id, number: `AI-${String(count + 1).padStart(3, '0')}`, title, discipline: 'AI Concept', rev: 1, status: 'Concept',
+      fileUrl: d.imageUrl, fileName: `${title}.png`, uploadedBy: req.user?.name || req.user?.email || null,
+    } });
+    await prisma.aiDesign.update({ where: { id: d.id }, data: { projectId: project.id, drawingId: drawing.id } });
+    res.json({ drawing, projectName: project.name });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 const extractTextFromFile = async (file) => {
   const ext = (file.originalname || '').split('.').pop().toLowerCase();

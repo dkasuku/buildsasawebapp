@@ -1,10 +1,11 @@
 // Plans module — drawings, markups & version history (backend-wired)
+import { DesignStudio } from "./DesignStudio";
 import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import api, { absoluteFileUrl } from "../../services/api";
 import type { DrawingDto } from "../../services/api";
 import { DrawingViewer, toViewerRole } from "./drawing-viewer";
-import { FileStack, Search, Filter, Upload, Share2, Download, Eye, Clock, X, Check, MessageSquare, MapPin, Layers, Users as UsersIcon, ZoomIn, ZoomOut, Maximize2, PenTool, Circle, Type, Undo, History, Cloud, Box, ExternalLink } from "lucide-react";
+import { FileStack, Search, Filter, Upload, Share2, Download, Eye, Clock, X, Check, MessageSquare, MapPin, Layers, Users as UsersIcon, ZoomIn, ZoomOut, Maximize2, PenTool, Circle, Type, Undo, History, Cloud, Box, ExternalLink, Sparkles } from "lucide-react";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
 import { EmptyState } from "./EmptyState";
 import type { Role } from "./roles";
@@ -40,7 +41,7 @@ type Drawing = {
 const AVATAR_COLORS = ["#F5A623", "#8B5CF6", "#3B82F6", "#A16207", "#06B6D4", "#22C55E", "#EF4444"];
 const colorFor = (key: string) => AVATAR_COLORS[Array.from(key).reduce((a, c) => a + c.charCodeAt(0), 0) % AVATAR_COLORS.length];
 
-const DISCIPLINES = ["All", "Architectural", "Mechanical", "Structural", "Electrical", "Civil"];
+const DISCIPLINES = ["All", "Architectural", "Mechanical", "Structural", "Electrical", "Civil", "AI Concept"];
 const UPLOAD_DISCIPLINES = ["Auto-detect", "Architectural", "Mechanical", "Structural", "Electrical", "Civil"];
 
 const formatBytes = (b: number) => {
@@ -80,6 +81,7 @@ export function Plans({ role }: { role: Role }) {
   const [discipline, setDiscipline] = useState("All");
   const [shareOpen, setShareOpen] = useState<null | Drawing>(null);
   const [viewing, setViewing] = useState<null | Drawing>(null);
+  const [studioOpen, setStudioOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [selected, setSelected] = useState<string[]>([]);
   const [note, setNote] = useState("");
@@ -504,6 +506,13 @@ export function Plans({ role }: { role: Role }) {
                 </div>
               )}
             </div>
+            <button
+              onClick={() => setStudioOpen(true)}
+              className="h-10 px-3 rounded-md text-[12px] flex items-center gap-1.5 flex-1 sm:flex-none justify-center border border-[#FF6B1A]/50 text-[#FF6B1A] bg-[#FF6B1A]/10 hover:bg-[#FF6B1A]/20"
+              title="Generate floor plans, 3D renders and interior designs with AI"
+            >
+              <Sparkles className="w-3.5 h-3.5" /> AI Design
+            </button>
             {canShare && (
               <button
                 onClick={triggerUpload}
@@ -600,6 +609,8 @@ export function Plans({ role }: { role: Role }) {
           />
         )
       )}
+
+      {studioOpen && <DesignStudio onClose={() => { setStudioOpen(false); loadBoard(); }} />}
 
       {/* New full-featured drawing viewer (Procore-style, original implementation) */}
       {viewing && (

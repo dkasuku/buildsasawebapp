@@ -597,6 +597,12 @@ export type BidPackageDto = {
 export type CompanyPublic = { name: string; logoUrl?: string | null; phone?: string | null; email?: string | null; address?: string | null; kraPin?: string | null; paymentDetails?: string | null };
 export type CompanyDto = CompanyPublic & { quoteTerms?: string | null; canEdit: boolean };
 
+export type DesignMode = "plan2d" | "render3d" | "architectural" | "interior";
+export type AiDesignDto = {
+  id: string; mode: DesignMode; prompt: string; imageUrl: string; sourceImages: string[]; notes?: string | null;
+  projectId?: string | null; drawingId?: string | null; createdAt: string; remainingToday?: number;
+};
+
 export type FileRef = { name: string; url: string };
 export type JobBidDto = {
   id: string; jobId: string; companyName: string; contactName: string; phone?: string | null; email?: string | null;
@@ -1310,6 +1316,11 @@ export const api = {
   getCompany: () => http<CompanyDto>(`/api/company`),
   updateCompany: (payload: Partial<Omit<CompanyDto, "canEdit">>) => http<CompanyDto>(`/api/company`, { method: "PUT", body: JSON.stringify(payload) }),
   getCompanyLogoData: () => http<{ dataUrl: string | null; reason?: string }>(`/api/company/logo-data`),
+  // AI Design Studio (Plans & Drawings)
+  getDesigns: () => http<{ designs: AiDesignDto[]; remainingToday: number; enabled: boolean }>(`/api/ai/designs`),
+  generateDesign: (payload: { mode: DesignMode; prompt: string; images?: string[]; style?: string; aspect?: "square" | "landscape" | "portrait"; quality?: "medium" | "high" }) => http<AiDesignDto>(`/api/ai/design`, { method: "POST", body: JSON.stringify(payload) }),
+  deleteDesign: (id: string) => http<{ ok: boolean }>(`/api/ai/designs/${id}`, { method: "DELETE" }),
+  saveDesignToProject: (id: string, payload: { projectId: string; title?: string }) => http<{ drawing: DrawingDto; projectName: string }>(`/api/ai/designs/${id}/save`, { method: "POST", body: JSON.stringify(payload) }),
   // Jobs board (posted by Buildsasa staff; companies bid)
   getJobs: () => http<JobDto[]>(`/api/jobs`),
   bidOnJob: (jobId: string, payload: { amountKES: number; timelineDays?: number | null; contactName?: string; phone?: string; email?: string; message?: string; attachments?: FileRef[] }) => http<JobBidDto>(`/api/jobs/${jobId}/bid`, { method: "POST", body: JSON.stringify(payload) }),
