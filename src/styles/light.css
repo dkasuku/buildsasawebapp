@@ -237,3 +237,4 @@ html.theme-light,
 /* Near-white body text that was unreadable on light surfaces. */
 .theme-light .text-\[\#C7CDD6\],
 .theme-light .text-\[\#D5DBE3\] { color: #334155 !important; }
+.theme-light .text-\[\#C2CAD6\] { color: #334155 !important; }

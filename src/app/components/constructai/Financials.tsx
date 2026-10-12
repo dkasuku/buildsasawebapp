@@ -785,62 +785,15 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
           <EmptyState icon={Layers} title="No project selected" description="Choose a project to track its commitments." />
         ) : finLoadedFor !== projectId ? (
           <ListSkeleton />
-        ) : commitments.length === 0 ? (
-          <EmptyState icon={Layers} title="No commitments yet" description="Record vendor contracts and track invoiced, paid and retention against each." actionLabel="+ Add commitment" onAction={() => setShowCommitmentModal(true)} />
         ) : (
-          <div className="rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden">
-            <div className="px-5 py-4 border-b border-[#222A35] flex items-center justify-between">
-              <div className="text-[13px] text-white font-display">Commitments</div>
-              <button onClick={() => setShowCommitmentModal(true)} className="h-9 px-3 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[12px] flex items-center gap-1.5">
-                <Plus className="w-3.5 h-3.5" /> Add commitment
-              </button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[920px] text-[12px]">
-                <thead>
-                  <tr className="text-[10px] text-[#5B6675] uppercase tracking-wider">
-                    <th className="text-left px-5 py-2.5">Vendor</th>
-                    <th className="text-right px-3 py-2.5">Contract value</th>
-                    <th className="text-right px-3 py-2.5">Approved variations</th>
-                    <th className="text-right px-3 py-2.5">Invoiced to date</th>
-                    <th className="text-right px-3 py-2.5">Paid to date</th>
-                    <th className="text-right px-3 py-2.5">Retention held</th>
-                    <th className="text-right px-3 py-2.5">Advance outstanding</th>
-                    <th className="text-right px-3 py-2.5">Balance remaining</th>
-                    <th className="text-left px-3 py-2.5">Status</th>
-                    <th className="text-right px-5 py-2.5">Claim</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {commitments.map((c) => (
-                    <tr key={c.id} onClick={() => setDrawerId(c.id)} className="border-t border-[#222A35] cursor-pointer hover:bg-[#161C24]">
-                      <td className="px-5 py-2.5 text-white">{c.vendor}<div className="text-[10px] text-[#5B6675]">{c.scope}</div></td>
-                      <td className="px-3 py-2.5 text-right text-[#C2CAD6]">{fmt(Number(c.contractValue || 0))}</td>
-                      <td className="px-3 py-2.5 text-right text-[#C2CAD6]">{fmt(Number(c.approvedVariations || 0))}</td>
-                      <td className="px-3 py-2.5 text-right text-[#C2CAD6]">{fmt(Number(c.invoicedToDate || 0))}</td>
-                      <td className="px-3 py-2.5 text-right text-[#C2CAD6]">{fmt(Number(c.paidToDate || 0))}</td>
-                      <td className="px-3 py-2.5 text-right text-[#C2CAD6]">{fmt(Number(c.retentionHeld || 0))}</td>
-                      {(() => {
-                        const outstanding = Math.max(0, (Number(c.advanceAmount) || 0) - (Number(c.advanceRecovered) || 0));
-                        return (
-                          <td className={`px-3 py-2.5 text-right ${outstanding > 0 ? "text-[#3B82F6]" : "text-[#5B6675]"}`}>
-                            {(Number(c.advanceAmount) || 0) > 0 ? fmt(outstanding) : "—"}
-                          </td>
-                        );
-                      })()}
-                      <td className="px-3 py-2.5 text-right text-white">{fmt(Number(c.balanceRemaining || 0))}</td>
-                      <td className="px-3 py-2.5"><StatusBadge status={c.status} /></td>
-                      <td className="px-5 py-2.5 text-right">
-                        {canApprove ? (
-                          <button onClick={() => setClaimFor(c)} className="text-[11px] text-[#FF6B1A] hover:underline">Certify</button>
-                        ) : <span className="text-[10px] text-[#5B6675]">—</span>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <CommitmentsView
+            commitments={commitments}
+            fmt={fmt}
+            canApprove={canApprove}
+            onAdd={() => setShowCommitmentModal(true)}
+            onOpen={(id) => setDrawerId(id)}
+            onCertify={(c) => setClaimFor(c)}
+          />
         )
       )}
 
@@ -1276,6 +1229,137 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
         </div>
         {children}
       </div>
+    </div>
+  );
+}
+
+
+// Commitments in plain words: one card per supplier or subcontractor, showing what
+// was agreed, what has been paid and what is still owed. The old 10-column table
+// used accounting jargon most clients could not read.
+function CommitmentsView({ commitments, fmt, canApprove, onAdd, onOpen, onCertify }: {
+  commitments: CommitmentDto[];
+  fmt: (n: number) => string;
+  canApprove: boolean;
+  onAdd: () => void;
+  onOpen: (id: string) => void;
+  onCertify: (c: CommitmentDto) => void;
+}) {
+  const n = (v: unknown) => Number(v) || 0;
+  const agreed = (c: CommitmentDto) => n(c.contractValue) + n(c.approvedVariations);
+  const totals = commitments.reduce((t, c) => ({ agreed: t.agreed + agreed(c), paid: t.paid + n(c.paidToDate), owed: t.owed + n(c.balanceRemaining) }), { agreed: 0, paid: 0, owed: 0 });
+
+  const intro = (
+    <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-4 text-[12px] text-[#8A95A5] leading-relaxed">
+      <span className="text-white font-medium">What is a commitment?</span> Any contract or purchase order you have agreed with a supplier or subcontractor on this project, for example
+      &ldquo;Plumbing works, KES 1.2M&rdquo; or &ldquo;Cement supply&rdquo;. Record it once, then Buildsasa tracks how much you have paid and how much you still owe.
+    </div>
+  );
+
+  if (commitments.length === 0) {
+    return (
+      <div className="space-y-3">
+        {intro}
+        <div className="rounded-xl border border-dashed border-[#2C3744] bg-[#11161D] p-8 text-center">
+          <div className="mx-auto w-11 h-11 rounded-full bg-[#FF6B1A]/10 flex items-center justify-center mb-3"><Layers className="w-5 h-5 text-[#FF6B1A]" /></div>
+          <div className="text-[15px] text-white font-display">No commitments yet</div>
+          <p className="text-[12px] text-[#8A95A5] mt-1 max-w-md mx-auto">Add the first contract you&apos;ve signed with a supplier or subcontractor.</p>
+          <div className="grid sm:grid-cols-3 gap-2 max-w-2xl mx-auto mt-5 text-left">
+            {[["1", "Add the contract", "Who it's with, what they'll do and the agreed amount."],
+              ["2", "Certify their claims", "When they invoice, approve what's actually done."],
+              ["3", "See what's owed", "Paid, held back and still to pay, always up to date."]].map(([k, t, d]) => (
+              <div key={k} className="rounded-lg border border-[#222A35] bg-[#0A0E14] p-3">
+                <div className="text-[11px] text-[#FF6B1A] font-semibold">Step {k}</div>
+                <div className="text-[12px] text-white mt-0.5">{t}</div>
+                <div className="text-[11px] text-[#8A95A5] mt-0.5">{d}</div>
+              </div>
+            ))}
+          </div>
+          <button onClick={onAdd} className="mt-5 h-9 px-4 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[12px] inline-flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> Add commitment</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-[15px] text-white font-display">Commitments</div>
+          <div className="text-[12px] text-[#8A95A5]">Contracts with suppliers and subcontractors on this project. Tap one for details.</div>
+        </div>
+        <button onClick={onAdd} className="h-9 px-3 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[12px] flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> Add commitment</button>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        {[["Total agreed", totals.agreed, "text-white", "Contracts plus approved changes"],
+          ["Paid so far", totals.paid, "text-[#22C55E]", totals.agreed ? Math.round((totals.paid / totals.agreed) * 100) + "% of the total" : ""],
+          ["Still to pay", totals.owed, "text-[#FF6B1A]", "Including money held back"]].map(([l, v, c, h]) => (
+          <div key={l as string} className="rounded-xl border border-[#222A35] bg-[#11161D] p-4">
+            <div className="text-[11px] text-[#8A95A5]">{l}</div>
+            <div className={`text-[20px] font-display mt-0.5 ${c}`}>{fmt(v as number)}</div>
+            <div className="text-[11px] text-[#5B6675] mt-0.5">{h}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="space-y-2">
+        {commitments.map((c) => {
+          const total = agreed(c);
+          const paid = n(c.paidToDate);
+          const invoiced = n(c.invoicedToDate);
+          const pctPaid = total ? Math.min(100, (paid / total) * 100) : 0;
+          const pctInv = total ? Math.min(100, (invoiced / total) * 100) : 0;
+          const advanceLeft = Math.max(0, n(c.advanceAmount) - n(c.advanceRecovered));
+          return (
+            <div key={c.id} role="button" tabIndex={0} onClick={() => onOpen(c.id)} onKeyDown={(e) => e.key === "Enter" && onOpen(c.id)}
+              className="rounded-xl border border-[#222A35] bg-[#11161D] p-4 cursor-pointer hover:border-[#2C3744] transition-colors">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-[14px] text-white font-medium truncate">{c.vendor}</div>
+                  {c.scope && <div className="text-[12px] text-[#8A95A5] truncate">{c.scope}</div>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <StatusBadge status={c.status} />
+                  {canApprove && (
+                    <button onClick={(e) => { e.stopPropagation(); onCertify(c); }} className="h-8 px-3 rounded-md border border-[#FF6B1A]/40 text-[#FF6B1A] hover:bg-[#FF6B1A]/10 text-[11px]" title="Approve what this supplier has claimed for work done">Certify a claim</button>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <div className="flex justify-between text-[11px] text-[#8A95A5] mb-1">
+                  <span>Paid {fmt(paid)} of {fmt(total)}</span>
+                  <span>{Math.round(pctPaid)}%</span>
+                </div>
+                <div className="relative h-2 rounded-full bg-[#222A35] overflow-hidden" title="Green: paid. Light: invoiced but not yet paid.">
+                  <div className="absolute inset-y-0 left-0 bg-[#22C55E]/30" style={{ width: pctInv + "%" }} />
+                  <div className="absolute inset-y-0 left-0 bg-[#22C55E]" style={{ width: pctPaid + "%" }} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 mt-3 text-[11px]">
+                <Fig label="Agreed price" hint="Original contract amount" value={fmt(n(c.contractValue))} />
+                <Fig label="Approved changes" hint="Extra or reduced work you approved" value={n(c.approvedVariations) ? fmt(n(c.approvedVariations)) : "None"} />
+                <Fig label="Held back" hint="Retention kept until the work is finished well" value={n(c.retentionHeld) ? fmt(n(c.retentionHeld)) : "None"} />
+                <Fig label="Still to pay" hint="What you still owe on this contract" value={fmt(n(c.balanceRemaining))} strong />
+              </div>
+              {advanceLeft > 0 && (
+                <div className="mt-2 text-[11px] text-[#3B82F6]">Advance still to recover from their claims: {fmt(advanceLeft)}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Fig({ label, hint, value, strong }: { label: string; hint: string; value: string; strong?: boolean }) {
+  return (
+    <div title={hint}>
+      <div className="text-[#5B6675]">{label}</div>
+      <div className={strong ? "text-white font-medium text-[12px]" : "text-[#C2CAD6] text-[12px]"}>{value}</div>
     </div>
   );
 }
