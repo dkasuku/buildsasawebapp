@@ -76,6 +76,10 @@ model Project {
   defectsEndAt           DateTime? // derived from the two above; stored so it is queryable
   finalAccountAt         DateTime? // account agreed and settled
   closeoutNotes          String?
+  // Client portal: an unguessable link the client opens to follow progress and
+  // approve change orders. Null = portal off; revoking clears it.
+  portalToken            String?   @unique
+  portalSharedAt         DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

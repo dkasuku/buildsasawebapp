@@ -8,6 +8,7 @@ import { ResetPassword } from "./components/constructai/ResetPassword";
 import { PublicFormFill } from "./components/constructai/PublicFormFill";
 import { PublicBidSubmit } from "./components/constructai/PublicBidSubmit";
 import { PublicQuoteView } from "./components/constructai/PublicQuoteView";
+import { PublicPortalView } from "./components/constructai/PublicPortalView";
 import { ErrorBoundary } from "./components/constructai/ErrorBoundary";
 import { Dashboard } from "./components/constructai/Dashboard";
 import { Projects } from "./components/constructai/Projects";
@@ -352,6 +353,10 @@ export default function App() {
   // reader is the job's client, not a workspace user.
   const quoteToken = (() => { try { return new URLSearchParams(window.location.search).get("quote"); } catch { return null; } })();
   if (quoteToken) return <PublicQuoteView token={quoteToken} />;
+
+  // Client portal deep link: /?portal=TOKEN (no auth required).
+  const portalToken = (() => { try { return new URLSearchParams(window.location.search).get("portal"); } catch { return null; } })();
+  if (portalToken) return <PublicPortalView token={portalToken} />;
 
   // Public tender bid deep link: /?bid=TOKEN (no auth required)
   const bidToken = (() => { try { return new URLSearchParams(window.location.search).get("bid"); } catch { return null; } })();

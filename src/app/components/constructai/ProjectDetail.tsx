@@ -19,8 +19,9 @@ import { toast } from "sonner";
 import {
   AlertCircle, ArrowLeft, BarChart3, Calculator, Calendar, CalendarDays, CheckCircle2, ClipboardList, Clock, FileStack,
   FileText, Flag, HardHat, Image as ImageIcon, LayoutDashboard, Loader2, MapPin, Pencil, Receipt, RefreshCw, ShieldAlert,
-  UserCircle, Wallet, Wrench, Check, AlertTriangle, ArrowUpRight, ChevronRight, FileBarChart,
+  UserCircle, Wallet, Wrench, Check, AlertTriangle, ArrowUpRight, ChevronRight, FileBarChart, Share2,
 } from "lucide-react";
+import { ClientPortalDialog } from "./ClientPortalDialog";
 import api, { absoluteFileUrl, type ProjectHubDto } from "../../services/api";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
 import { ImageLightbox } from "./ImageLightbox";
@@ -69,6 +70,9 @@ export function ProjectDetail({
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
   const [contractModal, setContractModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [portalOpen, setPortalOpen] = useState(false);
+  // Same roles the server lets share the portal (those that handle money).
+  const canSharePortal = perms.financials;
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true); else setRefreshing(true);
@@ -150,9 +154,23 @@ export function ProjectDetail({
         </div>
         <div className="flex items-center gap-2">
           <button onClick={refresh} title="Refresh" className="h-9 w-9 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center">{refreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}</button>
+          {canSharePortal && (
+            <button onClick={() => setPortalOpen(true)} title="Share a private progress link with your client" className="h-9 px-3 rounded-md border border-[#222A35] text-[12px] text-[#C2CAD6] hover:text-white flex items-center gap-1.5">
+              <Share2 className="w-3.5 h-3.5" /> Client portal{project.portalToken && <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]" title="On" />}
+            </button>
+          )}
           {onEdit && <button onClick={onEdit} className={btnPrimary}><Pencil className="w-3.5 h-3.5" /> Edit project</button>}
         </div>
       </div>
+      {portalOpen && (
+        <ClientPortalDialog
+          projectId={projectId}
+          projectName={project.name}
+          token={project.portalToken}
+          onChange={(t) => setData((d) => (d ? { ...d, project: { ...d.project, portalToken: t } } : d))}
+          onClose={() => setPortalOpen(false)}
+        />
+      )}
 
       {/* ── Contract value · Timeline · Time elapsed ── */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

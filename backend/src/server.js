@@ -2789,6 +2789,97 @@ app.post('/api/public/quotes/:token/respond', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ===== CLIENT PORTAL =====
+// One private link per project (/?portal=<token>) that the client opens without
+// an account to follow progress, see site photos and invoices, and approve or
+// reject change orders waiting on them. Only client-safe fields leave the
+// server: no costs to the contractor, no internal notes, no team details.
+const CAN_SHARE_PORTAL = CAN_MANAGE_QUOTES;
+const coKES = (c) => (c.amountKES != null ? Number(c.amountKES) : Math.round((Number(c.costUSD) || 0) * (Number(process.env.USD_TO_KES) || 130)));
+
+app.post('/api/projects/:projectId/portal', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_SHARE_PORTAL)) return res.status(403).json({ error: 'Your role cannot share the client portal' });
+    const p = await prisma.project.findUnique({ where: { id: req.params.projectId } });
+    if (!p) return res.status(404).json({ error: 'Project not found' });
+    if (p.portalToken) return res.json({ portalToken: p.portalToken, portalSharedAt: p.portalSharedAt });
+    const row = await prisma.project.update({ where: { id: p.id }, data: { portalToken: crypto.randomBytes(12).toString('base64url'), portalSharedAt: new Date() } });
+    res.json({ portalToken: row.portalToken, portalSharedAt: row.portalSharedAt });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Turning the portal off kills the old link for good; sharing again issues a new one.
+app.delete('/api/projects/:projectId/portal', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_SHARE_PORTAL)) return res.status(403).json({ error: 'Your role cannot change the client portal' });
+    await prisma.project.update({ where: { id: req.params.projectId }, data: { portalToken: null, portalSharedAt: null } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+const parseJsonArr = (raw) => { try { const v = JSON.parse(raw || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
+
+app.get('/api/public/portal/:token', async (req, res) => {
+  try {
+    const p = await prisma.project.findUnique({ where: { portalToken: req.params.token } });
+    if (!p) return res.status(404).json({ error: 'This project link is no longer active. Please ask your contractor for a new one.' });
+    const [ws, schedule, logs, cos, invoices] = await Promise.all([
+      p.workspaceId ? prismaBase.workspace.findUnique({ where: { id: p.workspaceId }, select: { name: true } }) : null,
+      prisma.scheduleItem.findMany({ where: { projectId: p.id }, orderBy: [{ startDate: 'asc' }, { sortOrder: 'asc' }] }),
+      prisma.dailyLog.findMany({ where: { projectId: p.id }, orderBy: { date: 'desc' }, take: 60 }),
+      prisma.changeOrder.findMany({ where: { projectId: p.id, status: { in: ['owner_approval', 'approved', 'rejected'] } }, orderBy: { createdAt: 'desc' } }),
+      prisma.invoice.findMany({ where: { projectId: p.id, status: { not: 'draft' } }, orderBy: { createdAt: 'desc' } }),
+    ]);
+    res.json({
+      companyName: ws ? ws.name : null,
+      project: {
+        name: p.name, city: p.city, status: p.status, progress: p.progress,
+        startDate: p.startDate, targetEndDate: p.targetEndDate, practicalCompletionAt: p.practicalCompletionAt,
+        description: p.description, images: parseImages(p.images),
+      },
+      schedule: schedule.map((s) => ({ name: s.name, type: s.type, startDate: s.startDate, endDate: s.endDate, percent: s.percent, status: s.status })),
+      // Site photos only: the diary's notes are written for the site team and can
+      // carry internal matters, so they stay inside the workspace.
+      photos: logs
+        .map((l) => ({ date: l.date, location: l.location, photos: parseJsonArr(l.photos).filter((u) => typeof u === 'string' && u && !/^(blob:|data:)/i.test(u)) }))
+        .filter((l) => l.photos.length),
+      changeOrders: cos.map((c) => ({
+        id: c.id, number: c.number, title: c.title, area: c.area, description: c.description,
+        amountKES: coKES(c), scheduleImpactDays: c.scheduleImpactDays, status: c.status, submittedDate: c.submittedDate, updatedAt: c.updatedAt,
+      })),
+      invoices: invoices.map((i) => ({
+        invoiceNumber: i.invoiceNumber, amount: i.amount, paidAmount: i.paidAmount || 0, status: i.status,
+        issueDate: i.issueDate, dueDate: i.dueDate, items: parseJsonArr(i.items),
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/public/portal/:token/change-orders/:id', async (req, res) => {
+  try {
+    const p = await prisma.project.findUnique({ where: { portalToken: req.params.token } });
+    if (!p) return res.status(404).json({ error: 'This project link is no longer active.' });
+    const co = await prisma.changeOrder.findUnique({ where: { id: req.params.id } });
+    if (!co || co.projectId !== p.id) return res.status(404).json({ error: 'Change order not found' });
+    if (co.status !== 'owner_approval') return res.status(409).json({ error: 'This change order is no longer waiting for your decision.' });
+    const approve = req.body?.decision === 'approve';
+    const name = String(req.body?.name || '').trim().slice(0, 120);
+    const comment = String(req.body?.comment || '').trim().slice(0, 1000);
+    if (!name) return res.status(400).json({ error: 'Please type your name.' });
+    if (!approve && !comment) return res.status(400).json({ error: 'Please say why, so the team can revise it.' });
+    const toStatus = approve ? 'approved' : 'rejected';
+    const row = await prisma.changeOrder.update({ where: { id: co.id }, data: { status: toStatus } });
+    // No workspace context on a public request, so the activity row is stamped
+    // with the project's workspace explicitly.
+    await prisma.changeOrderActivity.create({ data: {
+      workspaceId: p.workspaceId, changeOrderId: co.id, userId: null, userName: name, userRole: 'Client (portal)',
+      type: 'status', fromStatus: co.status, toStatus,
+      message: `${approve ? 'Approved' : 'Rejected'} by ${name} in the client portal${comment ? `: "${comment}"` : ''}`,
+    } }).catch((e) => console.error('[portal] CO activity failed:', e.message));
+    res.json({ ok: true, status: row.status });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ===== INSPECTIONS =====
 const INSPECTION_STATUSES = ['draft', 'pending_consultant', 'in_review', 'approved', 'rejected', 'rework_required', 'closed'];
 const VALID_TRANSITIONS = {
@@ -4875,7 +4966,7 @@ app.post('/api/ai/chat', async (req, res) => {
 // keeps a short rolling conversation so follow-up questions have context.
 const SUPPORT_WHATSAPP = process.env.SUPPORT_WHATSAPP || '+254782223749';
 const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || 'hello@buildsasa.com';
-const SHEMMY_SYSTEM_PROMPT = `You are Shemmy, the friendly customer-support assistant for Buildsasa — a construction project-management software built for contractors, project managers and site teams in Kenya and East Africa (currency KES, payments via Paystack/M-Pesa). Help users understand and use the product, troubleshoot, and answer billing/account questions. Be warm, concise, and practical; use simple language; sentence case. Buildsasa's features include: Dashboard with AI insights; Projects; Change Orders with an approval pipeline; Checklists & digitized forms; Tasks & Trades; Schedule (Gantt, dates, milestones); Daily Log; Punch List; Plans & Drawings; Inspections; Safety Incidents; Observations; Action Plans; Coordination Issues; Financials (cash flow ledger, budget vs actual, commitments/payables, payment applications/progress claims with retention, cost codes); Quotes (price a job from templates like kitchen or bathroom remodels, send a link the client accepts or declines online, download a PDF, then turn an accepted quote into a project with its BOQ and a deposit invoice); Invoicing (line-item invoices with PDF download + emailed receipts); Bidding/Tendering (post bid packages, share a public bid link, receive and award bids); Inventory (materials with a stock-movement ledger plus an equipment register with hire/service/compliance tracking); Documents; Directory; Crews; Team & Role Manager; Attendance; Reports; and a Buildsasa AI assistant. Billing is per company (workspace) — new companies see a paywall until they choose a plan; plans are paid in KES via Paystack. When a question needs account-specific action you can't do (refunds, data changes, bugs), tell them to contact our team on WhatsApp at ${SUPPORT_WHATSAPP} or by email at ${SUPPORT_EMAIL}, or use the in-app billing page. Never invent features that aren't listed; if unsure, say so and offer to connect them to the team. Keep answers short unless asked for detail.`;
+const SHEMMY_SYSTEM_PROMPT = `You are Shemmy, the friendly customer-support assistant for Buildsasa — a construction project-management software built for contractors, project managers and site teams in Kenya and East Africa (currency KES, payments via Paystack/M-Pesa). Help users understand and use the product, troubleshoot, and answer billing/account questions. Be warm, concise, and practical; use simple language; sentence case. Buildsasa's features include: Dashboard with AI insights; Projects; Change Orders with an approval pipeline; Checklists & digitized forms; Tasks & Trades; Schedule (Gantt, dates, milestones); Daily Log; Punch List; Plans & Drawings; Inspections; Safety Incidents; Observations; Action Plans; Coordination Issues; Financials (cash flow ledger, budget vs actual, commitments/payables, payment applications/progress claims with retention, cost codes); Client portal (share a private link per project so the client, with no account, can follow progress, the timeline, site photos and invoices, and approve or reject change orders); Quotes (price a job from templates like kitchen or bathroom remodels, send a link the client accepts or declines online, download a PDF, then turn an accepted quote into a project with its BOQ and a deposit invoice); Invoicing (line-item invoices with PDF download + emailed receipts); Bidding/Tendering (post bid packages, share a public bid link, receive and award bids); Inventory (materials with a stock-movement ledger plus an equipment register with hire/service/compliance tracking); Documents; Directory; Crews; Team & Role Manager; Attendance; Reports; and a Buildsasa AI assistant. Billing is per company (workspace) — new companies see a paywall until they choose a plan; plans are paid in KES via Paystack. When a question needs account-specific action you can't do (refunds, data changes, bugs), tell them to contact our team on WhatsApp at ${SUPPORT_WHATSAPP} or by email at ${SUPPORT_EMAIL}, or use the in-app billing page. Never invent features that aren't listed; if unsure, say so and offer to connect them to the team. Keep answers short unless asked for detail.`;
 
 app.post('/api/support/chat', async (req, res) => {
   try {
@@ -4893,7 +4984,7 @@ app.post('/api/support/chat', async (req, res) => {
 // Suzy — the buildsasa.com website assistant. Unlike Shemmy (signed-in users), her
 // audience is mostly prospects, so she also answers sales questions and steers
 // people to a demo, pricing or sign-up. Public, so it is rate limited per IP.
-const SUZY_SYSTEM_PROMPT = `You are Suzy, the friendly assistant on the Buildsasa website (buildsasa.com). Buildsasa Technologies is a Kenyan tech company that builds ERP systems, custom software and ICT solutions; its main product, Buildsasa, is construction project-management software for contractors, project managers, quantity surveyors, architects, developers and county/government project teams in Kenya and East Africa (currency KES, payments via Paystack/M-Pesa). It can run in Buildsasa's cloud or be installed on the client's own servers. Visitors are mostly people evaluating the product, plus some existing customers needing help. Answer questions about what Buildsasa does, who it is for, how it helps, and how to get started; help existing users with how-to questions. Buildsasa's features include: Dashboard; Projects; Daily Log (work done, deliveries, delays, weather, from a phone); Attendance (present/late/absent); Checklists & digitized forms, shareable by public link; Inspections; Safety Incidents; Observations; Action Plans; Punch List with PDF export; Tasks & Trades; Schedule (Gantt, milestones); Plans & Drawings with revisions; Change Orders with an approval pipeline; Bill of quantities with a rate library; Bidding/Tendering with a public bid link; Commitments (subcontracts and orders) with a claim calculator that deducts retention and recovers advances; Financials (budget vs actual, cost codes, payment applications with retention, cash flow); Quotes (price a job from templates such as kitchen, bathroom, tiling, painting or electrical works, send the client a link to accept online, and turn an accepted quote into a project with a deposit invoice); Invoicing with PDF; Inventory (materials stock ledger) and an equipment register; Documents; Correspondence; Coordination Issues; Directory; Subcontractors; Crews; Team & Role Manager (control who sees what); Reports with Excel export; and Buildsasa AI. Pages to point to: pricing at https://buildsasa.com/pricing, book a demo at https://buildsasa.com/contact, sign up or log in at https://console.buildsasa.com. For exact prices, custom ERP/software projects, government or enterprise deals, refunds, account changes or bugs, offer to connect them with the team on WhatsApp at ${SUPPORT_WHATSAPP} or email ${SUPPORT_EMAIL}. End every answer about Buildsasa (what it does, features, who it is for, how it helps, pricing, how to start) with a short call to action on its own line inviting them to get started at https://console.buildsasa.com — e.g. \"Get started at https://console.buildsasa.com\". You may also offer a free demo at https://buildsasa.com/contact. Skip the call to action only for replies that are not about Buildsasa (such as a polite refusal) or when you have already handed them to the team for an account issue. Be warm, concise and plain-spoken — many visitors are not technical; avoid jargon; short paragraphs or a few bullets; sentence case; no markdown headings. Never invent features, prices, clients or guarantees that aren't stated here; if unsure, say so and offer the team's contact. Politely decline questions unrelated to Buildsasa, construction or the company's services.`;
+const SUZY_SYSTEM_PROMPT = `You are Suzy, the friendly assistant on the Buildsasa website (buildsasa.com). Buildsasa Technologies is a Kenyan tech company that builds ERP systems, custom software and ICT solutions; its main product, Buildsasa, is construction project-management software for contractors, project managers, quantity surveyors, architects, developers and county/government project teams in Kenya and East Africa (currency KES, payments via Paystack/M-Pesa). It can run in Buildsasa's cloud or be installed on the client's own servers. Visitors are mostly people evaluating the product, plus some existing customers needing help. Answer questions about what Buildsasa does, who it is for, how it helps, and how to get started; help existing users with how-to questions. Buildsasa's features include: Dashboard; Projects; Daily Log (work done, deliveries, delays, weather, from a phone); Attendance (present/late/absent); Checklists & digitized forms, shareable by public link; Inspections; Safety Incidents; Observations; Action Plans; Punch List with PDF export; Tasks & Trades; Schedule (Gantt, milestones); Plans & Drawings with revisions; Change Orders with an approval pipeline; Bill of quantities with a rate library; Bidding/Tendering with a public bid link; Commitments (subcontracts and orders) with a claim calculator that deducts retention and recovers advances; Financials (budget vs actual, cost codes, payment applications with retention, cash flow); Client portal (share a private link per project so the client, with no account, can follow progress, the timeline, site photos and invoices, and approve or reject change orders); Quotes (price a job from templates such as kitchen, bathroom, tiling, painting or electrical works, send the client a link to accept online, and turn an accepted quote into a project with a deposit invoice); Invoicing with PDF; Inventory (materials stock ledger) and an equipment register; Documents; Correspondence; Coordination Issues; Directory; Subcontractors; Crews; Team & Role Manager (control who sees what); Reports with Excel export; and Buildsasa AI. Pages to point to: pricing at https://buildsasa.com/pricing, book a demo at https://buildsasa.com/contact, sign up or log in at https://console.buildsasa.com. For exact prices, custom ERP/software projects, government or enterprise deals, refunds, account changes or bugs, offer to connect them with the team on WhatsApp at ${SUPPORT_WHATSAPP} or email ${SUPPORT_EMAIL}. End every answer about Buildsasa (what it does, features, who it is for, how it helps, pricing, how to start) with a short call to action on its own line inviting them to get started at https://console.buildsasa.com — e.g. \"Get started at https://console.buildsasa.com\". You may also offer a free demo at https://buildsasa.com/contact. Skip the call to action only for replies that are not about Buildsasa (such as a polite refusal) or when you have already handed them to the team for an account issue. Be warm, concise and plain-spoken — many visitors are not technical; avoid jargon; short paragraphs or a few bullets; sentence case; no markdown headings. Never invent features, prices, clients or guarantees that aren't stated here; if unsure, say so and offer the team's contact. Politely decline questions unrelated to Buildsasa, construction or the company's services.`;
 
 const suzyHits = new Map();
 function suzyRateLimited(ip) {

@@ -237,6 +237,9 @@ export type ProjectDto = {
   targetEndDate?: string | null;
   /** Agreed contract sum in KES — the number running totals are built on. */
   contractSumKES?: number | null;
+  /** Set while the client portal link is live; null when it is off. */
+  portalToken?: string | null;
+  portalSharedAt?: string | null;
   assignments?: { id?: string; role: string; userId: string }[];
   changeOrderCount?: number;
   createdAt?: string;
@@ -611,6 +614,15 @@ export type QuoteDto = {
 };
 export type QuoteInput = Pick<QuoteDto, "title" | "clientName" | "clientPhone" | "clientEmail" | "clientAddress" | "items" | "discount" | "taxRate" | "depositPercent" | "validUntil" | "notes" | "terms">;
 export type PublicQuoteDto = Pick<QuoteDto, "quoteNumber" | "title" | "clientName" | "clientAddress" | "items" | "subtotal" | "discount" | "taxRate" | "total" | "depositPercent" | "validUntil" | "notes" | "terms" | "status" | "acceptedBy" | "respondedAt"> & { companyName?: string | null; issuedAt: string };
+
+export type PortalDto = {
+  companyName: string | null;
+  project: { name: string; city: string; status: string; progress: number; startDate?: string | null; targetEndDate?: string | null; practicalCompletionAt?: string | null; description?: string | null; images: string[] };
+  schedule: { name: string; type: string; startDate: string; endDate: string; percent: number; status: string }[];
+  photos: { date: string; location: string; photos: string[] }[];
+  changeOrders: { id: string; number: string; title: string; area?: string | null; description?: string | null; amountKES: number; scheduleImpactDays: number; status: string; submittedDate?: string | null; updatedAt: string }[];
+  invoices: { invoiceNumber: string; amount: number; paidAmount: number; status: string; issueDate: string; dueDate: string; items: { description: string; quantity: number; rate: number }[] }[];
+};
 
 export type InvoiceDto = {
   id: string;
@@ -1248,6 +1260,11 @@ export const api = {
   convertQuote: (id: string, payload: { city?: string } = {}) => http<{ quote: QuoteDto; project: { id: string; name: string }; invoice: InvoiceDto | null }>(`/api/quotes/${id}/convert`, { method: "POST", body: JSON.stringify(payload) }),
   getPublicQuote: (token: string) => http<PublicQuoteDto>(`/api/public/quotes/${token}`),
   respondToQuote: (token: string, payload: { decision: "accept" | "decline"; name?: string; reason?: string }) => http<{ ok: boolean; status: string }>(`/api/public/quotes/${token}/respond`, { method: "POST", body: JSON.stringify(payload) }),
+  // Client portal (per-project share link)
+  shareProjectPortal: (projectId: string) => http<{ portalToken: string; portalSharedAt: string }>(`/api/projects/${projectId}/portal`, { method: "POST" }),
+  revokeProjectPortal: (projectId: string) => http<{ ok: boolean }>(`/api/projects/${projectId}/portal`, { method: "DELETE" }),
+  getPortal: (token: string) => http<PortalDto>(`/api/public/portal/${token}`),
+  decidePortalChangeOrder: (token: string, id: string, payload: { decision: "approve" | "reject"; name: string; comment?: string }) => http<{ ok: boolean; status: string }>(`/api/public/portal/${token}/change-orders/${id}`, { method: "POST", body: JSON.stringify(payload) }),
   // Invoices
   getInvoices: (projectId: string) => http<InvoiceDto[]>(`/api/projects/${projectId}/invoices`),
   createInvoice: (projectId: string, payload: Partial<InvoiceDto>) => http<InvoiceDto>(`/api/projects/${projectId}/invoices`, { method: "POST", body: JSON.stringify(payload) }),
