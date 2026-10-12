@@ -64,4 +64,15 @@ export function EmptyState({
   );
 }
 
+/** Placeholder rows shown while a list loads, instead of a premature empty state. */
+export function ListSkeleton({ rows = 3, label = "Loading…" }: { rows?: number; label?: string }) {
+  return (
+    <div className="space-y-2" aria-busy="true" aria-label={label}>
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="h-16 rounded-xl border border-[#222A35] bg-[#11161D] animate-pulse" />
+      ))}
+    </div>
+  );
+}
+
 export default EmptyState;

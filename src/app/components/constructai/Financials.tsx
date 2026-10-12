@@ -7,7 +7,7 @@ import { useCurrency } from "./CurrencyContext";
 import { CURRENCIES, USD_TO_KES, formatCurrency, toKES } from "./currency";
 import type { Role } from "./roles";
 import { ROLES, canManageBids } from "./roles";
-import { EmptyState } from "./EmptyState";
+import { EmptyState, ListSkeleton } from "./EmptyState";
 import { BoqEditor } from "./BoqEditor";
 import { ClaimCalculator } from "./ClaimCalculator";
 import CommitmentDrawer from "./CommitmentDrawer";
@@ -109,6 +109,7 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
   const [newApp, setNewApp] = useState({ number: "", period: "", commitmentId: "", workCompletedThisPeriod: 0, previousCertified: 0, requestedAmount: 0, retentionPct: 0 });
   const [newCostCode, setNewCostCode] = useState({ code: "", description: "" });
 
+  const [finLoadedFor, setFinLoadedFor] = useState("");
   useEffect(() => {
     api.getProjects().then((ps) => {
       if (ps?.length) {
@@ -138,9 +139,10 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
       setExpenseRows((rows ?? []).map((r, idx) => ({ name: r.name, amountUSD: r.actualUSD, budgetUSD: r.budgetUSD, color: palette[idx % palette.length], id: r.id })));
     }).catch(() => {});
 
-    refreshCommitments(projectId);
-    refreshApplications(projectId);
-    refreshRetention(projectId);
+    // Which project's commitments/applications/retention are on screen, so the
+    // empty states wait for the fetch instead of flashing "none yet".
+    const pid = projectId;
+    Promise.all([refreshCommitments(pid), refreshApplications(pid), refreshRetention(pid)]).finally(() => setFinLoadedFor(pid));
   }, [projectId]);
 
   // Cost codes are global (not project-scoped).
@@ -781,6 +783,8 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
       {tab === "commitments" && (
         !projectId ? (
           <EmptyState icon={Layers} title="No project selected" description="Choose a project to track its commitments." />
+        ) : finLoadedFor !== projectId ? (
+          <ListSkeleton />
         ) : commitments.length === 0 ? (
           <EmptyState icon={Layers} title="No commitments yet" description="Record vendor contracts and track invoiced, paid and retention against each." actionLabel="+ Add commitment" onAction={() => setShowCommitmentModal(true)} />
         ) : (
@@ -844,6 +848,8 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
       {tab === "applications" && (
         !projectId ? (
           <EmptyState icon={ClipboardList} title="No project selected" description="Choose a project to manage payment applications." />
+        ) : finLoadedFor !== projectId ? (
+          <ListSkeleton />
         ) : applications.length === 0 ? (
           <EmptyState icon={ClipboardList} title="No applications yet" description="Create a payment application, submit it for review, then approve and pay." actionLabel="+ New application" onAction={() => setShowAppModal(true)} />
         ) : (
@@ -909,6 +915,8 @@ export default function Financials({ role = "Contractor" }: { role?: Role }) {
       {tab === "retention" && (
         !projectId ? (
           <EmptyState icon={ShieldCheck} title="No project selected" description="Choose a project to view retention held against commitments." />
+        ) : finLoadedFor !== projectId ? (
+          <ListSkeleton />
         ) : retention.length === 0 ? (
           <EmptyState icon={ShieldCheck} title="No retention records" description="Retention appears here once commitments hold retention or applications certify amounts." />
         ) : (

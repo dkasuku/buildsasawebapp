@@ -6,7 +6,7 @@ import { ROLES, ROLE_COLORS } from "./roles";
 import type { Role } from "./roles";
 import api from "../../services/api";
 import { ExpandableText } from "./ExpandableText";
-import { EmptyState } from "./EmptyState";
+import { EmptyState, ListSkeleton } from "./EmptyState";
 import { useProjects } from "./useProjects";
 import { useTeam } from "./useTeam";
 import { warnSaveFailed } from "./saveFeedback";
@@ -100,10 +100,12 @@ export function Announcements() {
   const [draft, setDraft] = useState(emptyDraft);
 
   // Load persisted announcements; the API response is authoritative (including empty)
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     (async () => {
       try { setAnnouncements(((await api.getAnnouncements()) ?? []).map(mapAnn)); }
       catch { /* offline — leave list empty */ }
+      finally { setLoaded(true); }
     })();
   }, []);
 
@@ -288,7 +290,9 @@ export function Announcements() {
         </div>
       )}
 
-      {filtered.length === 0 && (
+      {!loaded && <ListSkeleton />}
+
+      {loaded && filtered.length === 0 && (
         <EmptyState
           icon={Megaphone}
           title="No announcements yet"

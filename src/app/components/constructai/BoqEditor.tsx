@@ -13,7 +13,7 @@ import { Plus, Trash2, Loader2, ChevronDown, ChevronRight, Calculator, AlertTria
 import api, { type BoqDto, type BoqSectionDto } from "../../services/api";
 import { useCurrency } from "./CurrencyContext";
 import { formatCurrency, fromKES, toKES, roundForCurrency } from "./currency";
-import { EmptyState } from "./EmptyState";
+import { EmptyState, ListSkeleton } from "./EmptyState";
 
 // The units a bill is actually priced in on site here.
 const UNITS = ["m", "m2", "m3", "kg", "tonne", "no", "item", "sum", "days", "hours"];
@@ -40,14 +40,14 @@ export function BoqEditor({ projectId, canEdit, refreshKey, onPickRate, onChange
   const kesToTyped = (kes: number) => String(roundForCurrency(fromKES(kes, currency), currency));
 
   const [boq, setBoq] = useState<BoqDto | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [newSection, setNewSection] = useState({ code: "", title: "" });
   const [draft, setDraft] = useState<Record<string, { code: string; description: string; unit: string; quantity: string; rate: string }>>({});
 
   const load = useCallback(async () => {
-    if (!projectId) { setBoq(null); return; }
+    if (!projectId) { setBoq(null); setLoading(false); return; }
     setLoading(true);
     try { setBoq(await api.getBoq(projectId)); }
     catch (e: any) { toast.error(e?.message || "Could not load the bill of quantities"); setBoq(null); }
@@ -169,7 +169,9 @@ export function BoqEditor({ projectId, canEdit, refreshKey, onPickRate, onChange
         </div>
       )}
 
-      {(boq?.sections.length ?? 0) === 0 ? (
+      {!boq && loading ? (
+        <ListSkeleton />
+      ) : (boq?.sections.length ?? 0) === 0 ? (
         <div className="rounded-xl border border-[#222A35] bg-[#11161D]">
           <EmptyState
             icon={Calculator}

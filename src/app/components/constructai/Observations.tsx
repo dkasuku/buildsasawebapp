@@ -7,7 +7,7 @@ import ActionPlans from "./ActionPlans";
 import { SectionTabs } from "./SectionTabs";
 import { useTeam } from "./useTeam";
 import api from "../../services/api";
-import { EmptyState } from "./EmptyState";
+import { EmptyState, ListSkeleton } from "./EmptyState";
 import { ProjectSelect } from "./ProjectSelect";
 import { warnSaveFailed } from "./saveFeedback";
 
@@ -109,10 +109,12 @@ function ObservationList({ role, canSeeActions }: { role: Role; canSeeActions: b
   const [detail, setDetail] = useState<Observation | null>(null);
 
   // Load persisted observations; the API response is authoritative (including empty)
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     (async () => {
       try { setItems(((await api.getObservations()) ?? []).map(mapObs)); }
       catch { /* offline — leave list empty */ }
+      finally { setLoaded(true); }
     })();
   }, []);
 
@@ -173,7 +175,8 @@ function ObservationList({ role, canSeeActions }: { role: Role; canSeeActions: b
       </div>
 
       <div className="space-y-2">
-        {filtered.length === 0 && (
+        {!loaded && <ListSkeleton />}
+        {loaded && filtered.length === 0 && (
           <EmptyState
             icon={Eye}
             title="No observations yet"

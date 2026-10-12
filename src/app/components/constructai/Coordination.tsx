@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Plus, Search, X, Briefcase, MessageSquare, Send, AlertCircle, CheckCircle2, Clock3 } from "lucide-react";
 import type { Role } from "./roles";
 import api from "../../services/api";
-import { EmptyState } from "./EmptyState";
+import { EmptyState, ListSkeleton } from "./EmptyState";
 import { ProjectSelect } from "./ProjectSelect";
 import { warnSaveFailed } from "./saveFeedback";
 
@@ -55,10 +55,12 @@ export default function Coordination({ role }: { role: Role }) {
   const [newComment, setNewComment] = useState("");
 
   // Load persisted issues; the API response is authoritative (including empty)
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     (async () => {
       try { setIssues(((await api.getCoordinationIssues()) ?? []).map(mapIssue)); }
       catch { /* offline — leave list empty */ }
+      finally { setLoaded(true); }
     })();
   }, []);
 
@@ -103,7 +105,8 @@ export default function Coordination({ role }: { role: Role }) {
       </div>
 
       <div className="space-y-2">
-        {filtered.length === 0 && (
+        {!loaded && <ListSkeleton />}
+        {loaded && filtered.length === 0 && (
           <EmptyState
             icon={Briefcase}
             title="No issues yet"

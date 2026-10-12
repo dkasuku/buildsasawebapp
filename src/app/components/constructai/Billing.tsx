@@ -4,6 +4,7 @@
 // ============================================================================
 
 import { CreditsPanel } from "./CreditsPanel";
+import { AI_DESIGN_LIVE } from "./featureFlags";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { CheckCircle2, Sparkles, ShieldCheck, Loader2, CreditCard, FileText, Download } from "lucide-react";
@@ -300,7 +301,7 @@ export default function Billing({ role }: { role: Role }) {
                 </div>
                 <div className="mt-3"><span className="text-[28px] text-white font-display">{fmt(p)}</span><span className="text-[12px] text-[#8A95A5]"> / {p.cycle === "yearly" ? "year" : p.cycle === "weekly" ? "week" : "month"}</span></div>
                 {p.note && <div className="text-[11px] text-[#22C55E] mt-1">{p.note}</div>}
-                {p.aiCredits ? <div className="text-[11px] text-[#FF6B1A] mt-1">Includes {p.aiCredits.toLocaleString()} Sasa Credits for AI every month</div> : null}
+                {AI_DESIGN_LIVE && p.aiCredits ? <div className="text-[11px] text-[#FF6B1A] mt-1">Includes {p.aiCredits.toLocaleString()} Sasa Credits for AI every month</div> : null}
                 <ul className="mt-4 space-y-1.5 flex-1">
                   {/* Per-plan features come from the admin-managed catalogue; fall
                       back to the shared list when a plan has none set. */}
@@ -320,7 +321,8 @@ export default function Billing({ role }: { role: Role }) {
           })}
         </div>
       )}
-      <CreditsPanel />
+      {/* Sasa Credits return with the AI Design Studio. */}
+      {AI_DESIGN_LIVE && <CreditsPanel />}
       {invoices.length > 0 && (
         <div className="mt-7">
           <div className="text-[14px] text-white font-display mb-3 flex items-center gap-2"><FileText className="w-4 h-4 text-[#FF6B1A]" /> Invoices</div>

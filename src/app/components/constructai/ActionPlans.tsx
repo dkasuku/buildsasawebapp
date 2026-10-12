@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { Plus, Search, X, ClipboardCheck, CheckCircle2, Circle, Trash2, CalendarDays, User } from "lucide-react";
 import type { Role } from "./roles";
 import api from "../../services/api";
-import { EmptyState } from "./EmptyState";
+import { EmptyState, ListSkeleton } from "./EmptyState";
 import { ProjectSelect } from "./ProjectSelect";
 import { warnSaveFailed } from "./saveFeedback";
 
@@ -47,10 +47,12 @@ export default function ActionPlans({ role }: { role: Role }) {
   useEffect(() => { api.getObservations().then((rows: any[]) => setObsTitles(Object.fromEntries((rows || []).map((o) => [o.id, o.title])))).catch(() => {}); }, []);
 
   // Load persisted plans; the API response is authoritative (including empty)
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     (async () => {
       try { setPlans(((await api.getActionPlans()) ?? []).map(mapPlan)); }
       catch { /* offline — leave list empty */ }
+      finally { setLoaded(true); }
     })();
   }, []);
 
@@ -96,7 +98,8 @@ export default function ActionPlans({ role }: { role: Role }) {
       </div>
 
       <div className="space-y-3">
-        {filtered.length === 0 && (
+        {!loaded && <ListSkeleton />}
+        {loaded && filtered.length === 0 && (
           <EmptyState
             icon={ClipboardCheck}
             title="No corrective actions yet"

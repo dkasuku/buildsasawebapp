@@ -7,7 +7,8 @@ import type { DrawingDto } from "../../services/api";
 import { DrawingViewer, toViewerRole } from "./drawing-viewer";
 import { FileStack, Search, Filter, Upload, Share2, Download, Eye, Clock, X, Check, MessageSquare, MapPin, Layers, Users as UsersIcon, ZoomIn, ZoomOut, Maximize2, PenTool, Circle, Type, Undo, History, Cloud, Box, ExternalLink, Sparkles } from "lucide-react";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
-import { EmptyState } from "./EmptyState";
+import { EmptyState, ListSkeleton } from "./EmptyState";
+import { AI_DESIGN_LIVE } from "./featureFlags";
 import type { Role } from "./roles";
 import { ROLES } from "./roles";
 import { useTeam } from "./useTeam";
@@ -42,7 +43,7 @@ const AVATAR_COLORS = ["#F5A623", "#8B5CF6", "#3B82F6", "#A16207", "#06B6D4", "#
 const colorFor = (key: string) => AVATAR_COLORS[Array.from(key).reduce((a, c) => a + c.charCodeAt(0), 0) % AVATAR_COLORS.length];
 
 // Flip to true to open the AI Design Studio from Plans & Drawings.
-const AI_DESIGN_LIVE = false;
+
 
 const DISCIPLINES = ["All", "Architectural", "Mechanical", "Structural", "Electrical", "Civil", "AI Concept"];
 const UPLOAD_DISCIPLINES = ["Auto-detect", "Architectural", "Mechanical", "Structural", "Electrical", "Civil"];
@@ -144,6 +145,7 @@ export function Plans({ role }: { role: Role }) {
   // Load the real project list and every sheet already saved against it. The
   // board used to start empty and stay that way: uploads only ever went into
   // component state, so a reload lost them and the KPI always read zero.
+  const [loaded, setLoaded] = useState(false);
   const loadBoard = async () => {
     try {
       const ps = await api.getProjects();
@@ -163,6 +165,7 @@ export function Plans({ role }: { role: Role }) {
         if (hit) setViewing(hit); else toast.error("That drawing link isn't available. It may have been deleted, or it belongs to another company.");
       }
     } catch { /* leave the board empty rather than inventing rows */ }
+    finally { setLoaded(true); }
   };
   useEffect(() => { loadBoard(); }, []);
 
@@ -591,7 +594,8 @@ export function Plans({ role }: { role: Role }) {
         ))}
       </div>
 
-      {filtered.length === 0 && (
+      {!loaded && <ListSkeleton />}
+      {loaded && filtered.length === 0 && (
         // Distinguish "you have no drawings" from "your filters hide them all".
         // A single "No drawings match" message for both made a fresh workspace
         // look like a filtering problem, and a filtered-out board look empty.

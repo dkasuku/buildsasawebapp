@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { Plus, Search, X, UsersRound, HardHat, MapPin, Trash2, UserPlus, ChevronDown, ChevronRight } from "lucide-react";
 import type { Role } from "./roles";
 import api from "../../services/api";
-import { EmptyState } from "./EmptyState";
+import { EmptyState, ListSkeleton } from "./EmptyState";
 import { ProjectSelect } from "./ProjectSelect";
 import { TradeSelect } from "./TradeSelect";
 import { warnSaveFailed } from "./saveFeedback";
@@ -47,10 +47,12 @@ export default function Crews({ role }: { role: Role }) {
   const [newMemberTrade, setNewMemberTrade] = useState("");
 
   // Load persisted crews; the API response is authoritative (including empty)
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     (async () => {
       try { setCrews(((await api.getCrews()) ?? []).map(mapCrew)); }
       catch { /* offline — leave list empty */ }
+      finally { setLoaded(true); }
     })();
   }, []);
 
@@ -119,7 +121,8 @@ export default function Crews({ role }: { role: Role }) {
       </div>
 
       <div className="space-y-3">
-        {filtered.length === 0 && (
+        {!loaded && <ListSkeleton />}
+        {loaded && filtered.length === 0 && (
           <EmptyState
             icon={UsersRound}
             title="No crews yet"

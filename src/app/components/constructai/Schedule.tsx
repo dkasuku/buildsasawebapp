@@ -56,15 +56,19 @@ export function Schedule({ role = "Contractor" }: { role?: Role }) {
     })();
   }, []);
 
+  // Items load after the project list; without this the empty state flashed
+  // "No schedule items yet" while a project's real schedule was still on its way.
+  const [itemsLoading, setItemsLoading] = useState(true);
   const load = () => {
-    if (!projectId) { setItems([]); setChecklists([]); return; }
+    if (!projectId) { setItems([]); setChecklists([]); setItemsLoading(false); return; }
+    setItemsLoading(true);
     Promise.all([
       api.getSchedule(projectId).catch(() => []),
       api.getChecklists({ projectId } as any).catch(() => []),
     ]).then(([s, c]) => {
       setItems(Array.isArray(s) ? s : []);
       setChecklists(Array.isArray(c) ? c : []);
-    });
+    }).finally(() => setItemsLoading(false));
   };
   useEffect(load, [projectId]);
 
@@ -135,7 +139,7 @@ export function Schedule({ role = "Contractor" }: { role?: Role }) {
         {canManage && projectId && <button onClick={() => setEditing("new")} className="h-9 px-4 bg-[#FF6B1A] text-white rounded-lg text-[12px] flex items-center gap-1.5 hover:bg-[#FF7E33]"><Plus className="w-3.5 h-3.5" /> Add item</button>}
       </div>
 
-      {loading ? (
+      {loading || (projectId && itemsLoading) ? (
         <div className="text-center py-16 text-[#5B6675] text-[13px]"><Loader2 className="w-4 h-4 animate-spin inline mr-1.5" /> Loading schedule…</div>
       ) : !projectId ? (
         <div className="rounded-xl border border-dashed border-[#222A35] p-8 text-center text-[13px] text-[#8A95A5]">Create a project first, then build its schedule here.</div>
