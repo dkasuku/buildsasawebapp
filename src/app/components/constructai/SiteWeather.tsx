@@ -4,9 +4,9 @@
 // device's own location, so the card is useful from the first login.
 
 import { useEffect, useState } from "react";
-import { CloudRain, CloudSun, Loader2, MapPin, Sun, Cloud, CloudLightning, Wind, AlertTriangle } from "lucide-react";
+import { CloudRain, CloudSun, Loader2, MapPin, Sun, Cloud, CloudLightning, Wind, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { useProjects } from "./useProjects";
-import { currentPosition, describeWeather, getForecast, siteAdvice, type Forecast } from "../../services/weather";
+import { currentPosition, describeWeather, getForecast, siteAdvice, workVerdict, type Forecast } from "../../services/weather";
 
 type Site = { name: string; lat: number; lng: number; forecast?: Forecast; error?: boolean };
 
@@ -19,7 +19,7 @@ const icon = (code: number) => {
   return Cloud;
 };
 
-export function SiteWeather({ projectId, compact }: { projectId?: string; compact?: boolean }) {
+export function SiteWeather({ projectId, compact, onPinLocation, site }: { projectId?: string; compact?: boolean; /** Use this position directly (the project page has the freshest one). */ site?: { name: string; lat?: number | null; lng?: number | null } | null; /** Inside one project: no device-location fallback; offer to pin the site instead. */ onPinLocation?: () => void }) {
   const { projects, loading } = useProjects();
   const [sites, setSites] = useState<Site[] | null>(null);
   const [fallback, setFallback] = useState(false);
@@ -28,11 +28,12 @@ export function SiteWeather({ projectId, compact }: { projectId?: string; compac
     if (loading) return;
     let alive = true;
     (async () => {
-      let list: Site[] = projects
+      let list: Site[] = site ? (site.lat != null && site.lng != null ? [{ name: site.name, lat: site.lat, lng: site.lng }] : []) : projects
         .filter((p) => (projectId ? p.id === projectId : !/complete|closed|cancel/i.test(p.status || "")))
         .filter((p) => p.lat != null && p.lng != null)
         .slice(0, compact ? 1 : 3)
         .map((p) => ({ name: p.name, lat: p.lat as number, lng: p.lng as number }));
+      if (!list.length && projectId && onPinLocation) { if (alive) setSites([]); return; }
       if (!list.length) {
         const here = await currentPosition();
         if (!here) { if (alive) setSites([]); return; }
@@ -45,10 +46,18 @@ export function SiteWeather({ projectId, compact }: { projectId?: string; compac
       if (alive) setSites(done);
     })();
     return () => { alive = false; };
-  }, [loading, projects.length, projectId]);
+  }, [loading, projects.length, projectId, site?.lat, site?.lng]);
 
   if (sites === null) return <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-4 text-[12px] text-[#5B6675] flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Checking site weather…</div>;
-  if (!sites.length) return null;
+  if (!sites.length) {
+    if (projectId && onPinLocation) return (
+      <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-4 text-[12px] text-[#8A95A5] flex items-center gap-2 flex-wrap">
+        <CloudSun className="w-4 h-4 text-[#FF6B1A]" /> Pin this project's location to see its weather and whether it's a good day to build.
+        <button onClick={onPinLocation} className="text-[#FF6B1A] hover:underline">Set location</button>
+      </div>
+    );
+    return null;
+  }
 
   return (
     <div className="rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden">
@@ -62,6 +71,9 @@ export function SiteWeather({ projectId, compact }: { projectId?: string; compac
           const f = s.forecast;
           const Now = icon(f.code);
           const advice = siteAdvice(f.days);
+          const verdict = workVerdict(f);
+          const V = verdict.level === "good" ? CheckCircle2 : verdict.level === "poor" ? XCircle : AlertTriangle;
+          const vColor = verdict.level === "good" ? "#22C55E" : verdict.level === "poor" ? "#EF4444" : "#FBBF24";
           return (
             <div key={s.name} className="p-4 space-y-3">
               <div className="flex items-center gap-3">
@@ -71,6 +83,10 @@ export function SiteWeather({ projectId, compact }: { projectId?: string; compac
                   <div className="text-[20px] text-white font-display leading-tight">{f.tempC}°C <span className="text-[12px] text-[#C2CAD6] font-sans">{describeWeather(f.code)}</span></div>
                   <div className="text-[11px] text-[#5B6675] flex items-center gap-1"><Wind className="w-3 h-3" />{Math.round(f.windKmh)} km/h</div>
                 </div>
+              </div>
+              <div className="rounded-lg px-2.5 py-2 border" style={{ borderColor: vColor + "55", background: vColor + "14" }}>
+                <div className="text-[12px] font-medium flex items-center gap-1.5" style={{ color: vColor }}><V className="w-3.5 h-3.5" />Today: {verdict.title}</div>
+                <div className="text-[11px] text-[#C2CAD6] mt-0.5">{verdict.detail}</div>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 {f.days.slice(1, 4).map((d) => {
@@ -85,7 +101,7 @@ export function SiteWeather({ projectId, compact }: { projectId?: string; compac
                   );
                 })}
               </div>
-              {advice && <div className="text-[11.5px] text-[#FBBF24] bg-[#FBBF24]/10 border border-[#FBBF24]/25 rounded-lg px-2.5 py-2 flex gap-1.5"><AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />{advice}</div>}
+              {advice && verdict.level === "good" && <div className="text-[11.5px] text-[#FBBF24] bg-[#FBBF24]/10 border border-[#FBBF24]/25 rounded-lg px-2.5 py-2 flex gap-1.5"><AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />{advice}</div>}
             </div>
           );
         })}

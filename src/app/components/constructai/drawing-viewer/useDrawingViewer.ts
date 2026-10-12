@@ -7,8 +7,10 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import type { Drawing, DrawingRevision, Markup, MarkupTool, DrawingSeed, ViewerRole } from "./types";
 import { capabilitiesFor } from "./types";
 import { drawingService } from "./drawingService";
+import { toast } from "sonner";
 
-const ME = "You"; // 🔌 BACKEND: replace with the authenticated user's name.
+// The signed-in user, shown as the author of markups placed in this session.
+const ME = (() => { try { return JSON.parse(localStorage.getItem("constructai-user") || "null")?.name || "You"; } catch { return "You"; } })();
 const TOOL_COLOR: Record<MarkupTool, string> = { pin: "#FF6B1A", text: "#22C55E", note: "#3B82F6" };
 
 export function useDrawingViewer(seed: DrawingSeed, role: ViewerRole) {
@@ -19,6 +21,7 @@ export function useDrawingViewer(seed: DrawingSeed, role: ViewerRole) {
   const [selectedRevisionId, setSelectedRevisionId] = useState<string | null>(null);
   const [markups, setMarkups] = useState<Markup[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Viewport
   const [zoom, setZoom] = useState(1);
@@ -44,9 +47,15 @@ export function useDrawingViewer(seed: DrawingSeed, role: ViewerRole) {
   useEffect(() => {
     let alive = true;
     (async () => {
-      setLoading(true);
-      const d = await drawingService.getDrawing(seed);
-      const revs = await drawingService.getRevisions(d.id);
+      setLoading(true); setLoadError(null);
+      let d, revs;
+      try {
+        d = await drawingService.getDrawing(seed);
+        revs = await drawingService.getRevisions(d.id);
+      } catch (e: any) {
+        if (alive) { setLoadError(e?.message || "This drawing couldn't be opened."); setLoading(false); }
+        return;
+      }
       if (!alive) return;
       setDrawing(d);
       setRevisions(revs);
@@ -98,9 +107,16 @@ export function useDrawingViewer(seed: DrawingSeed, role: ViewerRole) {
     setActiveTool(null);
     setDraftText("");
     if (isNote || activeTool === "text") setSelectedMarkupId(optimistic.id);
-    const saved = await drawingService.createMarkup(selectedRevisionId, {
-      tool: optimistic.tool, x, y, w: optimistic.w, h: optimistic.h, text, color: optimistic.color, author: ME,
-    });
+    let saved;
+    try {
+      saved = await drawingService.createMarkup(selectedRevisionId, {
+        tool: optimistic.tool, x, y, w: optimistic.w, h: optimistic.h, text, color: optimistic.color, author: ME,
+      });
+    } catch (e: any) {
+      setMarkups((prev) => prev.filter((m) => m.id !== optimistic.id));
+      toast.error(`The markup wasn't saved: ${e?.message || "please try again"}`);
+      return;
+    }
     setMarkups((prev) => prev.map((m) => (m.id === optimistic.id ? saved : m)));
     if (isNote || activeTool === "text") setSelectedMarkupId(saved.id);
     flagSaved();
@@ -112,7 +128,7 @@ export function useDrawingViewer(seed: DrawingSeed, role: ViewerRole) {
   const commitMarkup = useCallback((id: string, patch: Partial<Markup>) => {
     if (!selectedRevisionId) return;
     setMarkups((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
-    drawingService.updateMarkup(selectedRevisionId, id, patch);
+    drawingService.updateMarkup(selectedRevisionId, id, patch).catch((e) => toast.error(`Change not saved: ${e?.message || "please try again"}`));
     flagSaved();
   }, [selectedRevisionId, flagSaved]);
   const setMarkupText = useCallback((id: string, text: string) => {
@@ -121,26 +137,29 @@ export function useDrawingViewer(seed: DrawingSeed, role: ViewerRole) {
   const resolveMarkup = useCallback((id: string, status: Markup["status"]) => {
     if (!caps.canResolve || !selectedRevisionId) return;
     setMarkups((prev) => prev.map((m) => (m.id === id ? { ...m, status } : m)));
-    drawingService.updateMarkup(selectedRevisionId, id, { status });
+    drawingService.updateMarkup(selectedRevisionId, id, { status }).catch((e) => toast.error(`Not saved: ${e?.message || "please try again"}`));
     flagSaved();
   }, [caps.canResolve, selectedRevisionId, flagSaved]);
   const deleteMarkup = useCallback((id: string) => {
     if (!selectedRevisionId) return;
     setMarkups((prev) => prev.filter((m) => m.id !== id));
-    drawingService.deleteMarkup(selectedRevisionId, id);
+    drawingService.deleteMarkup(selectedRevisionId, id).catch((e) => toast.error(`Not saved: ${e?.message || "please try again"}`));
     flagSaved();
   }, [selectedRevisionId, flagSaved]);
   const clearMarkups = useCallback(() => {
     if (!selectedRevisionId) return;
     const open = markups.filter((m) => m.status === "open");
-    open.forEach((m) => drawingService.deleteMarkup(selectedRevisionId, m.id));
+    if (!open.length) return;
+    // Markups are shared with the whole team now, so confirm before wiping them.
+    if (!window.confirm(`Delete all ${open.length} open markup${open.length === 1 ? "" : "s"} on this revision? Everyone on the team will lose them.`)) return;
+    open.forEach((m) => drawingService.deleteMarkup(selectedRevisionId, m.id).catch((e) => toast.error(`Not saved: ${e?.message || "please try again"}`)));
     setMarkups((prev) => prev.filter((m) => m.status !== "open"));
     flagSaved();
   }, [markups, selectedRevisionId, flagSaved]);
 
   return {
     // data
-    seed, role, caps, loading, saveState,
+    seed, role, caps, loading, loadError, saveState,
     drawing, revisions, selectedRevision, selectedRevisionId, isViewingLatest, markups,
     // viewport
     zoom, pan, setPan, zoomIn, zoomOut, fitToScreen, setZoom,

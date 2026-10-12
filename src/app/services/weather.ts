@@ -98,3 +98,48 @@ export async function placeName(lat: number, lng: number): Promise<string | null
     return parts.length ? [...new Set(parts)].join(", ") : (j.display_name || null);
   } catch { return null; }
 }
+
+export type PlaceHit = { name: string; detail: string; label: string; lat: number; lng: number };
+
+/** Place suggestions while typing, from Photon (OpenStreetMap data, free, no
+ *  key), ranked towards `near` so Kenyan places come first. */
+export async function searchPlaces(q: string, near?: { lat: number; lng: number }): Promise<PlaceHit[]> {
+  try {
+    const bias = near ? `&lat=${near.lat}&lon=${near.lng}` : "";
+    const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6&lang=en${bias}`);
+    if (!r.ok) return [];
+    const j = await r.json();
+    const seen = new Set<string>();
+    return (j.features || []).map((f: any) => {
+      const p = f.properties || {};
+      const name = p.name || [p.street, p.housenumber].filter(Boolean).join(" ") || p.city || "Unnamed place";
+      const detail = [p.district || p.locality, p.city !== name ? p.city : "", p.county || p.state, p.country].filter(Boolean).filter((x: string, i: number, a: string[]) => a.indexOf(x) === i).join(", ");
+      const [lng, lat] = f.geometry?.coordinates || [0, 0];
+      return { name, detail, label: [name, detail.split(", ").slice(0, 2).join(", ")].filter(Boolean).join(", "), lat, lng };
+    }).filter((h: PlaceHit) => { const k = h.label; if (seen.has(k)) return false; seen.add(k); return true; });
+  } catch { return []; }
+}
+
+export type WorkVerdict = { level: "good" | "caution" | "poor"; title: string; detail: string };
+
+/** Is today a good day to build? A plain verdict for the site team. */
+export function workVerdict(f: Forecast): WorkVerdict {
+  const today = f.days[0];
+  const d = describeWeather(f.code);
+  const rain = today ? Math.max(today.rainChance, 0) : 0;
+  const mm = today?.rainMm ?? 0;
+  const wind = Math.max(f.windKmh, today?.windKmh ?? 0);
+  const hot = Math.max(f.tempC, today?.max ?? 0);
+  if (d === "Thunderstorm" || mm >= 10 || (rain >= 80 && mm >= 5)) {
+    return { level: "poor", title: "Not a good day for outdoor work", detail: "Heavy rain or storms expected. Avoid concrete pours, roofing, earthworks and work at height. Plan indoor work instead." };
+  }
+  if (wind >= 50) {
+    return { level: "poor", title: "Too windy for lifting and work at height", detail: `Gusts around ${Math.round(wind)} km/h. Stop crane lifts and secure scaffolding and loose materials.` };
+  }
+  if (rain >= 50 || mm >= 3) {
+    return { level: "caution", title: "Workable, but rain is likely", detail: `${rain}% chance of rain. Pour concrete early or have covers ready, and protect materials.` };
+  }
+  if (wind >= 35) return { level: "caution", title: "Workable, but windy", detail: `Wind around ${Math.round(wind)} km/h. Take care with cranes, scaffolding and work at height.` };
+  if (hot >= 33) return { level: "caution", title: "Workable, but very hot", detail: `Up to ${Math.round(hot)}°C. Keep crews hydrated, work early, and cure concrete properly.` };
+  return { level: "good", title: "Good day for construction", detail: "Dry with light wind. Suitable for concrete, roofing, earthworks and outdoor work." };
+}

@@ -214,6 +214,9 @@ model DailyLog {
   materials String?
   photos    String?  // JSON array of URLs
   videos    String?  // JSON array of URLs (short clips)
+  // Named place from search, GPS or the map (e.g. "Upper Hill, Nairobi"), kept
+  // apart from `location`, which is the area on site ("Tower core, Level 12").
+  placeName String?
   lat       Float?   // pinned on the map, when known
   lng       Float?
   // Whether the photos and videos appear in the client portal. Off for entries
@@ -879,6 +882,9 @@ model PlanMarkup {
   type      String   // note | measurement | issue | as-built | verification
   x         Float
   y         Float
+  w         Float?   // note boxes: width/height in % of the sheet
+  h         Float?
+  status    String   @default("open") // open | resolved
   text      String?
   color     String   @default("#FF6B1A")
   createdBy String

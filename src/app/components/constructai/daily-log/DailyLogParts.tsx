@@ -51,6 +51,7 @@ export function DailyLogEditor({ projectId, projectLatLng, log, onClose, onSaved
     notes: log?.notes || "", labour: log?.labour || "", plant: log?.plant || "", materials: log?.materials || "",
   });
   const [latLng, setLatLng] = useState<{ lat: number; lng: number } | null>(log?.lat != null && log?.lng != null ? { lat: log.lat, lng: log.lng } : null);
+  const [placeName, setPlaceName] = useState(log?.placeName || "");
   const [photos, setPhotos] = useState<string[]>(parseUrls(log?.photos));
   const [videos, setVideos] = useState<string[]>(parseUrls(log?.videos));
   const [clientVisible, setClientVisible] = useState(log?.clientVisible ?? true);
@@ -100,7 +101,7 @@ export function DailyLogEditor({ projectId, projectLatLng, log, onClose, onSaved
     if (!f.notes.trim()) return toast.error("Write what was done today");
     if (uploader.busy) return toast.error("Wait for the uploads to finish");
     setBusy(true);
-    const payload = { ...f, crewId: f.crewId || null, headcount: Number(f.headcount) || 0, weather: f.weather || null, photos, videos, lat: latLng?.lat ?? null, lng: latLng?.lng ?? null, clientVisible } as any;
+    const payload = { ...f, crewId: f.crewId || null, headcount: Number(f.headcount) || 0, weather: f.weather || null, photos, videos, lat: latLng?.lat ?? null, lng: latLng?.lng ?? null, placeName: placeName || null, clientVisible } as any;
     try {
       const row = editing ? await api.updateDailyLog(projectId, log!.id, payload) : await api.createDailyLog(projectId, payload);
       toast.success(editing ? "Entry updated" : "Daily log saved");
@@ -139,7 +140,7 @@ export function DailyLogEditor({ projectId, projectLatLng, log, onClose, onSaved
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className={lbl}>Where on site</label>
-              <MapPicker value={f.location} latLng={latLng} onChange={(v) => setF((x) => ({ ...x, location: v }))} onLatLngChange={setLatLng} placeholder="e.g. Block B, ground floor" />
+              <MapPicker value={f.location} latLng={latLng} onChange={(v) => setF((x) => ({ ...x, location: v }))} onLatLngChange={setLatLng} place={placeName} onPlaceChange={setPlaceName} />
             </div>
             <div>
               <label className={lbl}>Weather</label>
@@ -256,12 +257,14 @@ export function DailyLogFeed({ logs, loading, canEdit, onEdit, onDelete }: {
                       </div>
                     )}
                   </div>
-                  {l.location && (
-                    <div className="text-[11px] text-[#8A95A5] mt-1 flex items-center gap-1">
+                  {(l.location || l.placeName) && (
+                    <div className="text-[11px] text-[#8A95A5] mt-1 flex items-center gap-1 flex-wrap">
                       <MapPin className="w-3 h-3" />
-                      {l.lat != null && l.lng != null
-                        ? <a href={`https://www.openstreetmap.org/?mlat=${l.lat}&mlon=${l.lng}#map=18/${l.lat}/${l.lng}`} target="_blank" rel="noopener noreferrer" className="hover:text-white underline decoration-dotted">{l.location}</a>
-                        : l.location}
+                      {l.location && <span>{l.location}</span>}
+                      {l.location && l.placeName && <span className="text-[#5B6675]">·</span>}
+                      {l.placeName && (l.lat != null && l.lng != null
+                        ? <a href={`https://www.openstreetmap.org/?mlat=${l.lat}&mlon=${l.lng}#map=18/${l.lat}/${l.lng}`} target="_blank" rel="noopener noreferrer" className="hover:text-white underline decoration-dotted">{l.placeName}</a>
+                        : <span>{l.placeName}</span>)}
                     </div>
                   )}
                   {l.notes && <p className="text-[12.5px] text-[#D5DBE3] mt-2 whitespace-pre-wrap leading-relaxed">{l.notes}</p>}

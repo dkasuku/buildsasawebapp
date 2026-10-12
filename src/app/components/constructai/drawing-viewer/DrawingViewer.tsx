@@ -8,7 +8,7 @@ import { useState, useEffect } from "react";
 import {
   X, MapPin, Type, StickyNote, Eraser, Layers, ZoomIn, ZoomOut, Maximize2,
   Download, Share2, MoreHorizontal, Check, Copy, Link2, Clock, Users,
-  ExternalLink, Printer, CircleDot, CheckCircle2, ChevronRight, Crosshair,
+  ExternalLink, Printer, CircleDot, CheckCircle2, ChevronRight, Crosshair, ArrowLeft, MessageCircle, AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { DrawingSeed, ViewerRole, MarkupTool } from "./types";
@@ -29,7 +29,8 @@ const timeAgo = (iso: string) => {
 
 export function DrawingViewer({ seed, role, onClose, appRole = "Contractor" as Role }: { seed: DrawingSeed; role: ViewerRole; onClose: () => void; appRole?: Role }) {
   const vm = useDrawingViewer(seed, role);
-  const [panel, setPanel] = useState<"none" | "markups" | "versions">("markups");
+  // On phones the panel is a bottom sheet over the drawing, so start with it closed.
+  const [panel, setPanel] = useState<"none" | "markups" | "versions">(() => (typeof window !== "undefined" && window.innerWidth < 768 ? "none" : "markups"));
   const [shareOpen, setShareOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   // Punch integration
@@ -38,16 +39,29 @@ export function DrawingViewer({ seed, role, onClose, appRole = "Contractor" as R
   const [placing, setPlacing] = useState<{ x: number; y: number } | null>(null);
   const [detailPunchId, setDetailPunchId] = useState<string | null>(null);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
-  const loadPins = () => api.getDrawingPunch(seed.id).then(setPunchPins).catch(() => setPunchPins([]));
+  // Punch items have always been linked to a drawing by its sheet number.
+  const loadPins = () => api.getDrawingPunch(seed.sheetNumber).then(setPunchPins).catch(() => setPunchPins([]));
   useEffect(() => {
     loadPins();
     api.getProjects().then((p) => setProjects(p.map((x) => ({ id: x.id, name: x.name })))).catch(() => {});
     // eslint-disable-next-line
-  }, [seed.id]);
+  }, [seed.id, seed.sheetNumber]);
 
+  if (vm.loadError) {
+    return (
+      <div className="fixed inset-0 z-[58] bg-[#0A0E14] flex items-center justify-center p-6">
+        <div className="text-center max-w-sm">
+          <AlertTriangle className="w-8 h-8 text-[#F59E0B] mx-auto" />
+          <div className="text-[14px] text-white mt-3">This drawing couldn't be opened</div>
+          <div className="text-[12px] text-[#8A95A5] mt-1">{vm.loadError}</div>
+          <button onClick={onClose} className="mt-4 h-9 px-4 rounded-md border border-[#222A35] text-[12px] text-white inline-flex items-center gap-1.5"><ArrowLeft className="w-4 h-4" /> Go back</button>
+        </div>
+      </div>
+    );
+  }
   if (vm.loading || !vm.drawing || !vm.selectedRevision) {
     return (
-      <div className="fixed inset-0 z-50 bg-[#0A0E14] flex items-center justify-center">
+      <div className="fixed inset-0 z-[58] bg-[#0A0E14] flex items-center justify-center">
         <div className="text-[13px] text-[#8A95A5]">Loading drawing…</div>
       </div>
     );
@@ -67,7 +81,7 @@ export function DrawingViewer({ seed, role, onClose, appRole = "Contractor" as R
         <PunchForm
           role={appRole}
           projects={projects}
-          initial={{ id: "", projectId: projects[0]?.id || "", status: "open", priority: "medium", title: "", linkedDrawingId: seed.id, drawingCoordinates: JSON.stringify({ x: placing.x, y: placing.y, zoom: vm.zoom }), location: seed.sheetNumber } as any}
+          initial={{ id: "", projectId: projects[0]?.id || "", status: "open", priority: "medium", title: "", linkedDrawingId: seed.sheetNumber, drawingCoordinates: JSON.stringify({ x: placing.x, y: placing.y, zoom: vm.zoom }), location: seed.sheetNumber } as any}
           onClose={() => setPlacing(null)}
           onSaved={() => { setPlacing(null); loadPins(); toast.success("Punch item pinned to drawing"); }}
         />
@@ -81,8 +95,9 @@ export function DrawingViewer({ seed, role, onClose, appRole = "Contractor" as R
 function Header({ vm, onClose }: { vm: DrawingViewerState; onClose: () => void }) {
   const d = vm.drawing!; const r = vm.selectedRevision!;
   return (
-    <div className="shrink-0 px-4 py-3 border-b border-[#222A35] bg-[#11161D] flex items-center justify-between gap-3">
-      <div className="min-w-0">
+    <div className="shrink-0 px-3 sm:px-4 py-3 border-b border-[#222A35] bg-[#11161D] flex items-center justify-between gap-3">
+      <button onClick={onClose} title="Back" aria-label="Back" className="shrink-0 h-9 px-2.5 rounded-md border border-[#222A35] text-[#C2CAD6] hover:text-white flex items-center gap-1.5 text-[12px]"><ArrowLeft className="w-4 h-4" /><span className="hidden sm:inline">Back</span></button>
+      <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[11px] font-mono text-[#5B6675]">{d.sheetNumber}</span>
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#FF6B1A]/15 text-[#FF6B1A] border border-[#FF6B1A]/30">Rev {r.rev}</span>
@@ -90,9 +105,9 @@ function Header({ vm, onClose }: { vm: DrawingViewerState; onClose: () => void }
           {!vm.isViewingLatest && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#EF4444]/15 text-[#EF4444] border border-[#EF4444]/30">Not latest revision</span>}
         </div>
         <div className="text-[14px] text-white font-display truncate mt-0.5">{d.title}</div>
-        <div className="text-[11px] text-[#8A95A5] truncate">{d.projectName} · {d.discipline} · {r.fileSize} · updated {timeAgo(d.updatedAt)}</div>
+        <div className="text-[11px] text-[#8A95A5] truncate">{d.projectName} · {d.discipline} · {r.fileSize}<span className="hidden sm:inline"> · updated {timeAgo(d.updatedAt)}</span></div>
       </div>
-      <button onClick={onClose} className="shrink-0 w-9 h-9 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center"><X className="w-4 h-4" /></button>
+      <button onClick={onClose} title="Close" aria-label="Close" className="shrink-0 w-9 h-9 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center"><X className="w-4 h-4" /></button>
     </div>
   );
 }
@@ -143,8 +158,7 @@ function Toolbar({ vm, panel, setPanel, onShare, moreOpen, setMoreOpen, punchMod
             <div className="fixed inset-0 z-10" onClick={() => setMoreOpen(false)} />
             <div className="absolute right-0 mt-1 w-48 rounded-md border border-[#222A35] bg-[#11161D] shadow-xl z-20 py-1 text-[12px]">
               <button onClick={() => { window.open(selectedRevision!.fileUrl, "_blank"); setMoreOpen(false); }} className="w-full px-3 py-2 text-left text-[#8A95A5] hover:text-white hover:bg-[#161C24] flex items-center gap-2"><ExternalLink className="w-3.5 h-3.5" /> Open in new tab</button>
-              <button onClick={() => { window.print(); setMoreOpen(false); }} className="w-full px-3 py-2 text-left text-[#8A95A5] hover:text-white hover:bg-[#161C24] flex items-center gap-2"><Printer className="w-3.5 h-3.5" /> Print</button>
-              <button onClick={() => { window.open(selectedRevision!.fileUrl, "_blank"); setMoreOpen(false); }} className="w-full px-3 py-2 text-left text-[#8A95A5] hover:text-white hover:bg-[#161C24] flex items-center gap-2"><ExternalLink className="w-3.5 h-3.5" /> Open in external viewer</button>
+              <button onClick={() => { window.open(selectedRevision!.fileUrl, "_blank"); setMoreOpen(false); toast("Opened the file in a new tab. Print it from there."); }} className="w-full px-3 py-2 text-left text-[#8A95A5] hover:text-white hover:bg-[#161C24] flex items-center gap-2"><Printer className="w-3.5 h-3.5" /> Print sheet</button>
             </div>
           </>
         )}
@@ -184,7 +198,7 @@ function MarkupList({ vm }: { vm: DrawingViewerState }) {
       <div className="text-[11px] text-[#C2CAD6] mt-1 line-clamp-2">{m.text || <span className="text-[#5B6675] italic">No text</span>}</div>
       <div className="flex items-center justify-between mt-1.5">
         <span className="text-[10px] text-[#8A95A5]">{m.author}</span>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+        <div className="flex items-center gap-1 md:opacity-0 md:group-hover:opacity-100">
           {caps.canResolve && (
             m.status === "open"
               ? <button onClick={(e) => { e.stopPropagation(); resolveMarkup(m.id, "resolved"); }} className="text-[10px] px-1.5 py-0.5 rounded bg-[#22C55E]/15 text-[#22C55E] border border-[#22C55E]/30">Resolve</button>
@@ -220,62 +234,41 @@ function VersionList({ vm }: { vm: DrawingViewerState }) {
               {r.isLatest && <span className="text-[9px] px-1 py-0.5 rounded bg-[#22C55E]/15 text-[#22C55E]">Latest</span>}
               {active && <ChevronRight className="w-3.5 h-3.5 text-[#FF6B1A] ml-auto" />}
             </div>
-            <div className="text-[10px] text-[#8A95A5] mt-0.5">{new Date(r.uploadedAt).toLocaleDateString()} · {r.uploadedBy} · {r.status}</div>
+            <div className="text-[10px] text-[#8A95A5] mt-0.5">{new Date(r.uploadedAt).toLocaleDateString()} · {r.uploadedBy} · {r.status} · {r.fileSize}</div>
             {r.changeNote && <div className="text-[10px] text-[#5B6675] mt-0.5 line-clamp-2">{r.changeNote}</div>}
           </button>
         );
       })}
-      <div className="p-3">
-        <button onClick={() => toast("Revision compare is coming soon")} className="w-full h-8 rounded-md border border-dashed border-[#222A35] text-[11px] text-[#8A95A5] hover:text-white">Compare revisions (preview)</button>
-      </div>
+      {revisions.length === 1 && <div className="px-3 py-3 text-[11px] text-[#5B6675]">This is the only revision. Upload a new version of this sheet from the project's Drawings folder or Plans & Drawings.</div>}
     </div>
   );
 }
 
 /* ─────────────────────────── Share dialog (+ QR) ─────────────────────────── */
 function ShareDialog({ vm, onClose }: { vm: DrawingViewerState; onClose: () => void }) {
-  const [access, setAccess] = useState<"view" | "comment">("view");
-  const [expiry, setExpiry] = useState("");
   const [link, setLink] = useState<string | null>(null);
-  const generate = async () => {
-    const s = await drawingService.createShareLink(vm.drawing!.id, vm.selectedRevision!.id, { access, expiresAt: expiry || null });
-    setLink(s.url);
-    toast.success("Share link generated");
-  };
-  const copy = () => { if (link) navigator.clipboard?.writeText(link).then(() => toast.success("Link copied")); };
+  useEffect(() => { drawingService.createShareLink(vm.drawing!.id, vm.selectedRevision!.id).then((l) => setLink(l.url)); }, []);
+  const copy = () => { if (link) navigator.clipboard?.writeText(link).then(() => toast.success("Link copied")).catch(() => toast.error("Couldn't copy. Select the link and copy it.")); };
+  const message = link ? `${vm.drawing!.sheetNumber} ${vm.drawing!.title} (Rev ${vm.selectedRevision!.rev}): ${link}` : "";
   return (
     <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="w-full max-w-[460px] rounded-xl border border-[#222A35] bg-[#11161D]" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-[440px] rounded-xl border border-[#222A35] bg-[#11161D]" onClick={(e) => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-[#222A35] flex items-center justify-between">
-          <div className="text-[14px] text-white font-display flex items-center gap-2"><Share2 className="w-4 h-4 text-[#FF6B1A]" /> Share drawing</div>
+          <div className="text-[14px] text-white font-display flex items-center gap-2"><Share2 className="w-4 h-4 text-[#FF6B1A]" /> Share with your team</div>
           <button onClick={onClose} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-5 space-y-4">
-          <div>
-            <div className="text-[10px] uppercase tracking-wider text-[#5B6675] mb-1.5">Access</div>
-            <div className="flex gap-2">
-              {(["view", "comment"] as const).map((a) => (
-                <button key={a} onClick={() => setAccess(a)} className={`flex-1 h-9 rounded-md border text-[11px] ${access === a ? "bg-[#FF6B1A]/15 border-[#FF6B1A]/40 text-[#FF6B1A]" : "border-[#222A35] text-[#8A95A5]"}`}>{a === "view" ? "View only" : "View + comment"}</button>
-              ))}
-            </div>
+          <p className="text-[12px] text-[#8A95A5]">Anyone on your Buildsasa team can open this exact sheet and revision. They'll be asked to sign in.</p>
+          <div className="flex items-center gap-2">
+            <input readOnly value={link || ""} onFocus={(e) => e.target.select()} className="flex-1 min-w-0 h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[11px] text-[#C2CAD6]" />
+            <button onClick={copy} className="h-9 px-3 rounded-md border border-[#222A35] text-[11px] text-[#8A95A5] hover:text-white flex items-center gap-1.5"><Copy className="w-3.5 h-3.5" /> Copy</button>
           </div>
-          <div>
-            <div className="text-[10px] uppercase tracking-wider text-[#5B6675] mb-1.5">Expires (optional)</div>
-            <input type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]" />
-          </div>
-          {!link ? (
-            <button onClick={generate} className="w-full h-10 rounded-md bg-[#FF6B1A] text-white text-[12px] flex items-center justify-center gap-1.5"><Link2 className="w-4 h-4" /> Generate link</button>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <input readOnly value={link} className="flex-1 h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[11px] text-[#C2CAD6]" />
-                <button onClick={copy} className="h-9 px-3 rounded-md border border-[#222A35] text-[11px] text-[#8A95A5] hover:text-white flex items-center gap-1.5"><Copy className="w-3.5 h-3.5" /> Copy</button>
-              </div>
-              <div className="flex flex-col items-center gap-2 pt-1">
-                <div className="text-[10px] uppercase tracking-wider text-[#5B6675]">Scan to open on mobile</div>
-                <img src={qrImageUrl(link)} alt="QR code" className="w-40 h-40 rounded-md bg-white p-1.5" />
-                <div className="text-[10px] text-[#5B6675]">{vm.drawing!.sheetNumber} · Rev {vm.selectedRevision!.rev} · {access === "view" ? "view only" : "view + comment"}{expiry ? ` · expires ${expiry}` : ""}</div>
-              </div>
+          <a href={`https://wa.me/?text=${encodeURIComponent(message)}`} target="_blank" rel="noopener noreferrer" className="h-10 rounded-md bg-[#25D366] text-white text-[12px] flex items-center justify-center gap-1.5"><MessageCircle className="w-4 h-4" /> Send on WhatsApp</a>
+          {link && (
+            <div className="flex flex-col items-center gap-2 pt-1">
+              <div className="text-[10px] uppercase tracking-wider text-[#5B6675]">Scan to open on a site phone</div>
+              <img src={qrImageUrl(link)} alt="QR code" className="w-40 h-40 rounded-md bg-white p-1.5" />
+              <div className="text-[10px] text-[#5B6675]">{vm.drawing!.sheetNumber} · Rev {vm.selectedRevision!.rev}</div>
             </div>
           )}
         </div>
@@ -294,8 +287,7 @@ function Footer({ vm }: { vm: DrawingViewerState }) {
           ? <span className="flex items-center gap-1 text-[#F5A623]"><CircleDot className="w-3 h-3 animate-pulse" /> Saving…</span>
           : <span className="flex items-center gap-1 text-[#22C55E]"><CheckCircle2 className="w-3 h-3" /> {vm.saveState === "saved" ? "All changes saved" : "Auto-saves"}</span>}
         <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Updated {timeAgo(d.updatedAt)}</span>
-        <span className="hidden sm:inline flex items-center gap-1"><Users className="w-3 h-3" /> {d.recipients} recipients</span>
-        <span className="hidden sm:inline">Viewing Rev {r.rev}{r.isLatest ? " (latest)" : ""}</span>
+                <span className="hidden sm:inline">Viewing Rev {r.rev}{r.isLatest ? " (latest)" : ""}</span>
       </div>
       <span className="hidden md:inline">drag to pan · ⌘/Ctrl + scroll or pinch to zoom</span>
     </div>

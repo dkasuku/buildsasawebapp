@@ -22,6 +22,7 @@ import {
   UserCircle, Wallet, Wrench, Check, AlertTriangle, ArrowUpRight, ChevronRight, FileBarChart, Share2, Palette,
 } from "lucide-react";
 import { ClientPortalDialog } from "./ClientPortalDialog";
+import { SiteWeather } from "./SiteWeather";
 import { SelectionsFolder } from "./project-hub/SelectionsFolder";
 import api, { absoluteFileUrl, type ProjectHubDto } from "../../services/api";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
@@ -232,7 +233,10 @@ export function ProjectDetail({
 
         <div className="min-w-0">
           {folder === "overview" && (
+            <>
+            <div className="mb-4"><SiteWeather projectId={projectId} compact site={{ name: data.project.name, lat: data.project.lat, lng: data.project.lng }} onPinLocation={onEdit || (() => toast.info("Ask a project manager to set this project's location"))} /></div>
             <Overview data={data} images={images} onEdit={onEdit} onLightbox={(i) => setLightbox({ images, index: i })} go={setFolder} showFin={showFin} fmt={fmt} compact={compact} />
+            </>
           )}
           {folder === "contract" && (
             <div className="space-y-4">
@@ -240,7 +244,7 @@ export function ProjectDetail({
               <DocumentFolder projectId={projectId} category="general" docs={data.documents} onChanged={refresh} canEdit={canEditDocs} />
             </div>
           )}
-          {folder === "drawings" && <DrawingsFolder projectId={projectId} sheets={data.drawings} docs={data.documents} canEdit={canEditDocs} onChanged={refresh} />}
+          {folder === "drawings" && <DrawingsFolder projectId={projectId} role={role} projectName={data.project.name} sheets={data.drawings} docs={data.documents} canEdit={canEditDocs} onChanged={refresh} />}
           {folder === "boq" && <BoqFolder projectId={projectId} summary={data.boq} docs={data.documents} canEdit={canManageBids(role)} onChanged={refresh} />}
           {folder === "selections" && <SelectionsFolder projectId={projectId} canEdit={canSharePortal} portalOn={!!data.project.portalToken} onOpenPortal={canSharePortal ? () => setPortalOpen(true) : undefined} />}
           {folder === "variations" && (

@@ -148,7 +148,15 @@ export function Plans({ role }: { role: Role }) {
       setProjectList(ps.map((p) => ({ id: p.id, name: p.name })));
     } catch { /* backend offline — markups stay local */ }
     try {
-      setDrawings((await api.getDrawings()).map(rowToDrawing));
+      const rows = (await api.getDrawings()).map(rowToDrawing);
+      setDrawings(rows);
+      // Arrived through a shared drawing link: open that sheet straight away.
+      let pending: string | null = null;
+      try { pending = sessionStorage.getItem("pending-drawing"); sessionStorage.removeItem("pending-drawing"); } catch { /* noop */ }
+      if (pending) {
+        const hit = rows.find((d) => d.rowId === pending || d.id === pending);
+        if (hit) setViewing(hit); else toast.error("That drawing link isn't available. It may have been deleted, or it belongs to another company.");
+      }
     } catch { /* leave the board empty rather than inventing rows */ }
   };
   useEffect(() => { loadBoard(); }, []);
@@ -597,7 +605,8 @@ export function Plans({ role }: { role: Role }) {
       {viewing && (
         <DrawingViewer
           seed={{
-            id: viewing.id,
+            // The database id of the clicked revision; viewing.id is the sheet number.
+            id: viewing.rowId || viewing.id,
             sheetNumber: viewing.id,
             title: viewing.title,
             projectName: viewing.project,

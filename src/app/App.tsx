@@ -98,6 +98,13 @@ export default function App() {
   const [view, setView] = useState<View>(() => {
     try {
       const params = new URLSearchParams(window.location.search);
+      // Shared drawing link (/?drawing=ID): remembered across sign-in, opened by Plans.
+      const sharedDrawing = params.get("drawing");
+      if (sharedDrawing) {
+        try { sessionStorage.setItem("pending-drawing", sharedDrawing); } catch { /* noop */ }
+        window.history.replaceState({}, "", window.location.pathname);
+        if (localStorage.getItem("constructai-token")) return "plans";
+      }
       // Google OAuth redirect: /?handoff=… — a single-use code, exchanged for the
       // real session by the effect below. The session token used to arrive in
       // this URL directly, which put it in history and in every log on the way.
@@ -385,7 +392,7 @@ export default function App() {
   if (view === "login" || !authed) {
     return (
       <div className={`h-screen w-full ${theme === "light" ? "theme-light" : ""}`}>
-        <Login onContinue={(user) => { if (user && user.role && ROLES[user.role as Role]) setRole(user.role as Role); setView("dashboard"); }} theme={theme} setTheme={setTheme} />
+        <Login onContinue={(user) => { if (user && user.role && ROLES[user.role as Role]) setRole(user.role as Role); setView(sessionStorage.getItem("pending-drawing") ? "plans" : "dashboard"); }} theme={theme} setTheme={setTheme} />
         <Toaster theme={theme} position="top-right" />
       </div>
     );

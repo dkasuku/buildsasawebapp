@@ -169,6 +169,58 @@ if (ALLOWED_ORIGINS.length) {
   app.use(cors());
 }
 app.use(express.json());
+// Plain-English errors. Hundreds of routes answer failures with
+// `res.status(500).json({ error: e.message })`, which put raw database text —
+// "Invalid `prisma.user.create()` invocation … Unique constraint failed on the
+// fields: (`email`)" — in front of users. Rather than touch every route, every
+// JSON error leaving the API passes through here: known database failures get a
+// specific, actionable message (and the right status), anything else technical
+// becomes a calm generic one, and the original is logged for us.
+const FIELD_NAMES = {
+  email: 'email address', code: 'project code', invoiceNumber: 'invoice number', quoteNumber: 'quote number',
+  number: 'number', publicToken: 'link', portalToken: 'link', name: 'name', phone: 'phone number',
+};
+const TECHNICAL = /prisma|invocation|constraint|ECONN|ETIMEDOUT|ENOTFOUND|socket hang up|Cannot read prop|is not a function|is not defined|undefined|Unexpected token|SQL|relation "|column "|violates|Argument `|PrismaClient|stack|at \w+ \(/i;
+function friendlyError(message) {
+  const msg = String(message || '');
+  const unique = msg.match(/Unique constraint failed on the (?:fields|constraint): \(?`?([\w,` ]+?)`?\)?$/m) || msg.match(/Unique constraint failed on the fields: \(`(\w+)`/);
+  if (unique) {
+    const field = unique[1].split(',')[0].replace(/[`\s]/g, '').replace(/^\w+_(\w+)_key$/, '$1');
+    const label = FIELD_NAMES[field] || field.replace(/([A-Z])/g, ' $1').toLowerCase();
+    return { status: 409, error: `That ${label} is already in use. Please use a different one.` };
+  }
+  if (/Record to (update|delete) does not exist|No record was found|Record not found|not found in this workspace|P2025/i.test(msg)) {
+    return { status: 404, error: 'This item no longer exists. It may have been deleted by someone else. Refresh the page and try again.' };
+  }
+  if (/Foreign key constraint|P2003/i.test(msg)) {
+    return { status: 409, error: 'This item is linked to other records, so it can\'t be changed or removed yet. Remove those links first.' };
+  }
+  if (/Invalid `prisma\.\w+\.\w+\(\)` invocation[\s\S]*(Argument|Unknown arg|Expected|Invalid value)/i.test(msg)) {
+    return { status: 400, error: 'Some of the details entered aren\'t valid. Check the form and try again.' };
+  }
+  if (/Can't reach database|ECONNREFUSED|P1001|P1002|timed out/i.test(msg)) {
+    return { status: 503, error: 'We couldn\'t reach the server just now. Please try again in a moment.' };
+  }
+  if (TECHNICAL.test(msg) || msg.length > 240) {
+    return { status: null, error: 'Something went wrong on our side. Please try again. If it keeps happening, contact support on WhatsApp +254 782 223 749.' };
+  }
+  return null;
+}
+app.use((req, res, next) => {
+  const json = res.json.bind(res);
+  res.json = (body) => {
+    if (body && typeof body === 'object' && typeof body.error === 'string' && (res.statusCode >= 400 || TECHNICAL.test(body.error))) {
+      const f = friendlyError(body.error);
+      if (f) {
+        console.error(`[api error] ${req.method} ${req.originalUrl} → ${body.error.slice(0, 500)}`);
+        if (f.status && res.statusCode >= 500) res.status(f.status);
+        body = { ...body, error: f.error };
+      }
+    }
+    return json(body);
+  };
+  next();
+});
 // Serve locally-uploaded files (used when S3/R2 is not configured).
 // crossOriginResourcePolicy is relaxed because the frontend is served from a
 // different origin than the API — without it some browsers refuse to paint the
@@ -709,7 +761,12 @@ app.post('/api/users/invite', auth, async (req, res) => {
     const { name, email, role, trade, password } = req.body || {};
     if (!name || !email || !role) return res.status(400).json({ error: 'Name, email and role are required' });
     const em = String(email).toLowerCase();
-    if (await prisma.user.findUnique({ where: { email: em } })) return res.status(409).json({ error: 'A user with this email already exists' });
+    // prismaBase: the scoped client only sees this company, so an email used in
+    // another company passed this check and then failed at the database.
+    const existing = await prismaBase.user.findUnique({ where: { email: em }, select: { workspaceId: true } });
+    if (existing) return res.status(409).json({ error: existing.workspaceId && existing.workspaceId === req.user?.ws
+      ? 'This person is already on your team.'
+      : 'This email already has a Buildsasa account with another company. Ask them for a different email address, or contact support to move their account to your company.' });
     // Owner sets a password or we generate a temporary one.
     const tempPassword = password && String(password).length >= 6 ? password : Math.random().toString(36).slice(2, 10);
     // Invited users JOIN the inviter's workspace (they don't start a new one).
@@ -1210,7 +1267,7 @@ app.get('/api/projects/:projectId/daily-log', auth, async (req, res) => {
 });
 app.post('/api/projects/:projectId/daily-log', auth, async (req, res) => {
   try {
-    const { date, crew, crewId, headcount, location, notes, weather, labour, plant, materials, photos, videos, lat, lng, clientVisible } = req.body;
+    const { date, crew, crewId, headcount, location, notes, weather, labour, plant, materials, photos, videos, lat, lng, clientVisible, placeName } = req.body;
     if (!crew || !String(crew).trim()) return res.status(400).json({ error: 'Pick or type the crew on site' });
     // An absent/invalid date used to become `Invalid Date` and be rejected by
     // Postgres with an opaque error; default to today instead.
@@ -1225,6 +1282,7 @@ app.post('/api/projects/:projectId/daily-log', auth, async (req, res) => {
         videos: Array.isArray(videos) && videos.length ? JSON.stringify(videos) : null,
         lat: lat == null || lat === '' ? null : Number(lat), lng: lng == null || lng === '' ? null : Number(lng),
         clientVisible: clientVisible === undefined ? true : !!clientVisible,
+        placeName: placeName ? String(placeName).slice(0, 300) : null,
         projectId: req.params.projectId,
       },
     });
@@ -1233,12 +1291,13 @@ app.post('/api/projects/:projectId/daily-log', auth, async (req, res) => {
 });
 app.put('/api/projects/:projectId/daily-log/:id', auth, async (req, res) => {
   try {
-    const { date, crew, crewId, headcount, location, notes, weather, labour, plant, materials, photos, videos, lat, lng, clientVisible } = req.body;
+    const { date, crew, crewId, headcount, location, notes, weather, labour, plant, materials, photos, videos, lat, lng, clientVisible, placeName } = req.body;
     const data = {};
     if (videos !== undefined) data.videos = Array.isArray(videos) && videos.length ? JSON.stringify(videos) : null;
     if (lat !== undefined) data.lat = lat == null || lat === '' ? null : Number(lat);
     if (lng !== undefined) data.lng = lng == null || lng === '' ? null : Number(lng);
     if (clientVisible !== undefined) data.clientVisible = !!clientVisible;
+    if (placeName !== undefined) data.placeName = placeName ? String(placeName).slice(0, 300) : null;
     if (date !== undefined) { const w = new Date(date); if (!isNaN(w.getTime())) data.date = w; }
     for (const [k, v] of Object.entries({ crew, crewId, location, notes, weather, labour, plant, materials })) {
       if (v !== undefined) data[k] = v;
@@ -4877,15 +4936,23 @@ app.get('/api/projects/:projectId/markups', auth, async (req, res) => {
 });
 app.post('/api/projects/:projectId/markups', auth, async (req, res) => {
   try {
-    const { drawingId, type, x, y, text, color, createdBy } = req.body;
-    const row = await prisma.planMarkup.create({ data: { drawingId, type, x, y, text, color, createdBy, projectId: req.params.projectId } });
+    const { drawingId, type, x, y, w, h, text, color } = req.body;
+    if (!drawingId) return res.status(400).json({ error: 'Which drawing is this markup on?' });
+    const row = await prisma.planMarkup.create({ data: {
+      drawingId, type: type || 'pin', x: Number(x) || 0, y: Number(y) || 0,
+      w: w == null ? null : Number(w), h: h == null ? null : Number(h), text: text || null, color: color || '#FF6B1A',
+      createdBy: req.user?.name || 'Team member', projectId: req.params.projectId,
+    } });
     res.json(row);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put('/api/projects/:projectId/markups/:id', auth, async (req, res) => {
   try {
-    const { x, y, text, color, type } = req.body;
+    const { x, y, w, h, text, color, type, status } = req.body;
     const data = {};
+    if (w !== undefined) data.w = w == null ? null : Number(w);
+    if (h !== undefined) data.h = h == null ? null : Number(h);
+    if (status !== undefined) data.status = status === 'resolved' ? 'resolved' : 'open';
     if (x !== undefined) data.x = x;
     if (y !== undefined) data.y = y;
     if (text !== undefined) data.text = text;
@@ -4899,6 +4966,23 @@ app.delete('/api/projects/:projectId/markups/:id', auth, async (req, res) => {
   try {
     await prisma.planMarkup.delete({ where: { id: req.params.id } });
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Everything the drawing viewer needs in one call: the sheet, every revision of
+// it (each upload of the same sheet number is its own Drawing row), and the
+// team's markups on those revisions. Replaces an in-browser mock that invented
+// revisions and kept markups in one browser's local storage.
+app.get('/api/drawings/:id/viewer', auth, async (req, res) => {
+  try {
+    const d = await prisma.drawing.findUnique({ where: { id: req.params.id } });
+    if (!d) return res.status(404).json({ error: 'This drawing no longer exists.' });
+    const [revisions, project] = await Promise.all([
+      prisma.drawing.findMany({ where: { projectId: d.projectId, number: d.number }, orderBy: [{ rev: 'desc' }, { createdAt: 'desc' }] }),
+      prisma.project.findUnique({ where: { id: d.projectId }, select: { name: true } }),
+    ]);
+    const markups = await prisma.planMarkup.findMany({ where: { drawingId: { in: revisions.map((r) => r.id) } }, orderBy: { createdAt: 'asc' } });
+    res.json({ drawing: d, projectName: project ? project.name : '', revisions, markups });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -103,7 +103,10 @@ async function readError(res: Response): Promise<string> {
     try {
       const body = JSON.parse(raw);
       const msg = body?.error ?? body?.message;
-      if (typeof msg === "string" && msg.trim()) return msg.trim();
+      // Last line of defence against internal text reaching a toast; the API
+      // translates errors too, but an older server or a proxy may not.
+      if (typeof msg === "string" && /prisma|invocation|constraint failed|ECONN|Cannot read prop|is not a function|stack/i.test(msg)) return "Something went wrong on our side. Please try again. If it keeps happening, contact support.";
+      if (typeof msg === "string" && msg.trim()) return msg.trim().length > 300 ? msg.trim().slice(0, 300) + "…" : msg.trim();
       // Some validators nest the useful line one level down.
       if (Array.isArray(body?.errors) && typeof body.errors[0]?.message === "string") return body.errors[0].message;
     } catch {
@@ -358,6 +361,8 @@ export type DailyLogDto = {
   photos?: string[] | string | null;
   /** Short video clips (URLs), stored as a JSON array like photos. */
   videos?: string[] | string | null;
+  /** Named place from search/GPS/map, separate from the area on site. */
+  placeName?: string | null;
   lat?: number | null;
   lng?: number | null;
   /** Whether the media shows in the client portal. */
@@ -961,6 +966,9 @@ export type PlanMarkupDto = {
   type: string;
   x: number;
   y: number;
+  w?: number | null;
+  h?: number | null;
+  status?: string;
   text?: string | null;
   color: string;
   createdBy: string;
@@ -1445,6 +1453,7 @@ export const api = {
   removeConversationMember: (conversationId: string, userId: string) => http(`/api/conversations/${conversationId}/members/${userId}`, { method: "DELETE" }),
   markConversationRead: (id: string) => http(`/api/conversations/${id}/read`, { method: "PUT" }),
   // Plan Markups
+  getDrawingViewer: (drawingId: string) => http<{ drawing: DrawingDto; projectName: string; revisions: DrawingDto[]; markups: PlanMarkupDto[] }>(`/api/drawings/${drawingId}/viewer`),
   getMarkups: (projectId: string) => http<PlanMarkupDto[]>(`/api/projects/${projectId}/markups`),
   createMarkup: (projectId: string, payload: Partial<PlanMarkupDto>) => http<PlanMarkupDto>(`/api/projects/${projectId}/markups`, { method: "POST", body: JSON.stringify(payload) }),
   updateMarkup: (projectId: string, id: string, payload: Partial<PlanMarkupDto>) => http<PlanMarkupDto>(`/api/projects/${projectId}/markups/${id}`, { method: "PUT", body: JSON.stringify(payload) }),

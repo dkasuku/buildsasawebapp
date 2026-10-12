@@ -14,15 +14,19 @@ import api, { absoluteFileUrl, type DocumentDto, type DrawingDto, type DrawingSh
 import { pickFiles, useFileUpload } from "../useFileUpload";
 import { UploadTray } from "../UploadTray";
 import { DocumentFolder } from "./DocumentFolder";
+import { DrawingViewer, toViewerRole } from "../drawing-viewer";
+import type { Role } from "../roles";
 import { Empty, Field, Modal, Panel, Pill, btnGhost, btnPrimary, fileSizeLabel, fmtDate, input, statusLabel, statusTone } from "./shared";
 
 const DISCIPLINES = ["Architectural", "Structural", "Civil", "Mechanical", "Electrical", "Plumbing", "Landscape", "Interior", "Other"];
 const STATUSES = ["Draft", "For Review", "Approved", "For Construction", "Superseded"];
 
 export function DrawingsFolder({
-  projectId, sheets, docs, canEdit, onChanged,
+  projectId, sheets, docs, canEdit, onChanged, role = "Contractor", projectName = "",
 }: {
   projectId: string;
+  role?: Role;
+  projectName?: string;
   sheets: DrawingSheetDto[];
   docs: DocumentDto[];
   canEdit: boolean;
@@ -32,6 +36,9 @@ export function DrawingsFolder({
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [adding, setAdding] = useState(false);
   const [revisionFor, setRevisionFor] = useState<DrawingSheetDto | null>(null);
+  // Drawings open in the same viewer as Plans & Drawings, over this page, so
+  // Back returns here instead of to a raw file in a new browser tab.
+  const [viewing, setViewing] = useState<DrawingDto | null>(null);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -94,7 +101,7 @@ export function DrawingsFolder({
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-[11px] font-mono text-[#8A95A5]">{s.number}</span>
-                            <a href={absoluteFileUrl(latest.fileUrl)} target="_blank" rel="noreferrer" className="text-[12.5px] text-white hover:underline truncate">{s.title}</a>
+                            <button onClick={() => setViewing(latest)} className="text-[12.5px] text-white hover:underline truncate text-left">{s.title}</button>
                             <Pill tone="brand">V{latest.rev}</Pill>
                             <Pill tone={statusTone(latest.status)}>{statusLabel(latest.status)}</Pill>
                           </div>
@@ -102,7 +109,7 @@ export function DrawingsFolder({
                             {s.versions.length} version{s.versions.length === 1 ? "" : "s"} · latest {fmtDate(latest.createdAt)}{latest.uploadedBy ? ` by ${latest.uploadedBy}` : ""}
                           </div>
                         </div>
-                        <a href={absoluteFileUrl(latest.fileUrl)} target="_blank" rel="noreferrer" className={`${btnGhost} h-8 px-2.5`}><ExternalLink className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Open latest</span></a>
+                        <button onClick={() => setViewing(latest)} className={`${btnGhost} h-8 px-2.5`}><ExternalLink className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Open</span></button>
                         {canEdit && (
                           <button onClick={() => setRevisionFor(s)} className={`${btnGhost} h-8 px-2.5`} title="Upload a new revision of this sheet"><History className="w-3.5 h-3.5" /> <span className="hidden sm:inline">New version</span></button>
                         )}
@@ -114,7 +121,7 @@ export function DrawingsFolder({
                               <div key={v.id} className="px-3 py-2 flex items-center gap-3 text-[12px]">
                                 <Pill tone={i === 0 ? "brand" : "neutral"}>V{v.rev}</Pill>
                                 <div className="flex-1 min-w-0">
-                                  <a href={absoluteFileUrl(v.fileUrl)} target="_blank" rel="noreferrer" className="text-white hover:underline truncate block">{v.fileName || v.title}</a>
+                                  <button onClick={() => setViewing(v)} className="text-white hover:underline truncate block text-left max-w-full">{v.fileName || v.title}</button>
                                   <div className="text-[10.5px] text-[#5B6675]">{fmtDate(v.createdAt)}{v.uploadedBy ? ` · ${v.uploadedBy}` : ""}{v.fileSize ? ` · ${fileSizeLabel(v.fileSize)}` : ""}{i > 0 ? " · superseded" : " · current"}</div>
                                 </div>
                                 {canEdit ? (
@@ -122,7 +129,7 @@ export function DrawingsFolder({
                                     {STATUSES.map((st) => <option key={st}>{st}</option>)}
                                   </select>
                                 ) : <Pill tone={statusTone(v.status)}>{statusLabel(v.status)}</Pill>}
-                                <a href={absoluteFileUrl(v.fileUrl)} target="_blank" rel="noreferrer" className="w-7 h-7 rounded flex items-center justify-center text-[#8A95A5] hover:text-white"><ExternalLink className="w-3.5 h-3.5" /></a>
+                                <button onClick={() => setViewing(v)} title="Open in viewer" className="w-7 h-7 rounded flex items-center justify-center text-[#8A95A5] hover:text-white"><ExternalLink className="w-3.5 h-3.5" /></button>
                                 {canEdit && <button onClick={() => remove(v)} className="w-7 h-7 rounded flex items-center justify-center text-[#5B6675] hover:text-[#EF4444]"><Trash2 className="w-3.5 h-3.5" /></button>}
                               </div>
                             ))}
@@ -141,6 +148,14 @@ export function DrawingsFolder({
       <DocumentFolder projectId={projectId} category="drawing" docs={docs} onChanged={onChanged} canEdit={canEdit} title="Design documents" blurb="Reports, specifications and approvals that go with the drawings." />
 
       {adding && <UploadDrawingModal projectId={projectId} onClose={() => setAdding(false)} onDone={async () => { setAdding(false); await onChanged(); }} />}
+      {viewing && (
+        <DrawingViewer
+          seed={{ id: viewing.id, sheetNumber: viewing.number, title: viewing.title, projectName, discipline: viewing.discipline, fileUrl: absoluteFileUrl(viewing.fileUrl), rev: viewing.rev }}
+          role={toViewerRole(canEdit, true)}
+          appRole={role}
+          onClose={() => setViewing(null)}
+        />
+      )}
       {revisionFor && <NewRevisionModal projectId={projectId} sheet={revisionFor} onClose={() => setRevisionFor(null)} onDone={async () => { setRevisionFor(null); await onChanged(); }} />}
     </div>
   );
