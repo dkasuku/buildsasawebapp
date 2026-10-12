@@ -6,7 +6,7 @@
 // ============================================================================
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, Check, Loader2, X, Camera, CalendarDays, Receipt, ClipboardCheck, Home } from "lucide-react";
+import { AlertTriangle, Check, Loader2, X, Camera, CalendarDays, Receipt, ClipboardCheck, Home, Palette, ExternalLink } from "lucide-react";
 import api, { absoluteFileUrl, type PortalDto } from "../../services/api";
 
 const kes = (n: number) => `KES ${Math.round(Number(n) || 0).toLocaleString("en-KE")}`;
@@ -17,7 +17,7 @@ const day = (d?: string | null) => {
 const C = { ink: "#1B1F24", soft: "#5B6675", faint: "#8A95A5", line: "#E6E9EE", brand: "#F45B1E", navy: "#0B2A4A", green: "#16A34A", red: "#DC2626" };
 const card: React.CSSProperties = { background: "#fff", borderRadius: 14, border: `1px solid ${C.line}`, boxShadow: "0 1px 3px rgba(0,0,0,.05)" };
 
-type Tab = "overview" | "approvals" | "photos" | "timeline" | "invoices";
+type Tab = "overview" | "approvals" | "selections" | "photos" | "timeline" | "invoices";
 
 export function PublicPortalView({ token }: { token: string }) {
   const [data, setData] = useState<PortalDto | null>(null);
@@ -57,6 +57,8 @@ export function PublicPortalView({ token }: { token: string }) {
 
   const { project, schedule, photos, changeOrders, invoices } = data;
   const pending = changeOrders.filter((c) => c.status === "owner_approval");
+  const selections = data.selections || [];
+  const pendingSel = selections.filter((s) => s.status === "awaiting_client");
   const invoiced = invoices.reduce((s, i) => s + i.amount, 0);
   const paid = invoices.reduce((s, i) => s + i.paidAmount, 0);
   const progress = Math.max(0, Math.min(100, project.progress || 0));
@@ -65,6 +67,7 @@ export function PublicPortalView({ token }: { token: string }) {
   const tabs: { key: Tab; label: string; icon: any; badge?: number }[] = [
     { key: "overview", label: "Overview", icon: Home },
     { key: "approvals", label: "Approvals", icon: ClipboardCheck, badge: pending.length },
+    ...(selections.length ? [{ key: "selections" as Tab, label: "Selections", icon: Palette, badge: pendingSel.length }] : []),
     { key: "photos", label: "Photos", icon: Camera },
     { key: "timeline", label: "Timeline", icon: CalendarDays },
     { key: "invoices", label: "Invoices", icon: Receipt },
@@ -93,6 +96,13 @@ export function PublicPortalView({ token }: { token: string }) {
           )}
         </div>
       </div>
+
+      {pendingSel.length > 0 && tab !== "selections" && (
+        <button onClick={() => setTab("selections")} className="w-full text-left p-4 flex items-center gap-3" style={{ ...card, background: "#EFF6FF", borderColor: "#BFDBFE" }}>
+          <Palette className="w-5 h-5 shrink-0" style={{ color: "#2563EB" }} />
+          <div className="text-[13.5px] flex-1"><strong>{pendingSel.length} finish {pendingSel.length === 1 ? "selection is" : "selections are"} waiting for your approval.</strong> Tap to review.</div>
+        </button>
+      )}
 
       {pending.length > 0 && tab !== "approvals" && (
         <button onClick={() => setTab("approvals")} className="w-full text-left p-4 flex items-center gap-3" style={{ ...card, background: "#FFF7ED", borderColor: "#FED7AA" }}>
@@ -135,6 +145,19 @@ export function PublicPortalView({ token }: { token: string }) {
         <div className="space-y-3">
           {changeOrders.length === 0 && <Empty text="Nothing needs your approval right now. When the team prices a change to the work, it will appear here for you to approve." />}
           {changeOrders.map((c) => <ChangeOrderCard key={c.id} co={c} token={token} onDone={load} />)}
+        </div>
+      )}
+
+      {tab === "selections" && (
+        <div className="space-y-4">
+          {[...new Set(selections.map((s) => s.room))].map((room) => (
+            <div key={room}>
+              <div className="text-[13px] font-semibold mb-2 px-1" style={{ color: C.soft }}>{room}</div>
+              <div className="space-y-3">
+                {selections.filter((s) => s.room === room).map((s) => <SelectionCard key={s.id} sel={s} token={token} onDone={load} onZoom={setLightbox} />)}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -214,6 +237,78 @@ function Stat({ label, value, tone, onClick }: { label: string; value: string; t
 
 function Empty({ text, bare }: { text: string; bare?: boolean }) {
   return <div className={bare ? "text-[13px]" : "p-6 text-center text-[13px]"} style={bare ? { color: C.soft } : { ...card, color: C.soft }}>{text}</div>;
+}
+
+const SEL_BADGE: Record<string, { label: string; bg: string; fg: string }> = {
+  awaiting_client: { label: "Needs your approval", bg: "#EFF6FF", fg: "#2563EB" },
+  approved: { label: "Approved", bg: "#ECFDF3", fg: "#16A34A" },
+  changes_requested: { label: "Change requested", bg: "#FFFBEB", fg: "#B45309" },
+  ordered: { label: "Ordered", bg: "#F5F3FF", fg: "#7C3AED" },
+  installed: { label: "Installed", bg: "#F0FDFA", fg: "#0F766E" },
+};
+
+function SelectionCard({ sel, token, onDone, onZoom }: { sel: PortalDto["selections"][number]; token: string; onDone: () => void; onZoom: (url: string) => void }) {
+  const [mode, setMode] = useState<"idle" | "approve" | "change">("idle");
+  const [name, setName] = useState("");
+  const [comment, setComment] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const waiting = sel.status === "awaiting_client";
+  const badge = SEL_BADGE[sel.status] || SEL_BADGE.awaiting_client;
+  const input: React.CSSProperties = { border: "1px solid #D0D5DD", color: C.ink, background: "#fff" };
+  const img = sel.imageUrl ? absoluteFileUrl(sel.imageUrl) : "";
+
+  const submit = async () => {
+    setBusy(true); setErr("");
+    try { await api.decidePortalSelection(token, sel.id, { decision: mode === "approve" ? "approve" : "change", name: name.trim(), comment: comment.trim() }); onDone(); }
+    catch (e: any) { setErr(e?.message || "Something went wrong. Please try again."); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="overflow-hidden" style={{ ...card, borderColor: waiting ? "#BFDBFE" : C.line }}>
+      <div className="flex gap-3 p-4">
+        {img
+          ? <button onClick={() => onZoom(img)} className="shrink-0"><img src={img} alt="" className="rounded-lg object-cover" style={{ width: 84, height: 84 }} /></button>
+          : <div className="shrink-0 rounded-lg flex items-center justify-center" style={{ width: 84, height: 84, background: "#F4F6FA" }}><Palette className="w-6 h-6" style={{ color: "#CBD2DB" }} /></div>}
+        <div className="min-w-0 flex-1">
+          <div className="flex justify-between gap-2 items-start">
+            <div className="text-[11px] uppercase tracking-wider" style={{ color: C.faint }}>{sel.category}</div>
+            <span className="text-[10.5px] font-semibold rounded-full px-2 py-0.5 shrink-0" style={{ background: badge.bg, color: badge.fg }}>{badge.label}</span>
+          </div>
+          <div className="font-semibold text-[14px] leading-snug mt-0.5">{sel.name}</div>
+          {sel.spec && <div className="text-[12.5px]" style={{ color: C.soft }}>{sel.spec}</div>}
+          {(sel.quantity != null || sel.unitPriceKES != null) && (
+            <div className="text-[12.5px] mt-1" style={{ color: C.soft }}>
+              {sel.quantity != null && `${sel.quantity} ${sel.unit || ""}`}{sel.quantity != null && sel.unitPriceKES != null && " · "}{sel.unitPriceKES != null && `${kes(sel.unitPriceKES)}${sel.unit ? " per " + sel.unit : ""}`}
+            </div>
+          )}
+          {sel.link && <a href={sel.link} target="_blank" rel="noopener noreferrer" className="text-[12px] inline-flex items-center gap-1 mt-1" style={{ color: C.brand }}>View product <ExternalLink className="w-3 h-3" /></a>}
+        </div>
+      </div>
+      {sel.notes && <div className="px-4 pb-3 text-[12.5px] whitespace-pre-wrap" style={{ color: "#374151" }}>{sel.notes}</div>}
+      {sel.status === "changes_requested" && sel.clientComment && <div className="px-4 pb-3 text-[12.5px]" style={{ color: "#B45309" }}>You asked: "{sel.clientComment}". The team is revising it.</div>}
+      {waiting && mode === "idle" && (
+        <div className="flex gap-2 px-4 pb-4">
+          <button onClick={() => setMode("approve")} className="flex-1 rounded-lg text-white text-[14px] font-semibold" style={{ background: C.green, height: 44 }}>Approve</button>
+          <button onClick={() => setMode("change")} className="flex-1 rounded-lg text-[14px]" style={{ ...input, height: 44 }}>Request a change</button>
+        </div>
+      )}
+      {waiting && mode !== "idle" && (
+        <div className="space-y-2 px-4 pb-4">
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your full name" className="w-full rounded-lg px-3 text-[16px] outline-none" style={{ ...input, height: 44 }} />
+          <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} placeholder={mode === "approve" ? "Comment (optional)" : "What would you like instead? e.g. a lighter colour"} className="w-full rounded-lg px-3 py-2 text-[15px] outline-none" style={input} />
+          {err && <div className="text-[12.5px]" style={{ color: C.red }}>{err}</div>}
+          <div className="flex gap-2">
+            <button onClick={() => { setMode("idle"); setErr(""); }} className="px-4 rounded-lg text-[14px]" style={{ ...input, height: 44 }}>Back</button>
+            <button onClick={submit} disabled={busy} className="flex-1 rounded-lg text-white text-[14px] font-semibold disabled:opacity-60" style={{ background: mode === "approve" ? C.green : "#B45309", height: 44 }}>
+              {busy ? "Sending…" : mode === "approve" ? "Confirm approval" : "Send request"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ChangeOrderCard({ co, token, onDone }: { co: PortalDto["changeOrders"][number]; token: string; onDone: () => void }) {

@@ -337,7 +337,7 @@ export default function Quotes({ role = "Contractor" }: { role?: Role }) {
   );
 
   const Actions = ({ x }: { x: QuoteDto }) => (
-    <div className="flex items-center gap-3 flex-wrap justify-end text-[11px]">
+    <div className="flex items-center gap-3 flex-wrap justify-end text-[11px] [&_button]:text-[11px]">
       {canManage && !x.projectId && x.status !== "accepted" && <button onClick={() => openEdit(x)} className="text-[#8A95A5] hover:text-white flex items-center gap-1"><Pencil className="w-3.5 h-3.5" />Edit</button>}
       {canManage && (x.status === "draft" || x.status === "sent" || x.status === "expired") && <button onClick={() => openShare(x)} className="text-[#3B82F6] hover:underline flex items-center gap-1"><Share2 className="w-3.5 h-3.5" />{x.status === "draft" ? "Send" : "Share"}</button>}
       <button onClick={() => downloadPdf(x)} className="text-[#8A95A5] hover:text-white flex items-center gap-1"><Download className="w-3.5 h-3.5" />PDF</button>

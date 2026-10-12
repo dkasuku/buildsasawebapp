@@ -19,9 +19,10 @@ import { toast } from "sonner";
 import {
   AlertCircle, ArrowLeft, BarChart3, Calculator, Calendar, CalendarDays, CheckCircle2, ClipboardList, Clock, FileStack,
   FileText, Flag, HardHat, Image as ImageIcon, LayoutDashboard, Loader2, MapPin, Pencil, Receipt, RefreshCw, ShieldAlert,
-  UserCircle, Wallet, Wrench, Check, AlertTriangle, ArrowUpRight, ChevronRight, FileBarChart, Share2,
+  UserCircle, Wallet, Wrench, Check, AlertTriangle, ArrowUpRight, ChevronRight, FileBarChart, Share2, Palette,
 } from "lucide-react";
 import { ClientPortalDialog } from "./ClientPortalDialog";
+import { SelectionsFolder } from "./project-hub/SelectionsFolder";
 import api, { absoluteFileUrl, type ProjectHubDto } from "../../services/api";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
 import { ImageLightbox } from "./ImageLightbox";
@@ -40,7 +41,7 @@ import { CostControlFolder } from "./project-hub/CostControlFolder";
 import { ReportFolder } from "./project-hub/ReportFolder";
 import { Bar, Field, Modal, Panel, Pill, btnGhost, btnPrimary, fmtDate, input, statusTone, useMoney } from "./project-hub/shared";
 
-type Folder = "overview" | "contract" | "drawings" | "boq" | "variations" | "certificates" | "site" | "costs" | "report" | "closeout";
+type Folder = "overview" | "contract" | "drawings" | "boq" | "variations" | "selections" | "certificates" | "site" | "costs" | "report" | "closeout";
 
 export function ProjectDetail({
   projectId,
@@ -95,6 +96,7 @@ export function ProjectDetail({
       { key: "drawings", label: "Drawings & Designs", icon: FileStack, count: c.sheets, hint: c.drawings !== c.sheets ? `${c.drawings} versions` : undefined },
       { key: "boq", label: "Bills of Quantities", icon: Calculator, count: data.boq.itemCount, hint: data.boq.revisions.length ? `V${data.boq.revisions[0].version} saved` : undefined },
       { key: "variations", label: "Variations", icon: Wrench, count: c.variations },
+      { key: "selections", label: "Finish Selections", icon: Palette },
       ...(showFin ? [{ key: "certificates" as Folder, label: "Payment Certificates", icon: Receipt, count: c.certificates }] : []),
       { key: "site", label: "Site Execution", icon: HardHat, count: c.punchOpen, hint: c.punchOpen ? "open defects" : undefined },
       ...(showFin ? [{ key: "costs" as Folder, label: "Cost Control", icon: BarChart3 }] : []),
@@ -240,6 +242,7 @@ export function ProjectDetail({
           )}
           {folder === "drawings" && <DrawingsFolder projectId={projectId} sheets={data.drawings} docs={data.documents} canEdit={canEditDocs} onChanged={refresh} />}
           {folder === "boq" && <BoqFolder projectId={projectId} summary={data.boq} docs={data.documents} canEdit={canManageBids(role)} onChanged={refresh} />}
+          {folder === "selections" && <SelectionsFolder projectId={projectId} canEdit={canSharePortal} portalOn={!!data.project.portalToken} onOpenPortal={canSharePortal ? () => setPortalOpen(true) : undefined} />}
           {folder === "variations" && (
             <VariationsFolder projectId={projectId} variations={data.variations} contractSum={contractSum} canEdit={canLogVariations} canApprove={canApproveVariations} onChanged={refresh} onSetContractSum={() => setContractModal(true)} />
           )}

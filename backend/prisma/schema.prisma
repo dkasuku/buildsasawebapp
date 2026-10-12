@@ -1360,3 +1360,32 @@ model Quote {
   @@unique([workspaceId, quoteNumber])
   @@index([workspaceId])
 }
+
+// A finish chosen for one room of a project — a tile, paint colour, fitting or
+// fixture — that the client approves before it is ordered. Shared with the client
+// through the project's portal; the team moves it on to ordered and installed.
+model Selection {
+  id            String    @id @default(cuid())
+  workspaceId   String?
+  projectId     String
+  room          String    // e.g. "Master bathroom"
+  category      String    // Tiles | Paint | Sanitary ware | Lighting | ...
+  name          String    // e.g. "Porcelain floor tile, matt grey"
+  spec          String?   // code, size, colour, finish
+  supplier      String?
+  quantity      Float?
+  unit          String?
+  unitPriceKES  Float?    // shown to the client as the allowance for this item
+  imageUrl      String?
+  link          String?   // supplier/product page
+  notes         String?
+  status        String    @default("draft") // draft | awaiting_client | approved | changes_requested | ordered | installed
+  clientComment String?
+  decidedBy     String?
+  decidedAt     DateTime?
+  position      Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([projectId])
+}

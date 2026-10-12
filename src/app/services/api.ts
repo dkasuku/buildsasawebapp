@@ -615,12 +615,37 @@ export type QuoteDto = {
 export type QuoteInput = Pick<QuoteDto, "title" | "clientName" | "clientPhone" | "clientEmail" | "clientAddress" | "items" | "discount" | "taxRate" | "depositPercent" | "validUntil" | "notes" | "terms">;
 export type PublicQuoteDto = Pick<QuoteDto, "quoteNumber" | "title" | "clientName" | "clientAddress" | "items" | "subtotal" | "discount" | "taxRate" | "total" | "depositPercent" | "validUntil" | "notes" | "terms" | "status" | "acceptedBy" | "respondedAt"> & { companyName?: string | null; issuedAt: string };
 
+export type SelectionStatus = "draft" | "awaiting_client" | "approved" | "changes_requested" | "ordered" | "installed";
+export type SelectionDto = {
+  id: string;
+  projectId: string;
+  room: string;
+  category: string;
+  name: string;
+  spec?: string | null;
+  supplier?: string | null;
+  quantity?: number | null;
+  unit?: string | null;
+  unitPriceKES?: number | null;
+  imageUrl?: string | null;
+  link?: string | null;
+  notes?: string | null;
+  status: SelectionStatus;
+  clientComment?: string | null;
+  decidedBy?: string | null;
+  decidedAt?: string | null;
+  position: number;
+  createdAt: string;
+};
+export type SelectionInput = Partial<Pick<SelectionDto, "room" | "category" | "name" | "spec" | "supplier" | "quantity" | "unit" | "unitPriceKES" | "imageUrl" | "link" | "notes" | "position">> & { status?: SelectionStatus };
+
 export type PortalDto = {
   companyName: string | null;
   project: { name: string; city: string; status: string; progress: number; startDate?: string | null; targetEndDate?: string | null; practicalCompletionAt?: string | null; description?: string | null; images: string[] };
   schedule: { name: string; type: string; startDate: string; endDate: string; percent: number; status: string }[];
   photos: { date: string; location: string; photos: string[] }[];
   changeOrders: { id: string; number: string; title: string; area?: string | null; description?: string | null; amountKES: number; scheduleImpactDays: number; status: string; submittedDate?: string | null; updatedAt: string }[];
+  selections: Pick<SelectionDto, "id" | "room" | "category" | "name" | "spec" | "quantity" | "unit" | "unitPriceKES" | "imageUrl" | "link" | "notes" | "status" | "clientComment" | "decidedBy" | "decidedAt">[];
   invoices: { invoiceNumber: string; amount: number; paidAmount: number; status: string; issueDate: string; dueDate: string; items: { description: string; quantity: number; rate: number }[] }[];
 };
 
@@ -1265,6 +1290,13 @@ export const api = {
   revokeProjectPortal: (projectId: string) => http<{ ok: boolean }>(`/api/projects/${projectId}/portal`, { method: "DELETE" }),
   getPortal: (token: string) => http<PortalDto>(`/api/public/portal/${token}`),
   decidePortalChangeOrder: (token: string, id: string, payload: { decision: "approve" | "reject"; name: string; comment?: string }) => http<{ ok: boolean; status: string }>(`/api/public/portal/${token}/change-orders/${id}`, { method: "POST", body: JSON.stringify(payload) }),
+  // Finish selections (per project; the client approves them in the portal)
+  getSelections: (projectId: string) => http<SelectionDto[]>(`/api/projects/${projectId}/selections`),
+  createSelection: (projectId: string, payload: SelectionInput) => http<SelectionDto>(`/api/projects/${projectId}/selections`, { method: "POST", body: JSON.stringify(payload) }),
+  updateSelection: (id: string, payload: SelectionInput) => http<SelectionDto>(`/api/selections/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteSelection: (id: string) => http(`/api/selections/${id}`, { method: "DELETE" }),
+  sendSelections: (projectId: string) => http<{ sent: number }>(`/api/projects/${projectId}/selections/send`, { method: "POST" }),
+  decidePortalSelection: (token: string, id: string, payload: { decision: "approve" | "change"; name: string; comment?: string }) => http<{ ok: boolean; status: string }>(`/api/public/portal/${token}/selections/${id}`, { method: "POST", body: JSON.stringify(payload) }),
   // Invoices
   getInvoices: (projectId: string) => http<InvoiceDto[]>(`/api/projects/${projectId}/invoices`),
   createInvoice: (projectId: string, payload: Partial<InvoiceDto>) => http<InvoiceDto>(`/api/projects/${projectId}/invoices`, { method: "POST", body: JSON.stringify(payload) }),
