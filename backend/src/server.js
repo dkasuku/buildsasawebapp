@@ -2563,6 +2563,67 @@ app.delete('/api/projects/:projectId/invoices/:id', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ===== COMPANY PROFILE =====
+// The workspace's own name, logo and contact details, printed on quotes and
+// invoices and shown on the client's quote page and portal.
+const CAN_EDIT_COMPANY = ['Contractor', 'Executive'];
+const COMPANY_FIELDS = ['name', 'logoUrl', 'phone', 'email', 'address', 'kraPin', 'paymentDetails', 'quoteTerms'];
+const companyPublic = (w) => (w ? { name: w.name, logoUrl: w.logoUrl, phone: w.phone, email: w.email, address: w.address, kraPin: w.kraPin, paymentDetails: w.paymentDetails } : null);
+async function companyFor(workspaceId) {
+  if (!workspaceId) return null;
+  return prismaBase.workspace.findUnique({ where: { id: workspaceId } });
+}
+
+app.get('/api/company', auth, async (req, res) => {
+  try {
+    const w = await companyFor(currentWs());
+    if (!w) return res.status(404).json({ error: 'No company for this account' });
+    const out = {};
+    for (const k of COMPANY_FIELDS) out[k] = w[k] ?? null;
+    res.json({ ...out, canEdit: hasRole(req, CAN_EDIT_COMPANY) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/company', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_EDIT_COMPANY)) return res.status(403).json({ error: 'Only the company owner or an executive can edit the company profile' });
+    const ws = currentWs();
+    if (!ws) return res.status(404).json({ error: 'No company for this account' });
+    const b = req.body || {};
+    const data = {};
+    for (const k of COMPANY_FIELDS) {
+      if (b[k] === undefined) continue;
+      const v = b[k] == null ? '' : String(b[k]).trim();
+      data[k] = v ? v.slice(0, k === 'quoteTerms' || k === 'paymentDetails' || k === 'address' ? 2000 : 300) : null;
+    }
+    if (data.name === null) return res.status(400).json({ error: 'The company name cannot be empty' });
+    if (data.logoUrl && /^(blob:|data:)/i.test(data.logoUrl)) return res.status(400).json({ error: 'Upload the logo first' });
+    const w = await prismaBase.workspace.update({ where: { id: ws }, data });
+    const out = {};
+    for (const k of COMPANY_FIELDS) out[k] = w[k] ?? null;
+    res.json({ ...out, canEdit: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// The logo as a data URL, for PDFs built in the browser. Fetched here because
+// the storage bucket does not send CORS headers, so the browser can't read the
+// image bytes itself.
+app.get('/api/company/logo-data', auth, async (req, res) => {
+  try {
+    const w = await companyFor(currentWs());
+    if (!w || !w.logoUrl) return res.json({ dataUrl: null });
+    let url = w.logoUrl;
+    if (url.startsWith('/')) url = `${req.protocol}://${req.get('host')}${url}`;
+    const r = await fetch(url);
+    if (!r.ok) return res.json({ dataUrl: null });
+    const type = (r.headers.get('content-type') || '').split(';')[0];
+    if (!/^image\/(png|jpe?g)$/.test(type)) return res.json({ dataUrl: null, reason: 'Logo must be a PNG or JPG to appear on PDFs' });
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length > 3 * 1024 * 1024) return res.json({ dataUrl: null, reason: 'Logo is too large for PDFs' });
+    res.json({ dataUrl: `data:${type};base64,${buf.toString('base64')}` });
+  } catch (e) { res.json({ dataUrl: null }); }
+});
+
 // ===== QUOTES =====
 // Priced offers made before a project exists. The client opens a share link
 // (/?quote=<token>) to accept or decline; an accepted quote converts into a
@@ -2604,8 +2665,8 @@ app.get('/api/quotes', auth, async (req, res) => {
   try {
     const rows = await prisma.quote.findMany({ orderBy: { createdAt: 'desc' } });
     // The company name heads the quote PDF the browser builds.
-    const ws = currentWs() ? await prismaBase.workspace.findUnique({ where: { id: currentWs() }, select: { name: true } }) : null;
-    res.json({ companyName: ws ? ws.name : null, quotes: rows.map(quoteDto) });
+    const ws = await companyFor(currentWs());
+    res.json({ companyName: ws ? ws.name : null, company: companyPublic(ws), defaultTerms: ws ? ws.quoteTerms : null, quotes: rows.map(quoteDto) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2760,10 +2821,11 @@ app.get('/api/public/quotes/:token', async (req, res) => {
     const q = await prisma.quote.findUnique({ where: { publicToken: req.params.token } });
     if (!q) return res.status(404).json({ error: 'This quote is not available.' });
     if (!q.viewedAt) await prisma.quote.update({ where: { id: q.id }, data: { viewedAt: new Date() } }).catch(() => {});
-    const ws = q.workspaceId ? await prismaBase.workspace.findUnique({ where: { id: q.workspaceId }, select: { name: true } }) : null;
+    const ws = await companyFor(q.workspaceId);
     const d = quoteDto(q);
     res.json({
       companyName: ws ? ws.name : null,
+      company: companyPublic(ws),
       quoteNumber: d.quoteNumber, title: d.title, clientName: d.clientName, clientAddress: d.clientAddress,
       items: d.items, subtotal: d.subtotal, discount: d.discount, taxRate: d.taxRate, total: d.total,
       depositPercent: d.depositPercent, validUntil: d.validUntil, notes: d.notes, terms: d.terms,
@@ -2824,7 +2886,7 @@ app.get('/api/public/portal/:token', async (req, res) => {
     const p = await prisma.project.findUnique({ where: { portalToken: req.params.token } });
     if (!p) return res.status(404).json({ error: 'This project link is no longer active. Please ask your contractor for a new one.' });
     const [ws, schedule, logs, cos, invoices, selections] = await Promise.all([
-      p.workspaceId ? prismaBase.workspace.findUnique({ where: { id: p.workspaceId }, select: { name: true } }) : null,
+      companyFor(p.workspaceId),
       prisma.scheduleItem.findMany({ where: { projectId: p.id }, orderBy: [{ startDate: 'asc' }, { sortOrder: 'asc' }] }),
       prisma.dailyLog.findMany({ where: { projectId: p.id }, orderBy: { date: 'desc' }, take: 60 }),
       prisma.changeOrder.findMany({ where: { projectId: p.id, status: { in: ['owner_approval', 'approved', 'rejected'] } }, orderBy: { createdAt: 'desc' } }),
@@ -2833,6 +2895,7 @@ app.get('/api/public/portal/:token', async (req, res) => {
     ]);
     res.json({
       companyName: ws ? ws.name : null,
+      company: companyPublic(ws),
       project: {
         name: p.name, city: p.city, status: p.status, progress: p.progress,
         startDate: p.startDate, targetEndDate: p.targetEndDate, practicalCompletionAt: p.practicalCompletionAt,

@@ -15,7 +15,8 @@ import {
 } from "lucide-react";
 import type { Role } from "./roles";
 import { ROLES } from "./roles";
-import api, { type QuoteDto, type QuoteLine, type QuoteStatus, type QuoteInput } from "../../services/api";
+import api, { type QuoteDto, type QuoteLine, type QuoteStatus, type QuoteInput, type CompanyPublic } from "../../services/api";
+import { companyLogoData, drawLetterhead } from "../../services/brandPdf";
 import { useCurrency } from "./CurrencyContext";
 import { formatCurrency } from "./currency";
 import { jsPDF, lastTableEnd } from "../../services/pdf";
@@ -112,6 +113,8 @@ export default function Quotes({ role = "Contractor" }: { role?: Role }) {
 
   const [quotes, setQuotes] = useState<QuoteDto[]>([]);
   const [companyName, setCompanyName] = useState<string | null>(null);
+  const [company, setCompany] = useState<CompanyPublic | null>(null);
+  const [defaultTerms, setDefaultTerms] = useState<string>(DEFAULT_TERMS);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | QuoteStatus>("All");
@@ -126,7 +129,7 @@ export default function Quotes({ role = "Contractor" }: { role?: Role }) {
   const [city, setCity] = useState("");
 
   const load = () => api.getQuotes()
-    .then((r) => { setQuotes(r.quotes || []); setCompanyName(r.companyName); })
+    .then((r) => { setQuotes(r.quotes || []); setCompanyName(r.companyName); setCompany(r.company || null); if (r.defaultTerms) setDefaultTerms(r.defaultTerms); })
     .catch((e) => toast.error(e.message || "Could not load quotes"))
     .finally(() => setLoading(false));
   useEffect(() => { load(); }, []);
@@ -153,7 +156,7 @@ export default function Quotes({ role = "Contractor" }: { role?: Role }) {
 
   // ---- editor ----
   const openNew = () => {
-    setForm({ ...EMPTY_FORM, validUntil: plusDays(30) });
+    setForm({ ...EMPTY_FORM, terms: defaultTerms, validUntil: plusDays(30) });
     setLines([{ ...EMPTY_LINE }]);
     setEditing("new");
   };
@@ -263,28 +266,24 @@ export default function Quotes({ role = "Contractor" }: { role?: Role }) {
     catch (e: any) { toast.error(e.message || "Could not delete"); }
   };
 
-  const downloadPdf = (x: QuoteDto) => {
+  const downloadPdf = async (x: QuoteDto) => {
     const doc = new jsPDF();
     const W = doc.internal.pageSize.getWidth();
     const kes = (n: number) => `KES ${Math.round(n).toLocaleString("en-KE")}`;
-    doc.setFillColor(255, 107, 26); doc.rect(0, 0, W, 4, "F");
-    doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.setTextColor(20);
-    doc.text(companyName || "Quotation", 14, 20);
-    doc.setFontSize(11); doc.setTextColor(255, 107, 26); doc.text("QUOTATION", W - 14, 20, { align: "right" });
-    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(90);
     const meta = [
       `Quote no: ${x.quoteNumber}`,
       `Date: ${new Date(x.sentAt || x.createdAt).toLocaleDateString("en-GB")}`,
       x.validUntil ? `Valid until: ${new Date(x.validUntil).toLocaleDateString("en-GB")}` : "",
     ].filter(Boolean);
-    meta.forEach((m, i) => doc.text(m, W - 14, 27 + i * 5, { align: "right" }));
-    doc.setFontSize(8); doc.setTextColor(140); doc.text("PREPARED FOR", 14, 32);
-    doc.setFontSize(10); doc.setTextColor(20); doc.text(x.clientName, 14, 38);
+    let top = drawLetterhead(doc, company || (companyName ? { name: companyName } : null), await companyLogoData(), "QUOTATION", meta);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(140); doc.text("PREPARED FOR", 14, top);
+    doc.setFontSize(10); doc.setTextColor(20); doc.text(x.clientName, 14, top + 6);
     doc.setFontSize(9); doc.setTextColor(90);
     const addr = [x.clientAddress, x.clientPhone, x.clientEmail].filter(Boolean).join("\n");
-    if (addr) doc.text(doc.splitTextToSize(addr, 90), 14, 43);
+    if (addr) doc.text(doc.splitTextToSize(addr, 90), 14, top + 11);
+    top += 11 + (addr ? addr.split("\n").length * 4.5 : 0) + 8;
     doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(20);
-    doc.text(x.title, 14, 62);
+    doc.text(x.title, 14, top);
 
     const body: any[] = [];
     let lastSection: string | null = null;
@@ -296,7 +295,7 @@ export default function Quotes({ role = "Contractor" }: { role?: Role }) {
       body.push([i.description, i.unit, String(i.quantity), kes(i.rate), kes(i.quantity * i.rate)]);
     });
     (doc as any).autoTable({
-      startY: 67,
+      startY: top + 5,
       head: [["Description", "Unit", "Qty", "Rate", "Amount"]],
       body,
       styles: { fontSize: 9, cellPadding: 2.5 },
@@ -328,6 +327,7 @@ export default function Quotes({ role = "Contractor" }: { role?: Role }) {
     };
     block("Scope notes", x.notes);
     block("Terms", x.terms);
+    block("Payment details", company?.paymentDetails);
     if (x.publicToken) block("Accept online", shareUrl(x));
     doc.save(`${x.quoteNumber} ${x.title}.pdf`.replace(/[\\/:*?"<>|]/g, "-"));
   };
@@ -477,12 +477,12 @@ export default function Quotes({ role = "Contractor" }: { role?: Role }) {
               </div>
 
               <div>
-                <div className="text-[11px] text-white uppercase tracking-wider mb-2">Client</div>
+                <div className="text-[11px] text-white uppercase tracking-wider mb-2">Client <span className="normal-case tracking-normal text-[#5B6675]">(the person you are quoting)</span></div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div><div className={label}>Name <span className="text-[#FF6B1A]">*</span></div><input value={form.clientName} onChange={(e) => setForm({ ...form, clientName: e.target.value })} className={input} /></div>
-                  <div><div className={label}>Phone (for WhatsApp)</div><input value={form.clientPhone} onChange={(e) => setForm({ ...form, clientPhone: e.target.value })} placeholder="07…" className={input} /></div>
-                  <div><div className={label}>Email</div><input type="email" value={form.clientEmail} onChange={(e) => setForm({ ...form, clientEmail: e.target.value })} className={input} /></div>
-                  <div><div className={label}>Site / address</div><input value={form.clientAddress} onChange={(e) => setForm({ ...form, clientAddress: e.target.value })} className={input} /></div>
+                  <div><div className={label}>Client's name <span className="text-[#FF6B1A]">*</span></div><input value={form.clientName} onChange={(e) => setForm({ ...form, clientName: e.target.value })} placeholder="e.g. Jane Wanjiku" className={input} /></div>
+                  <div><div className={label}>Client's phone (WhatsApp)</div><input type="tel" value={form.clientPhone} onChange={(e) => setForm({ ...form, clientPhone: e.target.value })} placeholder="e.g. 0712 345 678" className={input} /><div className="text-[10px] text-[#5B6675] mt-1">We use this to send the quote to the client on WhatsApp.</div></div>
+                  <div><div className={label}>Client's email</div><input type="email" value={form.clientEmail} onChange={(e) => setForm({ ...form, clientEmail: e.target.value })} placeholder="e.g. jane@example.com" className={input} /></div>
+                  <div><div className={label}>Job site / address</div><input value={form.clientAddress} onChange={(e) => setForm({ ...form, clientAddress: e.target.value })} placeholder="e.g. Runda, Nairobi" className={input} /></div>
                 </div>
               </div>
 

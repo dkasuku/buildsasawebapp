@@ -582,6 +582,10 @@ export type BidPackageDto = {
   bids?: BidDto[];
 };
 
+/** The company's own branding, printed on quotes and invoices and shown to clients. */
+export type CompanyPublic = { name: string; logoUrl?: string | null; phone?: string | null; email?: string | null; address?: string | null; kraPin?: string | null; paymentDetails?: string | null };
+export type CompanyDto = CompanyPublic & { quoteTerms?: string | null; canEdit: boolean };
+
 export type QuoteLine = { section?: string; description: string; unit: string; quantity: number; rate: number };
 export type QuoteStatus = "draft" | "sent" | "accepted" | "declined" | "expired";
 export type QuoteDto = {
@@ -613,7 +617,7 @@ export type QuoteDto = {
   createdAt: string;
 };
 export type QuoteInput = Pick<QuoteDto, "title" | "clientName" | "clientPhone" | "clientEmail" | "clientAddress" | "items" | "discount" | "taxRate" | "depositPercent" | "validUntil" | "notes" | "terms">;
-export type PublicQuoteDto = Pick<QuoteDto, "quoteNumber" | "title" | "clientName" | "clientAddress" | "items" | "subtotal" | "discount" | "taxRate" | "total" | "depositPercent" | "validUntil" | "notes" | "terms" | "status" | "acceptedBy" | "respondedAt"> & { companyName?: string | null; issuedAt: string };
+export type PublicQuoteDto = Pick<QuoteDto, "quoteNumber" | "title" | "clientName" | "clientAddress" | "items" | "subtotal" | "discount" | "taxRate" | "total" | "depositPercent" | "validUntil" | "notes" | "terms" | "status" | "acceptedBy" | "respondedAt"> & { companyName?: string | null; company?: CompanyPublic | null; issuedAt: string };
 
 export type SelectionStatus = "draft" | "awaiting_client" | "approved" | "changes_requested" | "ordered" | "installed";
 export type SelectionDto = {
@@ -641,6 +645,7 @@ export type SelectionInput = Partial<Pick<SelectionDto, "room" | "category" | "n
 
 export type PortalDto = {
   companyName: string | null;
+  company?: CompanyPublic | null;
   project: { name: string; city: string; status: string; progress: number; startDate?: string | null; targetEndDate?: string | null; practicalCompletionAt?: string | null; description?: string | null; images: string[] };
   schedule: { name: string; type: string; startDate: string; endDate: string; percent: number; status: string }[];
   photos: { date: string; location: string; photos: string[] }[];
@@ -1275,8 +1280,12 @@ export const api = {
   // Public tender link (no auth needed; http() still sends a token if present — harmless)
   getPublicBidPackage: (token: string) => http<{ title: string; trade?: string | null; description?: string | null; budgetKES?: number | null; dueDate?: string | null; status: string; companyName?: string | null; closed?: boolean }>(`/api/public/bids/${token}`),
   submitPublicBid: (token: string, payload: { subcontractor?: string; contactName?: string; contactEmail?: string; contactPhone?: string; trade?: string; amount: number; notes?: string; fileUrl?: string }) => http<{ ok: boolean; id?: string }>(`/api/public/bids/${token}`, { method: "POST", body: JSON.stringify(payload) }),
+  // Company profile (branding on quotes, invoices and the client pages)
+  getCompany: () => http<CompanyDto>(`/api/company`),
+  updateCompany: (payload: Partial<Omit<CompanyDto, "canEdit">>) => http<CompanyDto>(`/api/company`, { method: "PUT", body: JSON.stringify(payload) }),
+  getCompanyLogoData: () => http<{ dataUrl: string | null; reason?: string }>(`/api/company/logo-data`),
   // Quotes (workspace-level; the client answers through a public link)
-  getQuotes: () => http<{ companyName: string | null; quotes: QuoteDto[] }>(`/api/quotes`),
+  getQuotes: () => http<{ companyName: string | null; company?: CompanyPublic | null; defaultTerms?: string | null; quotes: QuoteDto[] }>(`/api/quotes`),
   createQuote: (payload: QuoteInput) => http<QuoteDto>(`/api/quotes`, { method: "POST", body: JSON.stringify(payload) }),
   updateQuote: (id: string, payload: Partial<QuoteInput>) => http<QuoteDto>(`/api/quotes/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteQuote: (id: string) => http(`/api/quotes/${id}`, { method: "DELETE" }),

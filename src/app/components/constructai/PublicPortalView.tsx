@@ -35,8 +35,11 @@ export function PublicPortalView({ token }: { token: string }) {
     <div style={{ minHeight: "100vh", background: "#F4F6FA", color: C.ink, fontFamily: "Inter, system-ui, sans-serif" }}>
       <div style={{ background: C.navy }}>
         <div className="max-w-3xl mx-auto px-4 h-14 flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg overflow-hidden"><img src="/Buildsasa.png" alt="" className="w-full h-full object-cover" /></div>
-          <div className="text-[14px] text-white font-semibold truncate">{data?.companyName || "Project portal"}</div>
+          {data?.company?.logoUrl
+            ? <div className="h-9 rounded-md bg-white px-1.5 flex items-center"><img src={absoluteFileUrl(data.company.logoUrl)} alt="" className="h-7 w-auto max-w-[120px] object-contain" /></div>
+            : <div className="w-8 h-8 rounded-lg overflow-hidden"><img src="/Buildsasa.png" alt="" className="w-full h-full object-cover" /></div>}
+          <div className="text-[14px] text-white font-semibold truncate">{data?.company?.name || data?.companyName || "Project portal"}</div>
+          {data?.company?.phone && <a href={`tel:${data.company.phone}`} className="ml-auto text-[12px] text-white/80 whitespace-nowrap">Call us</a>}
         </div>
       </div>
       <div className="max-w-3xl mx-auto px-4 py-5">{children}</div>
@@ -197,6 +200,7 @@ export function PublicPortalView({ token }: { token: string }) {
       {tab === "invoices" && (
         <div className="space-y-3">
           {invoices.length === 0 && <Empty text="No invoices yet." />}
+          {invoices.length > 0 && data.company?.paymentDetails && <div className="p-4 text-[13px]" style={card}><div className="font-semibold mb-1">How to pay</div><div className="whitespace-pre-wrap" style={{ color: "#4B5563" }}>{data.company.paymentDetails}</div></div>}
           {invoices.map((inv) => {
             const balance = inv.amount - inv.paidAmount;
             const isPaid = inv.status === "paid" || balance <= 0;

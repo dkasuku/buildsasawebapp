@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { Check, Loader2, AlertTriangle, X } from "lucide-react";
-import api, { type PublicQuoteDto } from "../../services/api";
+import api, { absoluteFileUrl, type PublicQuoteDto } from "../../services/api";
 import { quoteTotals } from "./Quotes";
 
 const kes = (n: number) => `KES ${Math.round(Number(n) || 0).toLocaleString("en-KE")}`;
@@ -49,8 +49,10 @@ export function PublicQuoteView({ token }: { token: string }) {
     <div style={{ minHeight: "100vh", background: "#F4F6FA", color: "#1B1F24", fontFamily: "Inter, system-ui, sans-serif" }}>
       <div style={{ background: "#0B2A4A" }}>
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg overflow-hidden"><img src="/Buildsasa.png" alt="" className="w-full h-full object-cover" /></div>
-          <div className="text-[14px] text-white font-semibold">{quote?.companyName || "Quotation"}</div>
+          {quote?.company?.logoUrl
+            ? <div className="h-9 rounded-md bg-white px-1.5 flex items-center"><img src={absoluteFileUrl(quote.company.logoUrl)} alt="" className="h-7 w-auto max-w-[120px] object-contain" /></div>
+            : <div className="w-8 h-8 rounded-lg overflow-hidden"><img src="/Buildsasa.png" alt="" className="w-full h-full object-cover" /></div>}
+          <div className="text-[14px] text-white font-semibold truncate">{quote?.company?.name || quote?.companyName || "Quotation"}</div>
         </div>
       </div>
       <div className="max-w-2xl mx-auto px-4 py-6">{children}</div>
@@ -141,6 +143,21 @@ export function PublicQuoteView({ token }: { token: string }) {
           {quote.depositPercent ? <div className="flex justify-between" style={{ color: "#F45B1E" }}><span>Deposit to start ({quote.depositPercent}%)</span><span>{kes(quote.total * quote.depositPercent / 100)}</span></div> : null}
         </div>
       </div>
+
+      {quote.company && (quote.company.phone || quote.company.email || quote.company.address || quote.company.paymentDetails) && (
+        <div className="p-5 text-[13px] space-y-3" style={card}>
+          <div>
+            <div className="font-semibold mb-1">From {quote.company.name}</div>
+            <div style={{ color: "#4B5563" }} className="space-y-0.5">
+              {quote.company.address && <div>{quote.company.address}</div>}
+              {quote.company.phone && <div><a href={`tel:${quote.company.phone}`} style={{ color: "#F45B1E" }}>{quote.company.phone}</a></div>}
+              {quote.company.email && <div><a href={`mailto:${quote.company.email}`} style={{ color: "#F45B1E" }}>{quote.company.email}</a></div>}
+              {quote.company.kraPin && <div>KRA PIN: {quote.company.kraPin}</div>}
+            </div>
+          </div>
+          {quote.company.paymentDetails && <div><div className="font-semibold mb-1">How to pay</div><div className="whitespace-pre-wrap" style={{ color: "#4B5563" }}>{quote.company.paymentDetails}</div></div>}
+        </div>
+      )}
 
       {(quote.notes || quote.terms) && (
         <div className="p-5 space-y-3 text-[13px]" style={card}>

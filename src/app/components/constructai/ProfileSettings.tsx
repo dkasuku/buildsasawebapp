@@ -9,7 +9,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { X, Camera, Trash2, Loader2, Check, ShieldAlert, UserRound, Lock } from "lucide-react";
+import { X, Camera, Trash2, Loader2, Check, ShieldAlert, UserRound, Lock, Building2 } from "lucide-react";
+import { CompanySettings } from "./CompanySettings";
 import { TRADES } from "./roles";
 import api, { type UserProfile } from "../../services/api";
 
@@ -43,7 +44,7 @@ function fileToAvatar(file: File): Promise<string> {
 }
 
 export function ProfileSettings({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<"profile" | "account">("profile");
+  const [tab, setTab] = useState<"profile" | "account" | "company">("profile");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [me, setMe] = useState<UserProfile | null>(null);
@@ -107,7 +108,7 @@ export function ProfileSettings({ onClose }: { onClose: () => void }) {
   };
 
   const initials = (f.name || me?.name || "U").trim().split(/\s+/).map((s) => s[0]).slice(0, 2).join("").toUpperCase() || "U";
-  const TabBtn = ({ id, icon: Icon, label }: { id: "profile" | "account"; icon: any; label: string }) => (
+  const TabBtn = ({ id, icon: Icon, label }: { id: "profile" | "account" | "company"; icon: any; label: string }) => (
     <button onClick={() => setTab(id)} className={`flex items-center gap-2 px-3 h-9 text-[12.5px] rounded-md ${tab === id ? "bg-[#222A35] text-white" : "text-[#8A95A5] hover:text-white"}`}><Icon className="w-3.5 h-3.5" /> {label}</button>
   );
 
@@ -122,6 +123,7 @@ export function ProfileSettings({ onClose }: { onClose: () => void }) {
           <div className="flex gap-1 mt-3 bg-[#0A0E14] border border-[#222A35] rounded-lg p-0.5 w-fit">
             <TabBtn id="profile" icon={UserRound} label="Profile" />
             <TabBtn id="account" icon={Lock} label="Account & Security" />
+            <TabBtn id="company" icon={Building2} label="Company" />
           </div>
         </div>
 
@@ -174,6 +176,8 @@ export function ProfileSettings({ onClose }: { onClose: () => void }) {
         ))}
 
         {/* ACCOUNT & SECURITY */}
+        {tab === "company" && <CompanySettings />}
+
         {tab === "account" && (
           <div className="p-5 space-y-4">
             <div className="text-[12.5px] text-white font-medium">Change password</div>

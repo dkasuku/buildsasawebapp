@@ -37,6 +37,14 @@ model User {
 model Workspace {
   id        String   @id @default(cuid())
   name      String
+  // Company profile, printed on quotes and invoices and shown to clients.
+  logoUrl        String?
+  phone          String?
+  email          String?
+  address        String?
+  kraPin         String?
+  paymentDetails String?  // e.g. M-Pesa paybill/till or bank details
+  quoteTerms     String?  // default terms for new quotes
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

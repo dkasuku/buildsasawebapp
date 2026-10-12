@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { Plus, Search, X, Trash2, FileText } from "lucide-react";
+import { Plus, Search, X, Trash2, FileText, Download } from "lucide-react";
 import type { Role } from "./roles";
 import { ROLES } from "./roles";
-import api, { type InvoiceDto } from "../../services/api";
+import api, { type InvoiceDto, type CompanyPublic } from "../../services/api";
+import { jsPDF, lastTableEnd } from "../../services/pdf";
+import { companyLogoData, drawLetterhead } from "../../services/brandPdf";
 import { useCurrency } from "./CurrencyContext";
 import { formatCurrency } from "./currency";
 
@@ -50,6 +52,63 @@ export default function Invoicing({ role = "Contractor" }: { role?: Role }) {
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [lines, setLines] = useState<LineItem[]>([{ ...EMPTY_LINE }]);
   const { currency } = useCurrency();
+  const [company, setCompany] = useState<CompanyPublic | null>(null);
+  useEffect(() => { api.getCompany().then(setCompany).catch(() => {}); }, []);
+
+  // Branded invoice PDF. Amounts are always printed in KES, the stored currency.
+  const downloadPdf = async (inv: InvoiceDto) => {
+    const doc = new jsPDF();
+    const W = doc.internal.pageSize.getWidth();
+    const kes = (n: number) => `KES ${Math.round(Number(n) || 0).toLocaleString("en-KE")}`;
+    const day = (d?: string | null) => (d ? new Date(d).toLocaleDateString("en-GB") : "");
+    const meta = [`Invoice no: ${inv.invoiceNumber}`, inv.issueDate ? `Date: ${day(inv.issueDate)}` : "", inv.dueDate ? `Due: ${day(inv.dueDate)}` : "", inv.poNumber ? `PO: ${inv.poNumber}` : ""].filter(Boolean);
+    let y = drawLetterhead(doc, company, await companyLogoData(), "INVOICE", meta);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(140); doc.text("BILL TO", 14, y);
+    doc.setFontSize(10); doc.setTextColor(20); doc.text(inv.clientName || "", 14, y + 6);
+    doc.setFontSize(9); doc.setTextColor(90);
+    const addr = doc.splitTextToSize(inv.billToAddress || "", 90);
+    if (inv.billToAddress) doc.text(addr, 14, y + 11);
+    y += 14 + (inv.billToAddress ? addr.length * 4.5 : 0);
+    let items: { description: string; quantity: number; rate: number }[] = [];
+    try { items = JSON.parse(inv.items || "[]"); } catch { items = []; }
+    (doc as any).autoTable({
+      startY: y,
+      head: [["Description", "Qty", "Rate", "Amount"]],
+      body: items.map((i) => [i.description, String(i.quantity), kes(i.rate), kes((Number(i.quantity) || 0) * (Number(i.rate) || 0))]),
+      styles: { fontSize: 9, cellPadding: 2.5 },
+      headStyles: { fillColor: [11, 42, 74], textColor: 255 },
+      columnStyles: { 1: { cellWidth: 16, halign: "right" }, 2: { cellWidth: 32, halign: "right" }, 3: { cellWidth: 34, halign: "right" } },
+    });
+    y = lastTableEnd(doc, y + 20) + 8;
+    const sub = inv.subtotal ?? items.reduce((t, i) => t + (Number(i.quantity) || 0) * (Number(i.rate) || 0), 0);
+    const rows: [string, string][] = [["Subtotal", kes(sub)]];
+    if (inv.discount) rows.push(["Discount", `- ${kes(inv.discount)}`]);
+    if (inv.taxRate) rows.push([`VAT (${inv.taxRate}%)`, kes((sub - (inv.discount || 0)) * inv.taxRate / 100)]);
+    if (inv.shipping) rows.push(["Shipping", kes(inv.shipping)]);
+    doc.setFontSize(9); doc.setTextColor(60);
+    rows.forEach(([k, v]) => { doc.text(k, W - 70, y); doc.text(v, W - 14, y, { align: "right" }); y += 6; });
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(20);
+    doc.text("Total", W - 70, y + 1); doc.text(kes(inv.amount), W - 14, y + 1, { align: "right" });
+    y += 8;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+    if (inv.paidAmount) { doc.setTextColor(60); doc.text("Paid", W - 70, y); doc.text(kes(inv.paidAmount), W - 14, y, { align: "right" }); y += 6; }
+    doc.setFont("helvetica", "bold"); doc.setTextColor(255, 107, 26);
+    doc.text("Balance due", W - 70, y); doc.text(kes((inv.amount || 0) - (inv.paidAmount || 0)), W - 14, y, { align: "right" });
+    y += 10;
+    const block = (heading: string, text?: string | null) => {
+      if (!text) return;
+      const wrapped = doc.splitTextToSize(text, W - 28);
+      if (y + 10 + wrapped.length * 4.5 > doc.internal.pageSize.getHeight() - 15) { doc.addPage(); y = 20; }
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(20); doc.text(heading, 14, y + 4);
+      doc.setFont("helvetica", "normal"); doc.setTextColor(80); doc.text(wrapped, 14, y + 10);
+      y += 12 + wrapped.length * 4.5;
+    };
+    block("Payment terms", inv.paymentTerms);
+    block("How to pay", company?.paymentDetails);
+    block("Notes", inv.notes);
+    block("Terms & conditions", inv.terms);
+    doc.save(`${inv.invoiceNumber}.pdf`.replace(/[\\/:*?"<>|]/g, "-"));
+  };
   const [payFor, setPayFor] = useState<InvoiceDto | null>(null);
   const [payAmount, setPayAmount] = useState("");
   const [payDate, setPayDate] = useState("");
@@ -218,6 +277,7 @@ export default function Invoicing({ role = "Contractor" }: { role?: Role }) {
                   <td className="px-3 py-2.5 text-[#8A95A5]">{inv.paidAmount ? `${formatCurrency(Math.round(inv.paidAmount), currency)}${inv.paidDate ? ` · ${inv.paidDate}` : ""}` : "—"}</td>
                   <td className="px-3 py-2.5 text-[#8A95A5]">{formatCurrency(Math.round((inv.amount || 0) - (inv.paidAmount || 0)), currency)}</td>
                   <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                    <button onClick={() => downloadPdf(inv)} className="text-[11px] text-[#8A95A5] hover:text-white mr-3 inline-flex items-center gap-1 align-middle"><Download className="w-3.5 h-3.5" />PDF</button>
                     {perms.financials && <button onClick={() => openPay(inv)} className="text-[11px] text-[#22C55E] hover:underline mr-3">Record payment</button>}
                     <button onClick={() => deleteInvoice(inv.id)} className="text-[#8A95A5] hover:text-red-400 align-middle"><Trash2 className="w-3.5 h-3.5 inline" /></button>
                   </td>
@@ -250,6 +310,7 @@ export default function Invoicing({ role = "Contractor" }: { role?: Role }) {
             {perms.financials && (
               <div className="flex items-center gap-3 mt-2.5 pt-2.5 border-t border-[#222A35]">
                 <button onClick={() => openPay(inv)} className="text-[12px] text-[#22C55E] hover:underline">Record payment</button>
+                <button onClick={() => downloadPdf(inv)} className="text-[12px] text-[#8A95A5] hover:text-white flex items-center gap-1"><Download className="w-3.5 h-3.5" /> PDF</button>
                 <button onClick={() => deleteInvoice(inv.id)} className="text-[12px] text-[#8A95A5] hover:text-red-400 ml-auto flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> Delete</button>
               </div>
             )}
