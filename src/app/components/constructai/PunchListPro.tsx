@@ -14,7 +14,7 @@ import {
   ImageIcon, Send, ChevronDown, Users,
 } from "lucide-react";
 import type { Role } from "./roles";
-import { ROLES } from "./roles";
+import { ROLES, TRADE_NAMES } from "./roles";
 import { useTeam, resolveName } from "./useTeam";
 import { MultiAssign } from "./MultiAssign";
 import api from "../../services/api";
@@ -46,7 +46,8 @@ const STATUS_META: Record<PunchStatus, { label: string; cls: string; pin: string
 };
 const PRIORITY_CLS: Record<string, string> = { low: "text-[#8A95A5]", medium: "text-[#F5A623]", high: "text-[#EF4444]" };
 const CATEGORIES = ["architectural", "mep", "finishes", "structural", "civil", "other"];
-const TRADES = ["General", "Electrical", "Plumbing", "HVAC", "Carpentry", "Painting", "Masonry", "Concrete", "Roofing"];
+// The app-wide trade list (roles.ts), common trades first.
+const TRADES = TRADE_NAMES;
 const IMPACT = ["yes", "yes_unknown", "no", "tbd", "na"];
 const IMPACT_LABEL: Record<string, string> = { yes: "Yes", yes_unknown: "Yes (unknown)", no: "No", tbd: "TBD", na: "N/A" };
 

@@ -6,7 +6,7 @@ import {
   Sparkles, Filter, PenTool, FileUp, Link2, Inbox
 } from "lucide-react";
 import type { Role } from "./roles";
-import { ROLES } from "./roles";
+import { ROLES, TRADE_NAMES } from "./roles";
 import {getMember } from "./team-data";
 import { useTeam, resolveName } from "./useTeam";
 import { EmptyState } from "./EmptyState";
@@ -110,7 +110,8 @@ const QTYPE_LABEL: Record<string, string> = {
   dropdown: "Dropdown", checkbox: "Checkbox", photo: "Photo", signature: "Signature",
 };
 
-const TRADES = ["General","Electrical","Plumbing","HVAC","Carpentry","Painting","Masonry","Roofing","Drywall","Concrete","Landscaping"];
+// The app-wide trade list (roles.ts), common trades first.
+const TRADES = TRADE_NAMES;
 const CATEGORIES = ["safety","quality","pre-handover","custom"];
 
 // How many DISTINCT questions have a non-blank answer.

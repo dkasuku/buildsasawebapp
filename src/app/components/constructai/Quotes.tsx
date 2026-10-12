@@ -8,6 +8,7 @@
 // deposit invoice, so nothing is typed in twice.
 // ============================================================================
 
+import { MapPicker } from "./MapPicker";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -490,7 +491,7 @@ export default function Quotes({ role = "Contractor" }: { role?: Role }) {
                   <div><div className={label}>Client's name <span className="text-[#FF6B1A]">*</span></div><input value={form.clientName} onChange={(e) => setForm({ ...form, clientName: e.target.value })} placeholder="e.g. Jane Wanjiku" className={input} /></div>
                   <div><div className={label}>Client's phone (WhatsApp)</div><input type="tel" value={form.clientPhone} onChange={(e) => setForm({ ...form, clientPhone: e.target.value })} placeholder="e.g. 0712 345 678" className={input} /><div className="text-[10px] text-[#5B6675] mt-1">We use this to send the quote to the client on WhatsApp.</div></div>
                   <div><div className={label}>Client's email</div><input type="email" value={form.clientEmail} onChange={(e) => setForm({ ...form, clientEmail: e.target.value })} placeholder="e.g. jane@example.com" className={input} /></div>
-                  <div><div className={label}>Job site / address</div><input value={form.clientAddress} onChange={(e) => setForm({ ...form, clientAddress: e.target.value })} placeholder="e.g. Runda, Nairobi" className={input} /></div>
+                  <div className="sm:col-span-2"><div className={label}>Job site / address</div><MapPicker value={form.clientAddress} onChange={(v) => setForm((x) => ({ ...x, clientAddress: v }))} onLatLngChange={() => {}} placeholder="Search the job site, e.g. Runda, Nairobi" /></div>
                 </div>
               </div>
 

@@ -2,6 +2,7 @@
 // invoices and shown on the client's quote page and portal. Editable by the
 // company owner and executives; everyone else sees it read-only.
 
+import { MapPicker } from "./MapPicker";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, ImagePlus, Check } from "lucide-react";
@@ -86,8 +87,8 @@ export function CompanySettings() {
         <div><span className={lbl}>Company phone</span><input type="tel" value={f.phone} onChange={set("phone")} disabled={!canEdit} placeholder="e.g. 0712 345 678" className={input} /></div>
         <div><span className={lbl}>Company email</span><input type="email" value={f.email} onChange={set("email")} disabled={!canEdit} placeholder="e.g. info@yourcompany.co.ke" className={input} /></div>
       </div>
+      <div><span className={lbl}>Address</span>{canEdit ? <MapPicker value={f.address} onChange={(v) => setF((x) => ({ ...x, address: v }))} onLatLngChange={() => {}} placeholder="Search your office, e.g. Westlands, Nairobi" /> : <input value={f.address} disabled className={input} />}</div>
       <div className="grid grid-cols-2 gap-3">
-        <div><span className={lbl}>Address</span><input value={f.address} onChange={set("address")} disabled={!canEdit} placeholder="e.g. Westlands, Nairobi" className={input} /></div>
         <div><span className={lbl}>KRA PIN</span><input value={f.kraPin} onChange={set("kraPin")} disabled={!canEdit} placeholder="e.g. P051234567X" className={input} /></div>
       </div>
       <div>

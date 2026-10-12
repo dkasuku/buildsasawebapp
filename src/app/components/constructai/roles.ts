@@ -16,44 +16,62 @@ export type Role =
   | "QA/QC Officer"
   | "Viewer";
 
-export type Trade =
-  | "General"
-  | "Electrical"
-  | "Plumbing"
-  | "Painting"
-  | "Carpentry"
-  | "HVAC"
-  | "Masonry"
-  | "Roofing"
-  | "Drywall"
-  | "Concrete"
-  | "Landscaping"
-  | "Earthwork"
-  | "Asphalt & Paving"
-  | "Grading"
-  | "Drainage"
-  | "Bridge"
-  | "Traffic Control";
+// Construction trades, one list for the whole app (crews, checklists, punch
+// list, schedule, bidding, profiles). Ordered by how often Kenyan sites use
+// them, so the common ones are at the top of every dropdown; grouped so a long
+// list stays scannable. Existing names are kept exactly as before so records
+// already saved keep their trade and colour. "Other" lets anyone type their own.
+export type Trade = string;
+export type TradeGroup = "Most common" | "Structure & envelope" | "Services (MEP)" | "Finishes & interiors" | "Civil & site works" | "Specialist";
 
-export const TRADES: { name: Trade; color: string; icon: string }[] = [
-  { name: "General",     color: "#FF6B1A", icon: "🏗" },
-  { name: "Electrical",  color: "#F5A623", icon: "⚡" },
-  { name: "Plumbing",    color: "#3B82F6", icon: "🚰" },
-  { name: "Painting",    color: "#8B5CF6", icon: "🎨" },
-  { name: "Carpentry",   color: "#A16207", icon: "🪵" },
-  { name: "HVAC",        color: "#06B6D4", icon: "❄️" },
-  { name: "Masonry",     color: "#78716C", icon: "🧱" },
-  { name: "Roofing",     color: "#EF4444", icon: "🏠" },
-  { name: "Drywall",     color: "#94A3B8", icon: "▭" },
-  { name: "Concrete",    color: "#525252", icon: "◼" },
-  { name: "Landscaping", color: "#22C55E", icon: "🌿" },
-  { name: "Earthwork",         color: "#8B6914", icon: "🚜" },
-  { name: "Asphalt & Paving",  color: "#1F2937", icon: "🛣" },
-  { name: "Grading",           color: "#B45309", icon: "📐" },
-  { name: "Drainage",          color: "#2563EB", icon: "🕳" },
-  { name: "Bridge",            color: "#6B7280", icon: "🌉" },
-  { name: "Traffic Control",   color: "#DC2626", icon: "🚧" },
+export const TRADES: { name: Trade; group: TradeGroup; color: string; icon: string }[] = [
+  // Most common first
+  { name: "General",            group: "Most common", color: "#FF6B1A", icon: "🏗" },
+  { name: "Masonry",            group: "Most common", color: "#78716C", icon: "🧱" },
+  { name: "Concrete",           group: "Most common", color: "#525252", icon: "◼" },
+  { name: "Steel Fixing",       group: "Most common", color: "#64748B", icon: "🔩" },
+  { name: "Carpentry",          group: "Most common", color: "#A16207", icon: "🪵" },
+  { name: "Electrical",         group: "Most common", color: "#F5A623", icon: "⚡" },
+  { name: "Plumbing",           group: "Most common", color: "#3B82F6", icon: "🚰" },
+  { name: "Painting",           group: "Most common", color: "#8B5CF6", icon: "🎨" },
+  { name: "Tiling & Flooring",  group: "Most common", color: "#0EA5E9", icon: "▦" },
+  // Structure & envelope
+  { name: "Roofing",            group: "Structure & envelope", color: "#EF4444", icon: "🏠" },
+  { name: "Structural Steel",   group: "Structure & envelope", color: "#475569", icon: "🏗" },
+  { name: "Welding & Fabrication", group: "Structure & envelope", color: "#F97316", icon: "🔥" },
+  { name: "Glazing & Aluminium", group: "Structure & envelope", color: "#38BDF8", icon: "🪟" },
+  { name: "Waterproofing",      group: "Structure & envelope", color: "#0284C7", icon: "💧" },
+  { name: "Scaffolding",        group: "Structure & envelope", color: "#A3A3A3", icon: "🪜" },
+  { name: "Demolition",         group: "Structure & envelope", color: "#B91C1C", icon: "🔨" },
+  // Services (MEP)
+  { name: "HVAC",               group: "Services (MEP)", color: "#06B6D4", icon: "❄️" },
+  { name: "Fire & Security Systems", group: "Services (MEP)", color: "#DC2626", icon: "🧯" },
+  { name: "Solar & Energy",     group: "Services (MEP)", color: "#EAB308", icon: "☀️" },
+  { name: "Lifts & Escalators", group: "Services (MEP)", color: "#6366F1", icon: "🛗" },
+  { name: "Data & Telecoms",    group: "Services (MEP)", color: "#14B8A6", icon: "📡" },
+  // Finishes & interiors
+  { name: "Plastering",         group: "Finishes & interiors", color: "#D6D3D1", icon: "🧰" },
+  { name: "Drywall",            group: "Finishes & interiors", color: "#94A3B8", icon: "▭" },
+  { name: "Ceilings & Partitions", group: "Finishes & interiors", color: "#CBD5E1", icon: "▤" },
+  { name: "Joinery & Cabinetry", group: "Finishes & interiors", color: "#92400E", icon: "🚪" },
+  { name: "Interior Design & Decor", group: "Finishes & interiors", color: "#EC4899", icon: "🛋" },
+  { name: "Wallpaper & Finishes", group: "Finishes & interiors", color: "#C084FC", icon: "🖌" },
+  // Civil & site works
+  { name: "Earthwork",          group: "Civil & site works", color: "#8B6914", icon: "🚜" },
+  { name: "Grading",            group: "Civil & site works", color: "#B45309", icon: "📐" },
+  { name: "Drainage",           group: "Civil & site works", color: "#2563EB", icon: "🕳" },
+  { name: "Asphalt & Paving",   group: "Civil & site works", color: "#1F2937", icon: "🛣" },
+  { name: "Landscaping",        group: "Civil & site works", color: "#22C55E", icon: "🌿" },
+  { name: "Fencing",            group: "Civil & site works", color: "#65A30D", icon: "🚧" },
+  { name: "Bridge",             group: "Civil & site works", color: "#6B7280", icon: "🌉" },
+  { name: "Traffic Control",    group: "Civil & site works", color: "#DC2626", icon: "🚧" },
+  // Specialist
+  { name: "Surveying",          group: "Specialist", color: "#0D9488", icon: "📏" },
+  { name: "Cleaning & Handover", group: "Specialist", color: "#10B981", icon: "🧹" },
+  { name: "Other",              group: "Specialist", color: "#5B6675", icon: "•" },
 ];
+export const TRADE_GROUPS: TradeGroup[] = ["Most common", "Structure & envelope", "Services (MEP)", "Finishes & interiors", "Civil & site works", "Specialist"];
+export const TRADE_NAMES: string[] = TRADES.map((t) => t.name);
 
 export const TRADE_COLOR = (t: Trade) => TRADES.find((x) => x.name === t)?.color ?? "#5B6675";
 

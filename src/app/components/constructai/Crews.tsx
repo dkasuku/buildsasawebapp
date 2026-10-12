@@ -5,6 +5,7 @@ import type { Role } from "./roles";
 import api from "../../services/api";
 import { EmptyState } from "./EmptyState";
 import { ProjectSelect } from "./ProjectSelect";
+import { TradeSelect } from "./TradeSelect";
 import { warnSaveFailed } from "./saveFeedback";
 
 const mapCrew = (r: any): Crew => ({
@@ -160,9 +161,9 @@ export default function Crews({ role }: { role: Role }) {
                     ))}
                   </div>
                   {addingTo === c.id ? (
-                    <div className="flex gap-2 mt-2">
+                    <div className="flex gap-2 mt-2 flex-wrap sm:flex-nowrap items-start">
                       <input value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} placeholder="Name" className="flex-1 h-8 bg-[#0A0E14] border border-[#222A35] rounded-lg px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]" />
-                      <input value={newMemberTrade} onChange={(e) => setNewMemberTrade(e.target.value)} placeholder="Trade" className="w-32 h-8 bg-[#0A0E14] border border-[#222A35] rounded-lg px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]" />
+                      <div className="w-44 shrink-0"><TradeSelect value={newMemberTrade} onChange={setNewMemberTrade} placeholder="Trade…" className="w-full h-8 bg-[#0A0E14] border border-[#222A35] rounded-lg px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
                       <button onClick={() => addMember(c.id)} className="h-8 px-3 bg-[#FF6B1A] text-black rounded-lg text-[11px] font-medium">Add</button>
                       <button onClick={() => setAddingTo(null)} className="h-8 px-2 bg-[#222A35] text-white rounded-lg text-[11px]">Cancel</button>
                     </div>
@@ -228,18 +229,22 @@ function NewCrewModal({ onClose, onCreate }: { onClose: () => void; onCreate: (c
           <button onClick={onClose} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button>
         </div>
         <div className="space-y-3">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Crew name" className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
-          <div className="grid grid-cols-2 gap-3">
-            <input value={trade} onChange={(e) => setTrade(e.target.value)} placeholder="Trade" className="h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
-            <input value={foreman} onChange={(e) => setForeman(e.target.value)} placeholder="Foreman" className="h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
+          <div><label className="text-[11px] text-[#8A95A5] mb-1 block">Crew name *</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Concrete Crew A" className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div><label className="text-[11px] text-[#8A95A5] mb-1 block">Trade</label><TradeSelect value={trade} onChange={setTrade} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-2 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
+            <div><label className="text-[11px] text-[#8A95A5] mb-1 block">Foreman</label><input value={foreman} onChange={(e) => setForeman(e.target.value)} placeholder="Who leads this crew" className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <ProjectSelect value={project?.id} onChange={setProject} />
-            <select value={shift} onChange={(e) => setShift(e.target.value as Crew["shift"])} className="h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-2 text-[13px] text-white">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div><label className="text-[11px] text-[#8A95A5] mb-1 block">Project *</label><ProjectSelect value={project?.id} onChange={setProject} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-2 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
+            <div><label className="text-[11px] text-[#8A95A5] mb-1 block">Shift</label><select value={shift} onChange={(e) => setShift(e.target.value as Crew["shift"])} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-2 text-[13px] text-white">
               <option>Day</option><option>Night</option>
-            </select>
+            </select></div>
           </div>
-          <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Work location" className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
+          <div>
+            <label className="text-[11px] text-[#8A95A5] mb-1 block">Usual work area on site</label>
+            <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Block B, ground to 3rd floor" className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-lg px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
+            <div className="text-[10.5px] text-[#5B6675] mt-1">The part of the site this crew works on. The site's own location comes from the project.</div>
+          </div>
         </div>
         <div className="flex justify-end gap-2 mt-5">
           <button onClick={onClose} className="h-9 px-4 bg-[#222A35] rounded-lg text-[12px] text-white">Cancel</button>

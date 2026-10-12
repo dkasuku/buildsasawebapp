@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import { Plus, FileText, X, Trash2, Hammer, Share2, Award, Loader2, Link as LinkIcon, Calendar, Wallet, Mail, Phone, ThumbsUp, ThumbsDown, RotateCcw, Sparkles } from "lucide-react";
 import type { Role } from "./roles";
-import { ROLES, TRADES, canManageBids, canAwardBids } from "./roles";
+import { ROLES, canManageBids, canAwardBids } from "./roles";
+import { TradeSelect } from "./TradeSelect";
 import api, { type BidPackageDto, type BidDto } from "../../services/api";
 import { useCurrency } from "./CurrencyContext";
 import { formatCurrency } from "./currency";
@@ -384,9 +385,7 @@ export default function Bidding({ role = "Contractor" }: { role?: Role }) {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <div className={labelCls}>Trade</div>
-                  <select value={form.trade} onChange={(e) => setForm({ ...form, trade: e.target.value })} className={inputCls}>
-                    {TRADES.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
-                  </select>
+                  <TradeSelect value={form.trade} onChange={(t) => setForm({ ...form, trade: t })} className={inputCls} allowEmpty={false} />
                 </div>
                 <div>
                   <div className={labelCls}>Project</div>

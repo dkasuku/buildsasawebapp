@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
+import { MapPicker } from "./MapPicker";
 import { toast } from "sonner";
 import { Plus, Search, X, Trash2, Truck, Pencil, Upload, FileText, AlertTriangle, Wrench } from "lucide-react";
 import type { Role } from "./roles";
@@ -571,8 +572,8 @@ export default function Equipment({ role = "Contractor" }: { role?: Role }) {
                     <input value={form.operator} onChange={(e) => set("operator", e.target.value)} className={inputCls} />
                   </div>
                   <div>
-                    <label className={labelCls}>Location</label>
-                    <input value={form.location} onChange={(e) => set("location", e.target.value)} className={inputCls} />
+                    <label className={labelCls}>Location (site or yard)</label>
+                    <MapPicker value={form.location || ""} onChange={(v) => set("location", v)} onLatLngChange={() => {}} placeholder="Search the site or yard, e.g. Athi River" />
                   </div>
                 </div>
               </Section>

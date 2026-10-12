@@ -7,6 +7,7 @@
 // each step can be skipped, and the whole flow can be dismissed.
 // ============================================================================
 
+import { MapPicker } from "./MapPicker";
 import { useState } from "react";
 import { toast } from "sonner";
 import { FolderKanban, UserPlus, ClipboardList, Check, ArrowRight, X, Sparkles, Mail } from "lucide-react";
@@ -31,6 +32,7 @@ export function Onboarding({ role, onNavigate, onClose }: Props) {
   // Step 1 — project
   const [pName, setPName] = useState("");
   const [pCity, setPCity] = useState("");
+  const [pLatLng, setPLatLng] = useState<{ lat: number; lng: number } | null>(null);
   const [pValue, setPValue] = useState("");
   const [savingProject, setSavingProject] = useState(false);
 
@@ -53,6 +55,7 @@ export function Onboarding({ role, onNavigate, onClose }: Props) {
         code,
         name: pName.trim(),
         city: pCity.trim() || "Nairobi",
+        ...(pLatLng ? { lat: pLatLng.lat, lng: pLatLng.lng } : {}),
         value: pValue.trim() || "0",
         status: "Active",
         progress: 0,
@@ -156,9 +159,9 @@ export function Onboarding({ role, onNavigate, onClose }: Props) {
               <p className="text-[12px] text-[#8A95A5] mb-4">A project is a single site or job. You can add more anytime.</p>
               <div className="space-y-3">
                 <div><div className={label}>Project name</div><input value={pName} onChange={(e) => setPName(e.target.value)} className={input} placeholder="e.g. Westlands Apartments" /></div>
+                <div><div className={label}>Location</div><MapPicker value={pCity} latLng={pLatLng} onChange={setPCity} onLatLngChange={setPLatLng} placeholder="Search the site, e.g. Kilimani, Nairobi" /></div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div><div className={label}>City / location</div><input value={pCity} onChange={(e) => setPCity(e.target.value)} className={input} placeholder="Nairobi" /></div>
-                  <div><div className={label}>Contract value (optional)</div><input value={pValue} onChange={(e) => setPValue(e.target.value)} className={input} placeholder="e.g. 12,000,000" /></div>
+                  <div className="col-span-2 sm:col-span-1"><div className={label}>Contract value (optional)</div><input value={pValue} onChange={(e) => setPValue(e.target.value)} className={input} placeholder="e.g. 12,000,000" /></div>
                 </div>
               </div>
               <div className="mt-6 flex gap-2">
