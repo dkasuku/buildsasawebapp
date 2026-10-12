@@ -1,7 +1,10 @@
 import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
-import { Plus, Search, X, Eye, MapPin, Camera, AlertTriangle, CheckCircle2, Clock, Trash2, Filter, ChevronDown, CheckSquare, Square } from "lucide-react";
+import { Plus, Search, X, Eye, MapPin, Camera, AlertTriangle, CheckCircle2, Clock, Trash2, Filter, ChevronDown, CheckSquare, Square, Circle, ListChecks } from "lucide-react";
 import type { Role } from "./roles";
+import { ROLES } from "./roles";
+import ActionPlans from "./ActionPlans";
+import { SectionTabs } from "./SectionTabs";
 import { useTeam } from "./useTeam";
 import api from "../../services/api";
 import { EmptyState } from "./EmptyState";
@@ -36,6 +39,9 @@ function AssigneeSelect({ value, onChange }: { value: string[]; onChange: (v: st
     </div>
   );
 }
+
+/** A short, readable reference for a record id (OBS-7F3K2). */
+const ref = (id: string) => (id.length > 12 ? `OBS-${id.slice(-5).toUpperCase()}` : id);
 
 const mapObs = (r: any): Observation => ({
   id: r.id, title: r.title, type: r.type, status: r.status, priority: r.priority,
@@ -74,7 +80,27 @@ const PRIORITY_CLS: Record<Observation["priority"], string> = {
   low: "text-[#8A95A5]", medium: "text-[#F5A623]", high: "text-[#EF4444]",
 };
 
-export default function Observations({ role }: { role: Role }) {
+// Observations and their corrective actions behind one sidebar entry. Action
+// plans only ever existed to fix an observation (or another site issue), so
+// they are a tab here, and each observation shows and adds its own.
+export default function Observations({ role, initialTab = "observations" }: { role: Role; initialTab?: "observations" | "actions" }) {
+  const canSeeActions = (ROLES[role]?.views || []).includes("action-plans");
+  const [tab, setTab] = useState<"observations" | "actions">(canSeeActions ? initialTab : "observations");
+  return (
+    <div>
+      {canSeeActions && (
+        <SectionTabs<"observations" | "actions">
+          tabs={[{ key: "observations", label: "Observations" }, { key: "actions", label: "Corrective actions" }]}
+          value={tab}
+          onChange={setTab}
+        />
+      )}
+      {tab === "observations" ? <ObservationList role={role} canSeeActions={canSeeActions} /> : <ActionPlans role={role} />}
+    </div>
+  );
+}
+
+function ObservationList({ role, canSeeActions }: { role: Role; canSeeActions: boolean }) {
   const [items, setItems] = useState<Observation[]>([]);
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -106,14 +132,14 @@ export default function Observations({ role }: { role: Role }) {
   const setStatus = (id: string, status: Observation["status"]) => {
     setItems((prev) => prev.map((o) => (o.id === id ? { ...o, status } : o)));
     setDetail((d) => (d && d.id === id ? { ...d, status } : d));
-    toast.success(`Observation ${id} marked ${STATUS_META[status].label}`);
+    toast.success(`Observation ${ref(id)} marked ${STATUS_META[status].label}`);
     api.updateObservation(id, { status }).catch(warnSaveFailed("observation update"));
   };
 
   const remove = (id: string) => {
     setItems((prev) => prev.filter((o) => o.id !== id));
     setDetail(null);
-    toast.success(`Observation ${id} deleted`);
+    toast.success(`Observation ${ref(id)} deleted`);
     api.deleteObservation(id).catch(warnSaveFailed("observation deletion"));
   };
 
@@ -163,7 +189,7 @@ export default function Observations({ role }: { role: Role }) {
               <span className="mt-1 w-2 h-2 rounded-full shrink-0" style={{ background: TYPE_COLORS[o.type] }} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[11px] text-[#5B6675]">{o.id}</span>
+                  <span className="text-[11px] text-[#5B6675]">{ref(o.id)}</span>
                   <span className="text-[13px] text-white">{o.title}</span>
                 </div>
                 <div className="flex items-center gap-3 mt-1 text-[11px] text-[#8A95A5] flex-wrap">
@@ -185,7 +211,7 @@ export default function Observations({ role }: { role: Role }) {
           <div className="bg-[#11161D] border border-[#222A35] rounded-xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-5">
             <div className="flex items-start justify-between mb-3">
               <div>
-                <div className="text-[11px] text-[#5B6675]">{detail.id} · {detail.date}</div>
+                <div className="text-[11px] text-[#5B6675]">{ref(detail.id)} · {detail.date}</div>
                 <h3 className="text-[15px] text-white mt-0.5">{detail.title}</h3>
               </div>
               <button onClick={() => setDetail(null)} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button>
@@ -200,6 +226,7 @@ export default function Observations({ role }: { role: Role }) {
               <div><div className="text-[#5B6675] text-[10px] uppercase">Assignee</div><div className="text-white">{detail.assignee}</div></div>
               <div><div className="text-[#5B6675] text-[10px] uppercase">Photos</div><div className="text-white">{detail.photos} attached</div></div>
             </div>
+            {canSeeActions && <CorrectiveActions observation={detail} />}
             <div className="flex flex-wrap gap-2 mt-5">
               {detail.status !== "in_review" && <button onClick={() => setStatus(detail.id, "in_review")} className="h-8 px-3 bg-[#F5A623]/15 text-[#F5A623] border border-[#F5A623]/30 rounded-lg text-[11px]">Send to Review</button>}
               {detail.status !== "closed" && <button onClick={() => setStatus(detail.id, "closed")} className="h-8 px-3 bg-[#22C55E]/15 text-[#22C55E] border border-[#22C55E]/30 rounded-lg text-[11px]">Close Observation</button>}
@@ -279,6 +306,97 @@ function NewObservationModal({ onClose, onCreate }: { onClose: () => void; onCre
           <button onClick={submit} className="h-9 px-4 bg-[#FF6B1A] text-black rounded-lg text-[12px] font-medium">Create Observation</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Corrective actions on one observation ────────────────────────────────────
+// Stored as action plans whose source is the observation's id, so they also
+// appear in the Corrective actions tab with every other plan.
+type Step = { id: string; text: string; done: boolean };
+type Plan = { id: string; title: string; owner: string; due: string; status: string; items: Step[] };
+const toPlan = (r: any): Plan => ({ id: r.id, title: r.title, owner: r.owner || "", due: r.due || "", status: r.status, items: (() => { try { return JSON.parse(r.items || "[]"); } catch { return []; } })() });
+
+function CorrectiveActions({ observation }: { observation: Observation }) {
+  const [plans, setPlans] = useState<Plan[] | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [owner, setOwner] = useState("");
+  const [due, setDue] = useState("");
+  const [steps, setSteps] = useState<string[]>([""]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.getActionPlans().then((rows: any[]) => setPlans((rows || []).filter((r) => r.source === observation.id).map(toPlan))).catch(() => setPlans([]));
+  }, [observation.id]);
+
+  const toggle = (plan: Plan, stepId: string) => {
+    const items = plan.items.map((i) => (i.id === stepId ? { ...i, done: !i.done } : i));
+    const status = items.every((i) => i.done) ? "completed" : (plan.due && new Date(plan.due) < new Date() ? "overdue" : "active");
+    setPlans((ps) => (ps || []).map((p) => (p.id === plan.id ? { ...p, items, status } : p)));
+    api.updateActionPlan(plan.id, { items, status }).catch(warnSaveFailed("corrective action update"));
+  };
+
+  const add = async () => {
+    const items = steps.map((t, i) => ({ id: `i${i + 1}`, text: t.trim(), done: false })).filter((i) => i.text);
+    if (!items.length) { toast.error("Add at least one step"); return; }
+    setBusy(true);
+    try {
+      const saved = await api.createActionPlan({
+        title: `Fix: ${observation.title}`, source: observation.id, owner: owner.trim() || observation.assignee || "Unassigned",
+        due: due || new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10), status: "active",
+        project: observation.project, projectId: observation.projectId || null, items,
+      });
+      setPlans((ps) => [...(ps || []), toPlan(saved)]);
+      setAdding(false); setOwner(""); setDue(""); setSteps([""]);
+      toast.success("Corrective action added");
+    } catch (e: any) { toast.error(e?.message || "Could not save the corrective action"); }
+    finally { setBusy(false); }
+  };
+
+  const all = (plans || []).flatMap((p) => p.items);
+  const done = all.filter((i) => i.done).length;
+  const field = "h-8 bg-[#0A0E14] border border-[#222A35] rounded-lg px-2.5 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]";
+
+  return (
+    <div className="mt-5 pt-4 border-t border-[#222A35]">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[12px] text-white flex items-center gap-1.5"><ListChecks className="w-3.5 h-3.5 text-[#FF6B1A]" /> Corrective actions {all.length > 0 && <span className="text-[#8A95A5]">· {done}/{all.length} done</span>}</div>
+        {!adding && <button onClick={() => setAdding(true)} className="text-[11px] text-[#FF6B1A] hover:underline flex items-center gap-1"><Plus className="w-3 h-3" /> Add</button>}
+      </div>
+      {plans === null && <div className="text-[11px] text-[#5B6675]">Loading…</div>}
+      {plans && plans.length === 0 && !adding && <div className="text-[11px] text-[#5B6675]">No corrective actions yet. Add the steps needed to fix this, with an owner and a due date.</div>}
+      <div className="space-y-2">
+        {(plans || []).map((p) => (
+          <div key={p.id} className="rounded-lg border border-[#222A35] bg-[#0A0E14] p-2.5">
+            <div className="text-[10.5px] text-[#8A95A5] mb-1">{p.owner} · due {p.due}{p.status === "overdue" && <span className="text-[#EF4444]"> · overdue</span>}</div>
+            {p.items.map((i) => (
+              <button key={i.id} onClick={() => toggle(p, i.id)} className="w-full flex items-center gap-2 py-1 text-left">
+                {i.done ? <CheckCircle2 className="w-4 h-4 text-[#22C55E] shrink-0" /> : <Circle className="w-4 h-4 text-[#5B6675] shrink-0" />}
+                <span className={`text-[12px] ${i.done ? "text-[#5B6675] line-through" : "text-white"}`}>{i.text}</span>
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+      {adding && (
+        <div className="rounded-lg border border-[#222A35] bg-[#0A0E14] p-3 space-y-2 mt-2">
+          {steps.map((st, i) => (
+            <div key={i} className="flex gap-2">
+              <input value={st} onChange={(e) => setSteps((xs) => xs.map((x, j) => (j === i ? e.target.value : x)))} placeholder={i === 0 ? "e.g. Remove and re-fix loose tiles" : `Step ${i + 1}`} className={`${field} flex-1`} />
+              {steps.length > 1 && <button onClick={() => setSteps((xs) => xs.filter((_, j) => j !== i))} className="text-[#8A95A5] hover:text-red-400"><X className="w-3.5 h-3.5" /></button>}
+            </div>
+          ))}
+          <button onClick={() => setSteps((xs) => [...xs, ""])} className="text-[11px] text-[#FF6B1A] flex items-center gap-1"><Plus className="w-3 h-3" /> Another step</button>
+          <div className="grid grid-cols-2 gap-2">
+            <input value={owner} onChange={(e) => setOwner(e.target.value)} placeholder={observation.assignee && observation.assignee !== "Unassigned" ? observation.assignee : "Who fixes it"} className={field} />
+            <input type="date" value={due} onChange={(e) => setDue(e.target.value)} className={field} />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setAdding(false)} className="h-8 px-3 bg-[#222A35] rounded-lg text-[11px] text-white">Cancel</button>
+            <button onClick={add} disabled={busy} className="h-8 px-3 bg-[#FF6B1A] text-black rounded-lg text-[11px] font-medium disabled:opacity-60">{busy ? "Saving…" : "Save actions"}</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

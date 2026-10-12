@@ -7,6 +7,8 @@ import { EmptyState } from "./EmptyState";
 import { ProjectSelect } from "./ProjectSelect";
 import { warnSaveFailed } from "./saveFeedback";
 
+const ref = (id: string) => (id.length > 12 ? `CA-${id.slice(-5).toUpperCase()}` : id);
+
 const mapPlan = (r: any): ActionPlan => ({
   id: r.id, title: r.title, source: r.source || "", owner: r.owner || "", due: r.due || "",
   status: r.status, project: r.project || "", projectId: r.projectId || "",
@@ -40,6 +42,9 @@ export default function ActionPlans({ role }: { role: Role }) {
   const [filter, setFilter] = useState<string>("all");
   const [showNew, setShowNew] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Plans raised from an observation store its id as the source; show its title.
+  const [obsTitles, setObsTitles] = useState<Record<string, string>>({});
+  useEffect(() => { api.getObservations().then((rows: any[]) => setObsTitles(Object.fromEntries((rows || []).map((o) => [o.id, o.title])))).catch(() => {}); }, []);
 
   // Load persisted plans; the API response is authoritative (including empty)
   useEffect(() => {
@@ -62,7 +67,7 @@ export default function ActionPlans({ role }: { role: Role }) {
       const items = p.items.map((i) => (i.id === itemId ? { ...i, done: !i.done } : i));
       const allDone = items.every((i) => i.done);
       const status: ActionPlan["status"] = allDone ? "completed" : (new Date(p.due) < new Date() ? "overdue" : "active");
-      if (allDone && p.status !== "completed") toast.success(`${p.id} completed 🎉`);
+      if (allDone && p.status !== "completed") toast.success(`${p.title} completed`);
       persist = { items, status };
       return { ...p, items, status };
     }));
@@ -71,7 +76,7 @@ export default function ActionPlans({ role }: { role: Role }) {
 
   const removePlan = (id: string) => {
     setPlans((prev) => prev.filter((p) => p.id !== id));
-    toast.success(`Action plan ${id} deleted`);
+    toast.success("Corrective action deleted");
     api.deleteActionPlan(id).catch(warnSaveFailed("action plan deletion"));
   };
 
@@ -80,23 +85,23 @@ export default function ActionPlans({ role }: { role: Role }) {
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#5B6675]" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search action plans…" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-lg pl-9 pr-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search corrective actions…" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-lg pl-9 pr-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
         </div>
         <div className="flex gap-1">
           {["all", "active", "overdue", "completed"].map((f) => (
             <button key={f} onClick={() => setFilter(f)} className={`h-9 px-3 rounded-lg text-[12px] capitalize transition ${filter === f ? "bg-[#FF6B1A] text-black font-medium" : "bg-[#11161D] border border-[#222A35] text-[#8A95A5] hover:text-white"}`}>{f}</button>
           ))}
         </div>
-        <button onClick={() => setShowNew(true)} className="h-9 px-4 bg-[#FF6B1A] text-black rounded-lg text-[12px] font-medium flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> New Plan</button>
+        <button onClick={() => setShowNew(true)} className="h-9 px-4 bg-[#FF6B1A] text-black rounded-lg text-[12px] font-medium flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> New corrective action</button>
       </div>
 
       <div className="space-y-3">
         {filtered.length === 0 && (
           <EmptyState
             icon={ClipboardCheck}
-            title="No action plans yet"
-            description="Create your first action plan to turn observations and issues into trackable steps."
-            actionLabel="New Plan"
+            title="No corrective actions yet"
+            description="Add corrective actions from an observation, or create one here for any other site issue, with steps, an owner and a due date."
+            actionLabel="New corrective action"
             onAction={() => setShowNew(true)}
           />
         )}
@@ -108,7 +113,7 @@ export default function ActionPlans({ role }: { role: Role }) {
             <div key={p.id} className="bg-[#11161D] border border-[#222A35] rounded-xl overflow-hidden">
               <button onClick={() => setExpanded(isOpen ? null : p.id)} className="w-full text-left p-4 hover:bg-[#161C24]/50 transition">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[11px] text-[#5B6675]">{p.id}</span>
+                  <span className="text-[11px] text-[#5B6675]">{ref(p.id)}</span>
                   <span className="text-[13px] text-white flex-1">{p.title}</span>
                   <span className={`text-[10px] px-2 py-1 rounded-full border ${STATUS_META[p.status].cls}`}>{STATUS_META[p.status].label}</span>
                 </div>
@@ -116,7 +121,7 @@ export default function ActionPlans({ role }: { role: Role }) {
                   <span className="flex items-center gap-1"><User className="w-3 h-3" /> {p.owner}</span>
                   <span className="flex items-center gap-1"><CalendarDays className="w-3 h-3" /> Due {p.due}</span>
                   <span>{p.project}</span>
-                  <span className="text-[#5B6675]">From: {p.source}</span>
+                  <span className="text-[#5B6675]">From: {obsTitles[p.source] ? `Observation: ${obsTitles[p.source]}` : p.source}</span>
                 </div>
                 <div className="mt-3 flex items-center gap-2">
                   <div className="flex-1 h-1.5 rounded-full bg-[#222A35] overflow-hidden">
@@ -136,7 +141,7 @@ export default function ActionPlans({ role }: { role: Role }) {
                     ))}
                   </div>
                   <div className="flex justify-end mt-3">
-                    <button onClick={() => removePlan(p.id)} className="h-8 px-3 bg-[#222A35] text-[#EF4444] rounded-lg text-[11px] flex items-center gap-1"><Trash2 className="w-3 h-3" /> Delete plan</button>
+                    <button onClick={() => removePlan(p.id)} className="h-8 px-3 bg-[#222A35] text-[#EF4444] rounded-lg text-[11px] flex items-center gap-1"><Trash2 className="w-3 h-3" /> Delete</button>
                   </div>
                 </div>
               )}
@@ -148,7 +153,7 @@ export default function ActionPlans({ role }: { role: Role }) {
       {showNew && <NewPlanModal onClose={() => setShowNew(false)} onCreate={async (p) => {
         setPlans((prev) => [p, ...prev]);
         setExpanded(p.id);
-        toast.success(`Action plan ${p.id} created`);
+        toast.success("Corrective action created");
         try {
           const saved = await api.createActionPlan({ title: p.title, source: p.source, owner: p.owner, due: p.due, status: p.status, project: p.project, projectId: p.projectId || null, items: p.items });
           setPlans((prev) => prev.map((x) => x.id === p.id ? mapPlan(saved) : x));
@@ -192,7 +197,7 @@ function NewPlanModal({ onClose, onCreate }: { onClose: () => void; onCreate: (p
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="bg-[#11161D] border border-[#222A35] rounded-xl w-full max-w-md max-h-[85vh] overflow-y-auto p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-[15px] font-semibold text-white flex items-center gap-2"><ClipboardCheck className="w-4 h-4 text-[#FF6B1A]" /> New Action Plan</h3>
+          <h3 className="text-[15px] font-semibold text-white flex items-center gap-2"><ClipboardCheck className="w-4 h-4 text-[#FF6B1A]" /> New corrective action</h3>
           <button onClick={onClose} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button>
         </div>
         <div className="space-y-3">
@@ -216,7 +221,7 @@ function NewPlanModal({ onClose, onCreate }: { onClose: () => void; onCreate: (p
         </div>
         <div className="flex justify-end gap-2 mt-5">
           <button onClick={onClose} className="h-9 px-4 bg-[#222A35] rounded-lg text-[12px] text-white">Cancel</button>
-          <button onClick={submit} className="h-9 px-4 bg-[#FF6B1A] text-black rounded-lg text-[12px] font-medium">Create Plan</button>
+          <button onClick={submit} className="h-9 px-4 bg-[#FF6B1A] text-black rounded-lg text-[12px] font-medium">Create</button>
         </div>
       </div>
     </div>

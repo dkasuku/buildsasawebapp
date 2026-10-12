@@ -16,7 +16,6 @@ import { ProjectDetail } from "./components/constructai/ProjectDetail";
 import { FieldView } from "./components/constructai/FieldView";
 import { Reports } from "./components/constructai/Reports";
 import { Plans } from "./components/constructai/Plans";
-import { Tasks } from "./components/constructai/Tasks";
 import { Schedule } from "./components/constructai/Schedule";
 import Financials from "./components/constructai/Financials";
 import { Documents } from "./components/constructai/Documents";
@@ -38,9 +37,8 @@ import SafetyIncidents from "./components/constructai/SafetyIncidents";
 import Inventory from "./components/constructai/Inventory";
 import Attendance from "./components/constructai/Attendance";
 import BuildflexAI from "./components/constructai/BuildflexAI";
-import Checklists from "./components/constructai/Checklists";
+import { ChecklistsHub } from "./components/constructai/ChecklistsHub";
 import Observations from "./components/constructai/Observations";
-import ActionPlans from "./components/constructai/ActionPlans";
 import Coordination from "./components/constructai/Coordination";
 import CorrespondenceModule from "./components/constructai/Correspondence";
 import Crews from "./components/constructai/Crews";
@@ -64,7 +62,7 @@ const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }
   "change-orders": { title: "Change Orders", subtitle: "Cost & schedule impact · approvals" },
   billing: { title: "Billing & Plan", subtitle: "Subscription & payments" },
   plans: { title: "Plans & Drawings", subtitle: "Architectural sheets & sharing" },
-  tasks: { title: "Tasks & Trades", subtitle: "Assign forms & checklists to trades and track their progress" },
+  tasks: { title: "Checklists", subtitle: "Checklist assignments and progress by trade" },
   schedule: { title: "Schedule", subtitle: "Project timeline — Gantt, dates & milestones" },
   documents: { title: "Unfiled Documents", subtitle: "Documents with no project — file them into one" },
   "daily-log": { title: "Daily Log", subtitle: "Site record, weather, photos and video" },
@@ -77,7 +75,7 @@ const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }
   inbox: { title: "Inbox", subtitle: "Internal messages & project conversations" },
   announcements: { title: "Announcements", subtitle: "Company-wide broadcasts & notices" },
   observations: { title: "Observations", subtitle: "Quality & safety site observations" },
-  "action-plans": { title: "Action Plans", subtitle: "Corrective actions & follow-ups" },
+  "action-plans": { title: "Observations", subtitle: "Site issues and their corrective actions" },
   coordination: { title: "Coordination Issues", subtitle: "RFIs, clashes, design questions" },
   correspondence: { title: "Correspondence", subtitle: "Letters, submittals & transmittals" },
   crews: { title: "Crews", subtitle: "Crew rosters & schedules" },
@@ -538,7 +536,7 @@ export default function App() {
             {effectiveView === "change-orders" && <ChangeOrders role={role} openId={activeChangeOrderId} onConsumeOpenId={() => setActiveChangeOrderId(null)} />}
             {effectiveView === "billing" && <Billing role={role} />}
             {effectiveView === "plans" && <Plans role={role} />}
-            {effectiveView === "tasks" && <Tasks role={role} />}
+            {effectiveView === "tasks" && <ChecklistsHub key="assignments" role={role} initialTab="assignments" />}
             {effectiveView === "schedule" && <Schedule role={role} />}
             {effectiveView === "documents" && <Documents />}
             {effectiveView === "daily-log" && <DailyLog />}
@@ -551,7 +549,7 @@ export default function App() {
             {effectiveView === "inbox" && <Inbox role={role} />}
             {effectiveView === "announcements" && <Announcements />}
             {effectiveView === "observations" && <Observations role={role} />}
-            {effectiveView === "action-plans" && <ActionPlans role={role} />}
+            {effectiveView === "action-plans" && <Observations key="actions" role={role} initialTab="actions" />}
             {effectiveView === "coordination" && <Coordination role={role} />}
             {effectiveView === "correspondence" && <CorrespondenceModule role={role} />}
             {effectiveView === "crews" && <Crews role={role} />}
@@ -563,7 +561,7 @@ export default function App() {
             {effectiveView === "quotes" && <Quotes role={role} />}
             {effectiveView === "invoicing" && <Invoicing role={role} />}
             {effectiveView === "inspections" && <Inspections role={role} />}
-            {effectiveView === "checklists" && <Checklists role={role} aiDraft={aiFormDraft} onConsumeAiDraft={() => setAiFormDraft(null)} />}
+            {effectiveView === "checklists" && <ChecklistsHub key="checklists" role={role} aiDraft={aiFormDraft} onConsumeAiDraft={() => setAiFormDraft(null)} />}
             {effectiveView === "safety-incidents" && <SafetyIncidents role={role} />}
             {effectiveView === "equipment" && <Inventory role={role} />}
             {effectiveView === "attendance" && <Attendance role={role} />}

@@ -64,14 +64,12 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { key: "projects", label: "Projects", icon: FolderKanban },
       { key: "checklists", label: "Checklists", icon: ClipboardList },
-      { key: "tasks", label: "Tasks & Trades", icon: ListChecks },
       { key: "schedule", label: "Schedule", icon: CalendarDays },
       { key: "daily-log", label: "Daily Log", icon: ClipboardList },
       { key: "change-orders", label: "Change Orders", icon: FileText },
       { key: "plans", label: "Plans & Drawings", icon: FileStack },
       { key: "punch-list", label: "Punch List", icon: CheckCircle },
       { key: "observations", label: "Observations", icon: Eye },
-      { key: "action-plans", label: "Action Plans", icon: ClipboardCheck },
     ],
   },
   {

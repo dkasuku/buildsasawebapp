@@ -229,7 +229,7 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
           tiles, so it was not obvious that "Tasks & Trades" is the assignment
           board for checklists and forms rather than a separate to-do list. */}
       <div>
-        <h2 className="text-[15px] text-white font-display flex items-center gap-2"><ClipboardList className="w-4 h-4 text-[#FF6B1A]" /> Tasks &amp; Trades</h2>
+        <h2 className="text-[15px] text-white font-display flex items-center gap-2"><ClipboardList className="w-4 h-4 text-[#FF6B1A]" /> Assignments by trade</h2>
         <p className="text-[12px] text-[#8A95A5] mt-1 max-w-3xl">
           Every checklist and form you have handed out, grouped by trade. Assign work here, watch it come back, then approve it.
           Forms themselves are built under <span className="text-[#C2CAD6]">Checklists</span>.
