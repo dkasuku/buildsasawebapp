@@ -1093,7 +1093,7 @@ export function Projects({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] text-[#8A95A5] block mb-1">Progress %</label>
-                  <input
+                  <input placeholder="e.g. 25"
                     type="number"
                     min={0}
                     max={100}
@@ -1104,7 +1104,7 @@ export function Projects({
                 </div>
                 <div>
                   <label className="text-[11px] text-[#8A95A5] block mb-1">Active Change Orders</label>
-                  <input
+                  <input placeholder="e.g. 0"
                     type="number"
                     min={0}
                     value={form.changeOrders}
@@ -1290,12 +1290,12 @@ export function Projects({
                   <div className="p-3 space-y-3">
                     <div>
                       <label className="text-[11px] text-[#8A95A5] block mb-1">Project name *</label>
-                      <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
+                      <input placeholder="e.g. Kitengela 4-Bedroom Maisonette" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="text-[11px] text-[#8A95A5] block mb-1">Project code</label>
-                        <input value={editForm.code} onChange={(e) => setEditForm({ ...editForm, code: e.target.value })} className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
+                        <input placeholder="e.g. KTG-001" value={editForm.code} onChange={(e) => setEditForm({ ...editForm, code: e.target.value })} className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
                       </div>
                       <div>
                         <label className="text-[11px] text-[#8A95A5] block mb-1">Contract value</label>
@@ -1357,7 +1357,7 @@ export function Projects({
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="text-[11px] text-[#8A95A5] block mb-1">Progress %</label>
-                        <input
+                        <input placeholder="e.g. 25"
                           type="number"
                           min={0}
                           max={100}
@@ -1368,7 +1368,7 @@ export function Projects({
                       </div>
                       <div>
                         <label className="text-[11px] text-[#8A95A5] block mb-1">Active Change Orders</label>
-                        <input
+                        <input placeholder="e.g. 0"
                           type="number"
                           min={0}
                           value={editForm.changeOrders}

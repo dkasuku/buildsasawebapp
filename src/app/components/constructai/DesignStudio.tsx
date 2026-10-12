@@ -272,7 +272,7 @@ function SaveDialog({ design, projects, onClose, onSaved }: { design: AiDesignDt
           {projects.length === 0 ? <div className="text-[12px] text-[#F59E0B]">Create a project first, then save designs to it.</div> : (
             <div><div className="text-[11px] text-[#8A95A5] mb-1">Project</div><select value={projectId} onChange={(e) => setProjectId(e.target.value)} className={input}>{projects.map((p) => <option key={p.id} value={p.id}>{p.code ? `${p.code} · ${p.name}` : p.name}</option>)}</select></div>
           )}
-          <div><div className="text-[11px] text-[#8A95A5] mb-1">Title</div><input value={title} onChange={(e) => setTitle(e.target.value)} className={input} /></div>
+          <div><div className="text-[11px] text-[#8A95A5] mb-1">Title</div><input placeholder="e.g. 3-bedroom bungalow, front view" value={title} onChange={(e) => setTitle(e.target.value)} className={input} /></div>
           <div className="text-[11px] text-[#5B6675]">It's filed in the project's drawings as an "AI Concept" sheet, where the team can open it, mark it up and share it.</div>
         </div>
         <div className="px-5 py-4 border-t border-[#222A35] flex gap-2"><button onClick={onClose} className="flex-1 h-10 rounded-md border border-[#222A35] text-[12px] text-white">Cancel</button><button onClick={save} disabled={busy || !projectId} className="flex-1 h-10 rounded-md bg-[#FF6B1A] disabled:opacity-60 text-white text-[12px] flex items-center justify-center gap-1.5">{busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Save</button></div>

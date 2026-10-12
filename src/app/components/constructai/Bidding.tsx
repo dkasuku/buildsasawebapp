@@ -396,7 +396,7 @@ export default function Bidding({ role = "Contractor" }: { role?: Role }) {
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div><div className={labelCls}>Budget (KES)</div><input type="number" value={form.budgetKES} onChange={(e) => setForm({ ...form, budgetKES: e.target.value })} className={inputCls} /></div>
+                <div><div className={labelCls}>Budget (KES)</div><input placeholder="e.g. 4500000" type="number" value={form.budgetKES} onChange={(e) => setForm({ ...form, budgetKES: e.target.value })} className={inputCls} /></div>
                 <div><div className={labelCls}>Due date</div><input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} className={inputCls} /></div>
               </div>
               <div>
@@ -406,7 +406,7 @@ export default function Bidding({ role = "Contractor" }: { role?: Role }) {
                   <option value="open">Open</option>
                 </select>
               </div>
-              <div><div className={labelCls}>Description</div><textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-white text-[12px] focus:outline-none focus:border-[#FF6B1A]" /></div>
+              <div><div className={labelCls}>Description</div><textarea placeholder="e.g. Supply and fix roofing for Block A, about 1,200 m²" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-white text-[12px] focus:outline-none focus:border-[#FF6B1A]" /></div>
             </div>
             <div className="flex items-center justify-end gap-2 mt-5 pt-4 border-t border-[#222A35]">
               <button onClick={() => setShowNew(false)} className="h-9 px-3 rounded-md border border-[#222A35] text-[12px] text-[#8A95A5] hover:text-white">Cancel</button>
@@ -547,9 +547,9 @@ export default function Bidding({ role = "Contractor" }: { role?: Role }) {
                     <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-4">
                       <div className="text-[12px] text-white font-display mb-3">Add bid (offline)</div>
                       <div className="space-y-3">
-                        <div><div className={labelCls}>Subcontractor</div><input value={bidForm.subcontractor} onChange={(e) => setBidForm({ ...bidForm, subcontractor: e.target.value })} className={inputCls} /></div>
-                        <div><div className={labelCls}>Amount (KES)</div><input type="number" value={bidForm.amount} onChange={(e) => setBidForm({ ...bidForm, amount: e.target.value })} className={inputCls} /></div>
-                        <div><div className={labelCls}>Notes</div><textarea value={bidForm.notes} onChange={(e) => setBidForm({ ...bidForm, notes: e.target.value })} rows={2} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-white text-[12px] focus:outline-none focus:border-[#FF6B1A]" /></div>
+                        <div><div className={labelCls}>Subcontractor</div><input placeholder="e.g. Mwangi Roofing Ltd" value={bidForm.subcontractor} onChange={(e) => setBidForm({ ...bidForm, subcontractor: e.target.value })} className={inputCls} /></div>
+                        <div><div className={labelCls}>Amount (KES)</div><input placeholder="e.g. 3850000" type="number" value={bidForm.amount} onChange={(e) => setBidForm({ ...bidForm, amount: e.target.value })} className={inputCls} /></div>
+                        <div><div className={labelCls}>Notes</div><textarea placeholder="e.g. Price includes transport; 6 weeks to complete" value={bidForm.notes} onChange={(e) => setBidForm({ ...bidForm, notes: e.target.value })} rows={2} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-white text-[12px] focus:outline-none focus:border-[#FF6B1A]" /></div>
                         <button onClick={() => addBid(active.id)} disabled={addingBid} className="h-9 px-4 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[12px] flex items-center gap-1.5 disabled:opacity-60">{addingBid ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Add bid</button>
                       </div>
                     </div>

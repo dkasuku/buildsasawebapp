@@ -548,11 +548,11 @@ export default function Equipment({ role = "Contractor" }: { role?: Role }) {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className={labelCls}>Serial number</label>
-                    <input value={form.serialNumber} onChange={(e) => set("serialNumber", e.target.value)} className={inputCls} />
+                    <input placeholder="e.g. CAT320-0045871" value={form.serialNumber} onChange={(e) => set("serialNumber", e.target.value)} className={inputCls} />
                   </div>
                   <div>
                     <label className={labelCls}>Manufacturer</label>
-                    <input value={form.manufacturer} onChange={(e) => set("manufacturer", e.target.value)} className={inputCls} />
+                    <input placeholder="e.g. Caterpillar" value={form.manufacturer} onChange={(e) => set("manufacturer", e.target.value)} className={inputCls} />
                   </div>
                 </div>
               </Section>
@@ -569,7 +569,7 @@ export default function Equipment({ role = "Contractor" }: { role?: Role }) {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className={labelCls}>Operator / crew</label>
-                    <input value={form.operator} onChange={(e) => set("operator", e.target.value)} className={inputCls} />
+                    <input placeholder="e.g. Peter Otieno" value={form.operator} onChange={(e) => set("operator", e.target.value)} className={inputCls} />
                   </div>
                   <div>
                     <label className={labelCls}>Location (site or yard)</label>
@@ -591,7 +591,7 @@ export default function Equipment({ role = "Contractor" }: { role?: Role }) {
                   <>
                     <div>
                       <label className={labelCls}>Hire company</label>
-                      <input value={form.hireVendor} onChange={(e) => set("hireVendor", e.target.value)} className={inputCls} />
+                      <input placeholder="e.g. Mantrac Kenya" value={form.hireVendor} onChange={(e) => set("hireVendor", e.target.value)} className={inputCls} />
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>

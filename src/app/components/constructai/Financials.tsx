@@ -642,14 +642,14 @@ export default function Financials({ role = "Contractor", initialTab = "overview
                   <tr key={idx} className="border-t border-[#222A35]">
                     <td className="px-5 py-2.5 text-white whitespace-nowrap">{row.date}</td>
                     <td className="px-3 py-2.5 text-[#C2CAD6]">
-                      <input
+                      <input placeholder="e.g. Cement, 200 bags"
                         value={row.desc}
                         onChange={(e) => setLedgerRows((prev) => prev.map((r, i) => i === idx ? { ...r, desc: e.target.value } : r))}
                         className="w-full bg-transparent border border-[#222A35] rounded px-2 py-1 text-[12px] text-white"
                       />
                     </td>
                     <td className="px-3 py-2.5 text-[#8A95A5]">
-                      <input
+                      <input placeholder="e.g. Materials"
                         value={row.category}
                         onChange={(e) => setLedgerRows((prev) => prev.map((r, i) => i === idx ? { ...r, category: e.target.value } : r))}
                         className="w-full bg-transparent border border-[#222A35] rounded px-2 py-1 text-[12px] text-white"
@@ -666,7 +666,7 @@ export default function Financials({ role = "Contractor", initialTab = "overview
                       </select>
                     </td>
                     <td className="px-5 py-2.5 text-right text-white">
-                      <input
+                      <input placeholder="e.g. 150000"
                         value={row.amountUSD}
                         onChange={(e) => setLedgerRows((prev) => prev.map((r, i) => i === idx ? { ...r, amountUSD: Number(e.target.value) || 0 } : r))}
                         type="number"
@@ -727,7 +727,7 @@ export default function Financials({ role = "Contractor", initialTab = "overview
                   <div className="flex items-center justify-between text-[12px] text-white">
                     <span>{e.name}</span>
                     <div className="flex items-center gap-2 text-[11px] text-[#8A95A5]">
-                      <input
+                      <input placeholder="e.g. 250000"
                         value={e.amountUSD}
                         onChange={(ev) => setExpenseRows((prev) => prev.map((row, i) => i === idx ? { ...row, amountUSD: Number(ev.target.value) || 0 } : row))}
                         onBlur={() => e.id && projectId && api.updateExpense(projectId, e.id, { actualUSD: e.amountUSD }).catch(warnSaveFailed("expense update"))}
@@ -735,7 +735,7 @@ export default function Financials({ role = "Contractor", initialTab = "overview
                         className="w-20 bg-transparent border border-[#222A35] rounded px-2 py-1 text-white text-right"
                       />
                       <span>/</span>
-                      <input
+                      <input placeholder="e.g. 300000"
                         value={e.budgetUSD}
                         onChange={(ev) => setExpenseRows((prev) => prev.map((row, i) => i === idx ? { ...row, budgetUSD: Number(ev.target.value) || 0 } : row))}
                         onBlur={() => e.id && projectId && api.updateExpense(projectId, e.id, { budgetUSD: e.budgetUSD }).catch(warnSaveFailed("expense update"))}
@@ -1001,7 +1001,7 @@ export default function Financials({ role = "Contractor", initialTab = "overview
             <div className="space-y-2">
               {costCodes.map((cc) => (
                 <div key={cc.id} className="flex items-center gap-2 text-[12px]">
-                  <input
+                  <input placeholder="e.g. 03-100"
                     value={cc.code}
                     onChange={(e) => setCostCodes((prev) => prev.map((x) => x.id === cc.id ? { ...x, code: e.target.value } : x))}
                     className="w-28 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 h-9 text-white"
@@ -1038,7 +1038,7 @@ export default function Financials({ role = "Contractor", initialTab = "overview
                     <div className="flex items-center justify-between text-[12px] text-white">
                       <span>{e.name}</span>
                       <div className="flex items-center gap-2 text-[11px] text-[#8A95A5]">
-                        <input
+                        <input placeholder="e.g. 250000"
                           value={e.amountUSD}
                           onChange={(ev) => setExpenseRows((prev) => prev.map((row, i) => i === idx ? { ...row, amountUSD: Number(ev.target.value) || 0 } : row))}
                           onBlur={() => e.id && projectId && api.updateExpense(projectId, e.id, { actualUSD: e.amountUSD }).catch(warnSaveFailed("expense update"))}
@@ -1046,7 +1046,7 @@ export default function Financials({ role = "Contractor", initialTab = "overview
                           className="w-20 bg-transparent border border-[#222A35] rounded px-2 py-1 text-white text-right"
                         />
                         <span>/</span>
-                        <input
+                        <input placeholder="e.g. 300000"
                           value={e.budgetUSD}
                           onChange={(ev) => setExpenseRows((prev) => prev.map((row, i) => i === idx ? { ...row, budgetUSD: Number(ev.target.value) || 0 } : row))}
                           onBlur={() => e.id && projectId && api.updateExpense(projectId, e.id, { budgetUSD: e.budgetUSD }).catch(warnSaveFailed("expense update"))}
@@ -1098,11 +1098,11 @@ export default function Financials({ role = "Contractor", initialTab = "overview
       {showCommitmentModal && (
         <Modal title="Add commitment" onClose={() => setShowCommitmentModal(false)}>
           <div className="space-y-3 text-[12px] text-white">
-            <Labeled label="Vendor"><input value={newCommitment.vendor} onChange={(e) => setNewCommitment((s) => ({ ...s, vendor: e.target.value }))} className={inputCls} /></Labeled>
-            <Labeled label="Scope"><input value={newCommitment.scope} onChange={(e) => setNewCommitment((s) => ({ ...s, scope: e.target.value }))} className={inputCls} /></Labeled>
+            <Labeled label="Vendor"><input placeholder="e.g. Otieno Plumbing Works" value={newCommitment.vendor} onChange={(e) => setNewCommitment((s) => ({ ...s, vendor: e.target.value }))} className={inputCls} /></Labeled>
+            <Labeled label="Scope"><input placeholder="e.g. Plumbing and drainage, Block A" value={newCommitment.scope} onChange={(e) => setNewCommitment((s) => ({ ...s, scope: e.target.value }))} className={inputCls} /></Labeled>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Labeled label="Contract value"><input type="number" value={newCommitment.contractValue} onChange={(e) => setNewCommitment((s) => ({ ...s, contractValue: Number(e.target.value) || 0 }))} className={inputCls} /></Labeled>
-              <Labeled label="Retention %"><input type="number" value={newCommitment.retentionPct} onChange={(e) => setNewCommitment((s) => ({ ...s, retentionPct: Number(e.target.value) || 0 }))} className={inputCls} /></Labeled>
+              <Labeled label="Contract value"><input placeholder="e.g. 1200000" type="number" value={newCommitment.contractValue || ""} onChange={(e) => setNewCommitment((s) => ({ ...s, contractValue: Number(e.target.value) || 0 }))} className={inputCls} /></Labeled>
+              <Labeled label="Retention %"><input placeholder="e.g. 10" type="number" value={newCommitment.retentionPct || ""} onChange={(e) => setNewCommitment((s) => ({ ...s, retentionPct: Number(e.target.value) || 0 }))} className={inputCls} /></Labeled>
             </div>
             {/* Mobilisation advance. Paid before any work is done and recovered
                 from later claims — without a recovery rate it sits on the books as
@@ -1111,10 +1111,10 @@ export default function Financials({ role = "Contractor", initialTab = "overview
               <div className="text-[11px] text-[#8A95A5]">Advance / mobilisation (optional)</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Labeled label={`Advance paid (${CURRENCIES[currency].code})`}>
-                  <input type="number" value={newCommitment.advanceAmount} onChange={(e) => setNewCommitment((s) => ({ ...s, advanceAmount: Number(e.target.value) || 0 }))} className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-2 text-white focus:outline-none focus:border-[#FF6B1A]" />
+                  <input placeholder="e.g. 200000" type="number" value={newCommitment.advanceAmount || ""} onChange={(e) => setNewCommitment((s) => ({ ...s, advanceAmount: Number(e.target.value) || 0 }))} className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-2 text-white focus:outline-none focus:border-[#FF6B1A]" />
                 </Labeled>
                 <Labeled label="Recover % of each claim">
-                  <input type="number" value={newCommitment.advanceRecoveryPct} onChange={(e) => setNewCommitment((s) => ({ ...s, advanceRecoveryPct: Number(e.target.value) || 0 }))} placeholder="20" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-2 text-white placeholder:text-[#3A4350] focus:outline-none focus:border-[#FF6B1A]" />
+                  <input type="number" value={newCommitment.advanceRecoveryPct || ""} onChange={(e) => setNewCommitment((s) => ({ ...s, advanceRecoveryPct: Number(e.target.value) || 0 }))} placeholder="20" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-2 text-white placeholder:text-[#3A4350] focus:outline-none focus:border-[#FF6B1A]" />
                 </Labeled>
               </div>
               {Number(newCommitment.advanceAmount) > 0 && !Number(newCommitment.advanceRecoveryPct) && (
@@ -1147,7 +1147,7 @@ export default function Financials({ role = "Contractor", initialTab = "overview
         <Modal title="New payment application" onClose={() => setShowAppModal(false)}>
           <div className="space-y-3 text-[12px] text-white">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Labeled label="Number"><input value={newApp.number} onChange={(e) => setNewApp((s) => ({ ...s, number: e.target.value }))} className={inputCls} /></Labeled>
+              <Labeled label="Number"><input placeholder="e.g. IPC-03" value={newApp.number} onChange={(e) => setNewApp((s) => ({ ...s, number: e.target.value }))} className={inputCls} /></Labeled>
               <Labeled label="Period"><input value={newApp.period} onChange={(e) => setNewApp((s) => ({ ...s, period: e.target.value }))} placeholder="e.g. May 2026" className={inputCls} /></Labeled>
             </div>
             <Labeled label="Commitment">
@@ -1157,12 +1157,12 @@ export default function Financials({ role = "Contractor", initialTab = "overview
               </select>
             </Labeled>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Labeled label="Work completed this period"><input type="number" value={newApp.workCompletedThisPeriod} onChange={(e) => setNewApp((s) => ({ ...s, workCompletedThisPeriod: Number(e.target.value) || 0 }))} className={inputCls} /></Labeled>
-              <Labeled label="Previously certified"><input type="number" value={newApp.previousCertified} onChange={(e) => setNewApp((s) => ({ ...s, previousCertified: Number(e.target.value) || 0 }))} className={inputCls} /></Labeled>
+              <Labeled label="Work completed this period"><input placeholder="e.g. 350000" type="number" value={newApp.workCompletedThisPeriod || ""} onChange={(e) => setNewApp((s) => ({ ...s, workCompletedThisPeriod: Number(e.target.value) || 0 }))} className={inputCls} /></Labeled>
+              <Labeled label="Previously certified"><input placeholder="e.g. 600000" type="number" value={newApp.previousCertified || ""} onChange={(e) => setNewApp((s) => ({ ...s, previousCertified: Number(e.target.value) || 0 }))} className={inputCls} /></Labeled>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Labeled label="Requested amount"><input type="number" value={newApp.requestedAmount} onChange={(e) => setNewApp((s) => ({ ...s, requestedAmount: Number(e.target.value) || 0 }))} className={inputCls} /></Labeled>
-              <Labeled label="Retention %"><input type="number" value={newApp.retentionPct} onChange={(e) => setNewApp((s) => ({ ...s, retentionPct: Number(e.target.value) || 0 }))} className={inputCls} /></Labeled>
+              <Labeled label="Requested amount"><input placeholder="e.g. 350000" type="number" value={newApp.requestedAmount || ""} onChange={(e) => setNewApp((s) => ({ ...s, requestedAmount: Number(e.target.value) || 0 }))} className={inputCls} /></Labeled>
+              <Labeled label="Retention %"><input placeholder="e.g. 10" type="number" value={newApp.retentionPct || ""} onChange={(e) => setNewApp((s) => ({ ...s, retentionPct: Number(e.target.value) || 0 }))} className={inputCls} /></Labeled>
             </div>
             <div className="rounded-lg border border-[#222A35] bg-[#0A0E14] p-3 text-[12px] text-[#C2CAD6] flex justify-between">
               <span>Retention amount: <span className="text-white">{fmt(appRetentionAmount)}</span></span>

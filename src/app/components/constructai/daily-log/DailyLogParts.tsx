@@ -129,7 +129,7 @@ export function DailyLogEditor({ projectId, projectLatLng, log, onClose, onSaved
               <input list="dl-crews" value={f.crew} onChange={(e) => pickCrew(e.target.value)} placeholder="Pick a crew or type a name" className={input} />
               <datalist id="dl-crews">{crews.map((c) => <option key={c.id} value={c.name}>{c.trade || ""}</option>)}</datalist>
             </div>
-            <div><label className={lbl}>People on site</label><input type="number" min={0} value={f.headcount} onChange={set("headcount")} className={input} /></div>
+            <div><label className={lbl}>People on site</label><input placeholder="e.g. 12" type="number" min={0} value={f.headcount} onChange={set("headcount")} className={input} /></div>
           </div>
 
           <div>

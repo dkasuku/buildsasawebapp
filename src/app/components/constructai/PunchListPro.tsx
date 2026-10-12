@@ -336,7 +336,7 @@ export function PunchForm({ role, projects, initial, onClose, onSaved }: { role:
         </div>
         <div className="p-5 space-y-3">
           <Field label="Title *"><input value={f.title} onChange={(e) => set("title", e.target.value)} placeholder="Short summary of the deficiency" className={inputCls} /></Field>
-          <Field label="Description"><textarea value={f.description} onChange={(e) => set("description", e.target.value)} rows={2} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-2 py-1.5 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A] resize-none" /></Field>
+          <Field label="Description"><textarea placeholder="e.g. Cracked tile in master bathroom" value={f.description} onChange={(e) => set("description", e.target.value)} rows={2} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-2 py-1.5 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A] resize-none" /></Field>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Field label="Project"><select value={f.projectId} onChange={(e) => set("projectId", e.target.value)} className={inputCls}>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
             <Field label="Location"><input value={f.location} onChange={(e) => set("location", e.target.value)} placeholder="Bldg / Level / Room" className={inputCls} /></Field>
@@ -354,8 +354,8 @@ export function PunchForm({ role, projects, initial, onClose, onSaved }: { role:
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <Field label="Cost impact"><select value={f.costImpact} onChange={(e) => set("costImpact", e.target.value)} className={inputCls}>{IMPACT.map((i) => <option key={i} value={i}>{IMPACT_LABEL[i]}</option>)}</select></Field>
             <Field label="Schedule impact"><select value={f.scheduleImpact} onChange={(e) => set("scheduleImpact", e.target.value)} className={inputCls}>{IMPACT.map((i) => <option key={i} value={i}>{IMPACT_LABEL[i]}</option>)}</select></Field>
-            <Field label="Cost code"><input value={f.costCode} onChange={(e) => set("costCode", e.target.value)} className={inputCls} /></Field>
-            <Field label="Reference"><input value={f.reference} onChange={(e) => set("reference", e.target.value)} className={inputCls} /></Field>
+            <Field label="Cost code"><input placeholder="e.g. 09-300" value={f.costCode} onChange={(e) => set("costCode", e.target.value)} className={inputCls} /></Field>
+            <Field label="Reference"><input placeholder="e.g. Drawing A-102" value={f.reference} onChange={(e) => set("reference", e.target.value)} className={inputCls} /></Field>
           </div>
           <label className="flex items-center gap-2 text-[12px] text-[#8A95A5]"><input type="checkbox" checked={f.isPrivate} onChange={(e) => set("isPrivate", e.target.checked)} className="accent-[#FF6B1A]" /> Private (restrict visibility)</label>
         </div>

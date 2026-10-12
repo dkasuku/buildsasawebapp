@@ -328,7 +328,7 @@ export default function Invoicing({ role = "Contractor" }: { role?: Role }) {
             <div className="px-5 py-4 space-y-5 text-[12px] overflow-y-auto">
               {/* Top: invoice # + status */}
               <div className="grid grid-cols-2 gap-3">
-                <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Invoice # <span className="text-[#FF6B1A]">*</span></div><input value={form.invoiceNumber} onChange={(e) => setForm({ ...form, invoiceNumber: e.target.value })} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
+                <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Invoice # <span className="text-[#FF6B1A]">*</span></div><input placeholder="e.g. INV-0042" value={form.invoiceNumber} onChange={(e) => setForm({ ...form, invoiceNumber: e.target.value })} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
                 <div>
                   <div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Status</div>
                   <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white focus:outline-none focus:border-[#FF6B1A]">
@@ -341,12 +341,12 @@ export default function Invoicing({ role = "Contractor" }: { role?: Role }) {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <div className="text-[11px] text-white uppercase tracking-wider">Bill To</div>
-                  <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Client Name <span className="text-[#FF6B1A]">*</span></div><input value={form.clientName} onChange={(e) => setForm({ ...form, clientName: e.target.value })} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
-                  <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Address</div><textarea value={form.billToAddress} onChange={(e) => setForm({ ...form, billToAddress: e.target.value })} rows={3} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
+                  <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Client Name <span className="text-[#FF6B1A]">*</span></div><input placeholder="e.g. Jane Wanjiku" value={form.clientName} onChange={(e) => setForm({ ...form, clientName: e.target.value })} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
+                  <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Address</div><textarea placeholder="e.g. P.O. Box 1234-00100&#10;Nairobi" value={form.billToAddress} onChange={(e) => setForm({ ...form, billToAddress: e.target.value })} rows={3} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
                 </div>
                 <div className="space-y-2">
                   <div className="text-[11px] text-white uppercase tracking-wider">Ship To <span className="text-[10px] text-[#5B6675] normal-case">(optional)</span></div>
-                  <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Ship-to details</div><textarea value={form.shipTo} onChange={(e) => setForm({ ...form, shipTo: e.target.value })} rows={4} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
+                  <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Ship-to details</div><textarea placeholder="e.g. Site: Plot 45, Kitengela" value={form.shipTo} onChange={(e) => setForm({ ...form, shipTo: e.target.value })} rows={4} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
                 </div>
               </div>
 
@@ -360,7 +360,7 @@ export default function Invoicing({ role = "Contractor" }: { role?: Role }) {
                   </select>
                 </div>
                 <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Due Date</div><input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
-                <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">PO Number</div><input value={form.poNumber} onChange={(e) => setForm({ ...form, poNumber: e.target.value })} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
+                <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">PO Number</div><input placeholder="e.g. PO-2026-018" value={form.poNumber} onChange={(e) => setForm({ ...form, poNumber: e.target.value })} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
               </div>
 
               {/* Line items */}
@@ -373,8 +373,8 @@ export default function Invoicing({ role = "Contractor" }: { role?: Role }) {
                   {lines.map((li, i) => (
                     <div key={i} className="grid grid-cols-[1fr_70px_100px_110px_32px] gap-2 px-3 py-2 items-center border-t border-[#222A35]">
                       <input value={li.description} onChange={(e) => updateLine(i, { description: e.target.value })} placeholder="Item or service" className="h-8 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white focus:outline-none focus:border-[#FF6B1A]" />
-                      <input type="number" value={li.quantity} onChange={(e) => updateLine(i, { quantity: e.target.value })} className="h-8 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white text-right focus:outline-none focus:border-[#FF6B1A]" />
-                      <input type="number" value={li.rate} onChange={(e) => updateLine(i, { rate: e.target.value })} className="h-8 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white text-right focus:outline-none focus:border-[#FF6B1A]" />
+                      <input placeholder="1" type="number" value={li.quantity} onChange={(e) => updateLine(i, { quantity: e.target.value })} className="h-8 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white text-right focus:outline-none focus:border-[#FF6B1A]" />
+                      <input placeholder="e.g. 50000" type="number" value={li.rate} onChange={(e) => updateLine(i, { rate: e.target.value })} className="h-8 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white text-right focus:outline-none focus:border-[#FF6B1A]" />
                       <div className="text-right text-white">{formatCurrency(Math.round(lineAmount(li)), currency)}</div>
                       <button onClick={() => removeLine(i)} className="text-[#8A95A5] hover:text-red-400 flex justify-center"><X className="w-3.5 h-3.5" /></button>
                     </div>
@@ -390,22 +390,22 @@ export default function Invoicing({ role = "Contractor" }: { role?: Role }) {
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[#8A95A5]">Tax %</span>
                     <div className="flex items-center gap-2">
-                      <input type="number" value={form.taxRate} onChange={(e) => setForm({ ...form, taxRate: e.target.value })} className="w-[70px] h-8 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white text-right focus:outline-none focus:border-[#FF6B1A]" />
+                      <input placeholder="16" type="number" value={form.taxRate} onChange={(e) => setForm({ ...form, taxRate: e.target.value })} className="w-[70px] h-8 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white text-right focus:outline-none focus:border-[#FF6B1A]" />
                       <span className="text-white w-[110px] text-right">{formatCurrency(Math.round(taxAmount), currency)}</span>
                     </div>
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[#8A95A5]">Discount</span>
-                    <input type="number" value={form.discount} onChange={(e) => setForm({ ...form, discount: e.target.value })} className="w-[120px] h-8 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white text-right focus:outline-none focus:border-[#FF6B1A]" />
+                    <input placeholder="0" type="number" value={form.discount} onChange={(e) => setForm({ ...form, discount: e.target.value })} className="w-[120px] h-8 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white text-right focus:outline-none focus:border-[#FF6B1A]" />
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[#8A95A5]">Shipping</span>
-                    <input type="number" value={form.shipping} onChange={(e) => setForm({ ...form, shipping: e.target.value })} className="w-[120px] h-8 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white text-right focus:outline-none focus:border-[#FF6B1A]" />
+                    <input placeholder="0" type="number" value={form.shipping} onChange={(e) => setForm({ ...form, shipping: e.target.value })} className="w-[120px] h-8 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white text-right focus:outline-none focus:border-[#FF6B1A]" />
                   </div>
                   <div className="flex items-center justify-between pt-2 border-t border-[#222A35]"><span className="text-white">Total</span><span className="text-white font-display text-[14px]">{formatCurrency(Math.round(total), currency)}</span></div>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[#8A95A5]">Amount Paid</span>
-                    <input type="number" value={form.amountPaid} onChange={(e) => setForm({ ...form, amountPaid: e.target.value })} className="w-[120px] h-8 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white text-right focus:outline-none focus:border-[#FF6B1A]" />
+                    <input placeholder="0" type="number" value={form.amountPaid} onChange={(e) => setForm({ ...form, amountPaid: e.target.value })} className="w-[120px] h-8 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white text-right focus:outline-none focus:border-[#FF6B1A]" />
                   </div>
                   <div className="flex items-center justify-between"><span className="text-[#8A95A5]">Balance Due</span><span className="text-[#22C55E]">{formatCurrency(Math.round(balanceDue), currency)}</span></div>
                 </div>
@@ -413,8 +413,8 @@ export default function Invoicing({ role = "Contractor" }: { role?: Role }) {
 
               {/* Notes + Terms */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Notes</div><textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
-                <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Terms &amp; Conditions</div><textarea value={form.terms} onChange={(e) => setForm({ ...form, terms: e.target.value })} rows={3} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
+                <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Notes</div><textarea placeholder="e.g. Thank you for your business." value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
+                <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Terms &amp; Conditions</div><textarea placeholder="e.g. Payment due within 14 days by M-Pesa or bank transfer." value={form.terms} onChange={(e) => setForm({ ...form, terms: e.target.value })} rows={3} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
               </div>
             </div>
             <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[#222A35]">
@@ -431,7 +431,7 @@ export default function Invoicing({ role = "Contractor" }: { role?: Role }) {
             <div className="px-5 py-4 border-b border-[#222A35] flex items-center justify-between"><div className="text-[14px] text-white font-display">Record payment</div><button onClick={() => setPayFor(null)} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button></div>
             <div className="p-5 space-y-3">
               <div className="text-[12px] text-[#8A95A5]">{payFor.invoiceNumber} · {payFor.clientName} · invoiced {formatCurrency(Math.round(Number(payFor.amount) || 0), currency)}</div>
-              <div><div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">Amount received</div><input type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
+              <div><div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">Amount received</div><input placeholder="e.g. 100000" type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
               <div><div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">Date received</div><input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
               <div className="text-[10px] text-[#5B6675]">Paying the full amount marks the invoice Paid; a smaller amount keeps it open (partial payment).</div>
             </div>

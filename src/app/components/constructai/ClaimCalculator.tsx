@@ -103,7 +103,7 @@ export function ClaimCalculator({
             </div>
             <div>
               <label className="text-[10px] uppercase tracking-wider text-[#8A95A5] block mb-1">Retention %</label>
-              <input type="number" value={retentionPct} onChange={(e) => setRetentionPct(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
+              <input placeholder="e.g. 10" type="number" value={retentionPct} onChange={(e) => setRetentionPct(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
             </div>
           </div>
 

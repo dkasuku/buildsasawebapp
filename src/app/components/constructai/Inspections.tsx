@@ -442,7 +442,7 @@ export default function Inspections({ role = "Contractor" }: { role?: Role }) {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Inspector / Requester</div>
-                  <input value={form.inspector || ""} onChange={(e) => setForm({ ...form, inspector: e.target.value })} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" />
+                  <input placeholder="e.g. County building inspector" value={form.inspector || ""} onChange={(e) => setForm({ ...form, inspector: e.target.value })} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" />
                 </div>
                 <div>
                   <div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Assign to Consultant</div>
@@ -458,7 +458,7 @@ export default function Inspections({ role = "Contractor" }: { role?: Role }) {
               </div>
               <div>
                 <div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Notes</div>
-                <textarea value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#FF6B1A]" />
+                <textarea placeholder="e.g. Rebar spacing checked, OK to pour" value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#FF6B1A]" />
               </div>
               {/* Readiness photos */}
               <div>

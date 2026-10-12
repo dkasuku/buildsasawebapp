@@ -381,10 +381,10 @@ function IncidentForm({ projectId, onClose, onDone }: { projectId: string; onClo
           <Field label="Type"><select value={f.incidentType} onChange={set("incidentType")} className={input}>{INCIDENT_TYPES.map((t) => <option key={t} value={t}>{statusLabel(t)}</option>)}</select></Field>
           <Field label="Severity"><select value={f.severity} onChange={set("severity")} className={input}>{SEVERITIES.map((t) => <option key={t} value={t}>{statusLabel(t)}</option>)}</select></Field>
         </div>
-        <Field label="What happened"><textarea autoFocus value={f.description} onChange={set("description")} className={textarea} /></Field>
+        <Field label="What happened"><textarea placeholder="e.g. Worker slipped on wet scaffold plank, minor ankle sprain" autoFocus value={f.description} onChange={set("description")} className={textarea} /></Field>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field label="Reported by"><input value={f.reporter} onChange={set("reporter")} className={input} /></Field>
-          <Field label="Witnesses"><input value={f.witnesses} onChange={set("witnesses")} className={input} /></Field>
+          <Field label="Reported by"><input placeholder="e.g. Site foreman, Paul Mutua" value={f.reporter} onChange={set("reporter")} className={input} /></Field>
+          <Field label="Witnesses"><input placeholder="e.g. James Kariuki, Ann Njeri" value={f.witnesses} onChange={set("witnesses")} className={input} /></Field>
         </div>
         <Field label="Corrective action"><textarea value={f.correctiveAction} onChange={set("correctiveAction")} placeholder="What was done, or will be done, to stop it happening again." className={textarea} /></Field>
         <div className="flex justify-end gap-2 pt-1">

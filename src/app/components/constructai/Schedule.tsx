@@ -280,7 +280,7 @@ function GenerateModal({ projectId, onClose, onDone }: { projectId: string; onCl
           <div><span className={lbl}>Describe the project</span><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} placeholder="e.g. 8-storey reinforced-concrete residential tower with basement parking" className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-2.5 py-2 text-[12.5px] text-white focus:outline-none focus:border-[#FF6B1A] resize-none" /></div>
           <div className="grid grid-cols-2 gap-3">
             <div><span className={lbl}>Start date</span><input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className={cls} /></div>
-            <div><span className={lbl}>Duration (weeks)</span><input type="number" min={1} max={260} value={weeks} onChange={(e) => setWeeks(Number(e.target.value) || 16)} className={cls} /></div>
+            <div><span className={lbl}>Duration (weeks)</span><input placeholder="e.g. 16" type="number" min={1} max={260} value={weeks} onChange={(e) => setWeeks(Number(e.target.value) || 16)} className={cls} /></div>
           </div>
           <div className="text-[10.5px] text-[#5B6675]">Drafts phases, tasks and milestones onto the timeline (added to the current schedule). You can edit or delete anything afterward.</div>
         </div>
@@ -340,7 +340,7 @@ function ItemModal({ projectId, initial, onClose, onSaved }: { projectId: string
             <div><span className={lbl}>Status</span><select value={f.status} onChange={(e) => set("status", e.target.value)} className={cls}>{Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></div>
             <div><span className={lbl}>Start date *</span><input type="date" value={f.startDate} onChange={(e) => set("startDate", e.target.value)} className={cls} /></div>
             <div><span className={lbl}>{f.type === "milestone" ? "Date *" : "End date *"}</span><input type="date" value={f.endDate} onChange={(e) => set("endDate", e.target.value)} className={cls} /></div>
-            <div><span className={lbl}>% complete</span><input type="number" min={0} max={100} value={f.percent} onChange={(e) => set("percent", e.target.value)} className={cls} /></div>
+            <div><span className={lbl}>% complete</span><input placeholder="e.g. 40" type="number" min={0} max={100} value={f.percent} onChange={(e) => set("percent", e.target.value)} className={cls} /></div>
             <div><span className={lbl}>Trade</span><select value={f.trade} onChange={(e) => set("trade", e.target.value)} className={cls}><option value="">—</option>{TRADES.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}</select></div>
           </div>
           <div>
@@ -353,7 +353,7 @@ function ItemModal({ projectId, initial, onClose, onSaved }: { projectId: string
               })}
             </div>
           </div>
-          <div><span className={lbl}>Notes</span><textarea value={f.notes} onChange={(e) => set("notes", e.target.value)} rows={2} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-2.5 py-2 text-[12.5px] text-white focus:outline-none focus:border-[#FF6B1A] resize-none" /></div>
+          <div><span className={lbl}>Notes</span><textarea placeholder="e.g. Waiting on steel delivery" value={f.notes} onChange={(e) => set("notes", e.target.value)} rows={2} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-2.5 py-2 text-[12.5px] text-white focus:outline-none focus:border-[#FF6B1A] resize-none" /></div>
         </div>
         <div className="px-5 py-4 border-t border-[#222A35] flex gap-2 sticky bottom-0 bg-[#11161D]">
           <button onClick={onClose} className="flex-1 h-10 rounded-md border border-[#222A35] text-[12px] text-white">Cancel</button>

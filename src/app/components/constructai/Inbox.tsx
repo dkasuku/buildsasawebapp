@@ -1099,7 +1099,7 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
               <div>
                 <label className="text-[11px] text-[#8A95A5] block mb-1.5">Group Name</label>
                 <div className="flex gap-2">
-                  <input
+                  <input placeholder="e.g. Site team, Kitengela"
                     value={groupEditName}
                     onChange={(e) => setGroupEditName(e.target.value)}
                     className="flex-1 h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]"

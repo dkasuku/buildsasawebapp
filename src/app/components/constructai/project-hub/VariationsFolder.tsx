@@ -237,7 +237,7 @@ function VariationForm({ projectId, initial, canApprove, onClose, onDone }: { pr
             </select>
           </Field>
           <Field label={money.unit("Amount")}><input type="number" min={0} value={f.amount} onChange={set("amount")} placeholder="0" className={input} /></Field>
-          <Field label="Time impact (days)"><input type="number" value={f.scheduleImpactDays} onChange={set("scheduleImpactDays")} className={input} /></Field>
+          <Field label="Time impact (days)"><input placeholder="e.g. 5" type="number" value={f.scheduleImpactDays} onChange={set("scheduleImpactDays")} className={input} /></Field>
         </div>
         <Field label="Description"><textarea value={f.description} onChange={set("description")} placeholder="What changed, where, and what was instructed." className={textarea} /></Field>
         <Field label="Status" hint={canApprove ? undefined : "Approval is reserved to the contractor, owner, executive or project manager."}>

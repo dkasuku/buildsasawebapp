@@ -178,7 +178,7 @@ export function DrawingCanvas({ vm, punchPins = [], punchActive = false, onPunch
                     {m.text && <div className="mt-1 px-1.5 py-0.5 rounded bg-black/70 dwg-ink text-[10px] whitespace-nowrap max-w-[160px] truncate">{m.text}</div>}
                   </div>
                 ) : selectedMarkupId === m.id && caps.canMarkup ? (
-                  <input autoFocus value={m.text} onChange={(e) => setMarkupText(m.id, e.target.value)} onBlur={() => commitMarkup(m.id, { text: m.text })} onPointerDown={(e) => e.stopPropagation()} className="px-2 py-1 rounded bg-black/80 dwg-ink text-[11px] border focus:outline-none" style={{ borderColor: m.color }} />
+                  <input placeholder="Type a note…" autoFocus value={m.text} onChange={(e) => setMarkupText(m.id, e.target.value)} onBlur={() => commitMarkup(m.id, { text: m.text })} onPointerDown={(e) => e.stopPropagation()} className="px-2 py-1 rounded bg-black/80 dwg-ink text-[11px] border focus:outline-none" style={{ borderColor: m.color }} />
                 ) : (
                   <div className="px-2 py-1 rounded bg-black/70 dwg-ink text-[11px] whitespace-nowrap border" style={{ borderColor: m.color }}>{m.text || "Text"}</div>
                 )}

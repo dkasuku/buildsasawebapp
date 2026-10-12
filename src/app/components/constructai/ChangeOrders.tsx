@@ -256,17 +256,17 @@ function COForm({ projects, initial, canApprove, onClose, onSaved }: { projects:
         </div>
         <div className="p-5 space-y-3">
           <F label="Title *"><input value={f.title} onChange={(e) => set("title", e.target.value)} placeholder="What changed and why" className={cls} /></F>
-          <F label="Description"><textarea value={f.description} onChange={(e) => set("description", e.target.value)} rows={2} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-2 py-1.5 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A] resize-none" /></F>
+          <F label="Description"><textarea placeholder="e.g. Add 2 extra windows on the east wall" value={f.description} onChange={(e) => set("description", e.target.value)} rows={2} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-2 py-1.5 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A] resize-none" /></F>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <F label="Project"><select value={f.projectId} onChange={(e) => set("projectId", e.target.value)} className={cls}>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></F>
             <F label="Number (auto if blank)"><input value={f.number} onChange={(e) => set("number", e.target.value)} placeholder="CO-####" className={cls} /></F>
-            <F label="Area / Location"><input value={f.area} onChange={(e) => set("area", e.target.value)} className={cls} /></F>
+            <F label="Area / Location"><input placeholder="e.g. Ground floor, Block B" value={f.area} onChange={(e) => set("area", e.target.value)} className={cls} /></F>
             <F label="Trigger"><select value={f.trigger} onChange={(e) => set("trigger", e.target.value)} className={cls}>{TRIGGERS.map((t) => <option key={t}>{t}</option>)}</select></F>
             <F label="Linked RFI"><input value={f.rfi} onChange={(e) => set("rfi", e.target.value)} placeholder="RFI #" className={cls} /></F>
             <F label="Status"><select value={f.status} onChange={(e) => set("status", e.target.value)} className={cls}>{(Object.keys(STATUS_META) as COStatus[]).map((s) => <option key={s} value={s} disabled={(s === "approved" || s === "rejected") && !canApprove}>{STATUS_META[s].label}{(s === "approved" || s === "rejected") && !canApprove ? " (needs approver)" : ""}</option>)}</select></F>
             <F label={`Cost impact (${CURRENCIES[currency].code})`}><input type="number" inputMode="decimal" placeholder="0" value={f.cost} onChange={(e) => set("cost", e.target.value)} className={cls} /></F>
             <F label="Schedule impact (days)"><input type="number" inputMode="numeric" placeholder="0" value={f.scheduleImpactDays} onChange={(e) => set("scheduleImpactDays", e.target.value)} className={cls} /></F>
-            <F label="Requested by"><input value={f.requestedBy} onChange={(e) => set("requestedBy", e.target.value)} className={cls} /></F>
+            <F label="Requested by"><input placeholder="e.g. Client, Jane Wanjiku" value={f.requestedBy} onChange={(e) => set("requestedBy", e.target.value)} className={cls} /></F>
           </div>
           <MultiAssign value={f.assignees} onChange={(v) => set("assignees", v)} />
         </div>

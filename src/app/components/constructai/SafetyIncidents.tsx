@@ -203,16 +203,16 @@ export default function SafetyIncidents({ role = "Contractor" }: { role?: Role }
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Reporter</div><input value={form.reporter} onChange={(e) => setForm({ ...form, reporter: e.target.value })} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
+                <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Reporter</div><input placeholder="e.g. Site foreman, Paul Mutua" value={form.reporter} onChange={(e) => setForm({ ...form, reporter: e.target.value })} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
                 <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Status</div>
                   <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-white">
                     {STATUSES.map((s) => <option key={s}>{s}</option>)}
                   </select>
                 </div>
               </div>
-              <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Description</div><textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
-              <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Witnesses</div><input value={form.witnesses} onChange={(e) => setForm({ ...form, witnesses: e.target.value })} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
-              <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Corrective Action</div><textarea value={form.correctiveAction} onChange={(e) => setForm({ ...form, correctiveAction: e.target.value })} rows={2} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
+              <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Description</div><textarea placeholder="e.g. Worker slipped on wet scaffold plank" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
+              <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Witnesses</div><input placeholder="e.g. James Kariuki, Ann Njeri" value={form.witnesses} onChange={(e) => setForm({ ...form, witnesses: e.target.value })} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
+              <div><div className="text-[10px] text-[#8A95A5] uppercase tracking-wider mb-1">Corrective Action</div><textarea placeholder="e.g. Anti-slip strips fitted; toolbox talk held" value={form.correctiveAction} onChange={(e) => setForm({ ...form, correctiveAction: e.target.value })} rows={2} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
             </div>
             <div className="flex items-center justify-end gap-2 mt-5 pt-4 border-t border-[#222A35]">
               <button onClick={() => setShowNew(false)} className="h-9 px-3 rounded-md border border-[#222A35] text-[12px] text-[#8A95A5] hover:text-white">Cancel</button>

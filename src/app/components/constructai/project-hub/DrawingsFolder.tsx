@@ -270,7 +270,7 @@ function NewRevisionModal({ projectId, sheet, onClose, onDone }: { projectId: st
   return (
     <Modal title={`New version of ${sheet.number}`} subtitle={`Currently V${sheet.latest?.rev}. The new file becomes V${next}; V${sheet.latest?.rev} stays on record.`} onClose={onClose}>
       <div className="space-y-4">
-        <Field label="Title"><input value={title} onChange={(e) => setTitle(e.target.value)} className={input} /></Field>
+        <Field label="Title"><input placeholder="e.g. Ground floor plan" value={title} onChange={(e) => setTitle(e.target.value)} className={input} /></Field>
         <Field label="Status of the new version"><select value={status} onChange={(e) => setStatus(e.target.value)} className={input}>{STATUSES.filter((s) => s !== "Superseded").map((d) => <option key={d}>{d}</option>)}</select></Field>
         <button onClick={async () => { const [f] = await pickFiles({ accept: ".pdf,.dwg,.dxf,.png,.jpg,.jpeg,.webp" }); if (f) setFile(f); }} className="w-full h-20 border-2 border-dashed border-[#222A35] rounded-xl flex flex-col items-center justify-center gap-1 text-[#8A95A5] hover:border-[#FF6B1A] hover:text-white transition">
           <UploadCloud className="w-5 h-5" /><span className="text-[12px]">{file ? `${file.name} · ${fileSizeLabel(file.size)}` : "Choose the revised file"}</span>

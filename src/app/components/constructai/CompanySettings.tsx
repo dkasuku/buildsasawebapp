@@ -82,12 +82,12 @@ export function CompanySettings() {
         </div>
       </div>
 
-      <div><span className={lbl}>Company name *</span><input value={f.name} onChange={set("name")} disabled={!canEdit} className={input} /></div>
+      <div><span className={lbl}>Company name *</span><input placeholder="e.g. Kamau Builders Ltd" value={f.name} onChange={set("name")} disabled={!canEdit} className={input} /></div>
       <div className="grid grid-cols-2 gap-3">
         <div><span className={lbl}>Company phone</span><input type="tel" value={f.phone} onChange={set("phone")} disabled={!canEdit} placeholder="e.g. 0712 345 678" className={input} /></div>
         <div><span className={lbl}>Company email</span><input type="email" value={f.email} onChange={set("email")} disabled={!canEdit} placeholder="e.g. info@yourcompany.co.ke" className={input} /></div>
       </div>
-      <div><span className={lbl}>Address</span>{canEdit ? <MapPicker value={f.address} onChange={(v) => setF((x) => ({ ...x, address: v }))} onLatLngChange={() => {}} placeholder="Search your office, e.g. Westlands, Nairobi" /> : <input value={f.address} disabled className={input} />}</div>
+      <div><span className={lbl}>Address</span>{canEdit ? <MapPicker value={f.address} onChange={(v) => setF((x) => ({ ...x, address: v }))} onLatLngChange={() => {}} placeholder="Search your office, e.g. Westlands, Nairobi" /> : <input placeholder="Set your office location above" value={f.address} disabled className={input} />}</div>
       <div className="grid grid-cols-2 gap-3">
         <div><span className={lbl}>KRA PIN</span><input value={f.kraPin} onChange={set("kraPin")} disabled={!canEdit} placeholder="e.g. P051234567X" className={input} /></div>
       </div>

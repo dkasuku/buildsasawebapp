@@ -125,8 +125,8 @@ export function PublicFormFill({ token, theme }: { token: string; theme?: "dark"
       </div>
 
       <div className="mt-6 rounded-lg border border-[#222A35] bg-[#11161D] p-3.5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div><div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">Your name (optional)</div><input value={name} onChange={(e) => setName(e.target.value)} className={input} /></div>
-        <div><div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">Email (optional)</div><input value={email} onChange={(e) => setEmail(e.target.value)} className={input} /></div>
+        <div><div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">Your name (optional)</div><input placeholder="e.g. Mary Achieng" value={name} onChange={(e) => setName(e.target.value)} className={input} /></div>
+        <div><div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">Email (optional)</div><input placeholder="e.g. mary@example.com" value={email} onChange={(e) => setEmail(e.target.value)} className={input} /></div>
       </div>
 
       <button onClick={submit} disabled={busy} className="w-full h-11 mt-5 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[13px] font-medium flex items-center justify-center gap-2 disabled:opacity-60">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Submit response</button>

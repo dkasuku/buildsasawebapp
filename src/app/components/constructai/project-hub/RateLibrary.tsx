@@ -141,7 +141,7 @@ function RateForm({ initial, onClose, onSaved }: { initial?: Partial<RateLibrary
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <Field label="Description" className="sm:col-span-3"><input value={f.description} onChange={set("description")} placeholder="12mm cement/sand plaster to internal walls" className={input} /></Field>
         <Field label="Unit"><select value={f.unit} onChange={set("unit")} className={input}>{UNITS.map((u) => <option key={u}>{u}</option>)}</select></Field>
-        <Field label={money.unit("Rate")}><input type="number" value={f.rate} onChange={set("rate")} className={input} /></Field>
+        <Field label={money.unit("Rate")}><input placeholder="e.g. 1500" type="number" value={f.rate} onChange={set("rate")} className={input} /></Field>
         <Field label="Category"><input value={f.category} onChange={set("category")} placeholder="Finishes" className={input} /></Field>
         <Field label="Ref code"><input value={f.code} onChange={set("code")} placeholder="F-12" className={input} /></Field>
         <Field label="Source" className="sm:col-span-2"><input value={f.source} onChange={set("source")} placeholder="Quote from ABC Ltd, Aug 2026" className={input} /></Field>

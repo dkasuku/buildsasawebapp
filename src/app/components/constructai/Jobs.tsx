@@ -187,10 +187,10 @@ function JobDetail({ job, onClose, onChanged }: { job: JobDto; onClose: () => vo
               <div className="grid grid-cols-2 gap-3">
                 <div><div className="text-[11px] text-[#8A95A5] mb-1">Your price (KES) *</div><input type="number" inputMode="decimal" value={f.amount} onChange={set("amount")} placeholder="e.g. 2500000" className={input} /></div>
                 <div><div className="text-[11px] text-[#8A95A5] mb-1">Time to complete (days)</div><input type="number" value={f.timeline} onChange={set("timeline")} placeholder="e.g. 60" className={input} /></div>
-                <div><div className="text-[11px] text-[#8A95A5] mb-1">Contact person</div><input value={f.contactName} onChange={set("contactName")} className={input} /></div>
+                <div><div className="text-[11px] text-[#8A95A5] mb-1">Contact person</div><input placeholder="e.g. John Kamau" value={f.contactName} onChange={set("contactName")} className={input} /></div>
                 <div><div className="text-[11px] text-[#8A95A5] mb-1">Phone</div><input type="tel" value={f.phone} onChange={set("phone")} placeholder="e.g. 0712 345 678" className={input} /></div>
               </div>
-              <div><div className="text-[11px] text-[#8A95A5] mb-1">Why your company? (experience, similar jobs, team)</div><textarea value={f.message} onChange={set("message")} rows={4} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
+              <div><div className="text-[11px] text-[#8A95A5] mb-1">Why your company? (experience, similar jobs, team)</div><textarea placeholder="e.g. We have done 8 similar builds in Kajiado and can start next month." value={f.message} onChange={set("message")} rows={4} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
               <div>
                 <div className="text-[11px] text-[#8A95A5] mb-1">Supporting documents (quote, company profile, certificates)</div>
                 <div className="space-y-1">

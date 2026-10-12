@@ -182,7 +182,7 @@ function CertificateForm({ projectId, previousCertified, nextNumber, onClose, on
     <Modal title="Record a payment certificate" subtitle={`Previously certified: ${fmt(previousCertified)}`} onClose={onClose}>
       <div className="space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <Field label="Certificate no."><input value={f.number} onChange={set("number")} className={`${input} font-mono`} /></Field>
+          <Field label="Certificate no."><input placeholder="e.g. IPC-04" value={f.number} onChange={set("number")} className={`${input} font-mono`} /></Field>
           <Field label="Period"><input value={f.period} onChange={set("period")} placeholder="Aug 2026" className={input} /></Field>
           <Field label="Valuation date"><input type="date" value={f.periodEnd} onChange={set("periodEnd")} className={input} /></Field>
         </div>
@@ -193,9 +193,9 @@ function CertificateForm({ projectId, previousCertified, nextNumber, onClose, on
               <option value="todate">Gross valuation to date</option>
             </select>
           </Field>
-          <Field label={money.unit("Amount")}><input type="number" min={0} value={f.amount} onChange={set("amount")} className={input} /></Field>
-          <Field label="Retention %"><input type="number" min={0} max={20} step={0.5} value={f.retentionPct} onChange={set("retentionPct")} className={input} /></Field>
-          <Field label={money.unit("Advance recovered")}><input type="number" min={0} value={f.advanceRecovery} onChange={set("advanceRecovery")} className={input} /></Field>
+          <Field label={money.unit("Amount")}><input placeholder="e.g. 850000" type="number" min={0} value={f.amount} onChange={set("amount")} className={input} /></Field>
+          <Field label="Retention %"><input placeholder="e.g. 10" type="number" min={0} max={20} step={0.5} value={f.retentionPct} onChange={set("retentionPct")} className={input} /></Field>
+          <Field label={money.unit("Advance recovered")}><input placeholder="e.g. 50000" type="number" min={0} value={f.advanceRecovery} onChange={set("advanceRecovery")} className={input} /></Field>
         </div>
         <div className="rounded-lg border border-[#222A35] bg-[#0A0E14] p-3 grid grid-cols-3 gap-2 text-center">
           <div><div className="text-[10px] text-[#5B6675] uppercase">This period</div><div className="text-[13px] text-white tabular-nums">{fmt(Math.max(0, thisPeriod))}</div></div>

@@ -208,10 +208,10 @@ function ContactForm({ onClose, onDone }: { onClose: () => void; onDone: () => P
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Company"><input autoFocus value={f.company} onChange={set("company")} placeholder="Mwangi Electricals Ltd" className={input} /></Field>
           <Field label="Type"><select value={f.category} onChange={set("category")} className={input}><option>Subcontractor</option><option>Supplier</option></select></Field>
-          <Field label="Contact person"><input value={f.name} onChange={set("name")} className={input} /></Field>
+          <Field label="Contact person"><input placeholder="e.g. Otieno Plumbing Works" value={f.name} onChange={set("name")} className={input} /></Field>
           <Field label="Trade / what they supply"><input value={f.role} onChange={set("role")} placeholder="Electrical · Plumbing · Cement supplier" className={input} /></Field>
-          <Field label="Phone"><input value={f.phone} onChange={set("phone")} className={input} /></Field>
-          <Field label="Email"><input value={f.email} onChange={set("email")} className={input} /></Field>
+          <Field label="Phone"><input placeholder="e.g. 0712 345 678" value={f.phone} onChange={set("phone")} className={input} /></Field>
+          <Field label="Email"><input placeholder="e.g. info@otienoplumbing.co.ke" value={f.email} onChange={set("email")} className={input} /></Field>
         </div>
         <div className="flex justify-end gap-2 pt-1">
           <button onClick={onClose} className={btnGhost}>Cancel</button>
@@ -248,7 +248,7 @@ function PaymentForm({ row, onClose, onDone }: { row: SubcontractorRowDto; onClo
         </Field>
         {chosen && <div className="text-[11.5px] text-[#8A95A5] flex items-center gap-1.5"><Wallet className="w-3.5 h-3.5" /> Balance before this payment: <span className="text-white">{fmt(balance)}</span></div>}
         <div className="grid grid-cols-2 gap-3">
-          <Field label={money.unit("Amount paid")}><input autoFocus type="number" min={0} value={f.amount} onChange={set("amount")} className={input} /></Field>
+          <Field label={money.unit("Amount paid")}><input placeholder="e.g. 1200000" autoFocus type="number" min={0} value={f.amount} onChange={set("amount")} className={input} /></Field>
           <Field label="Date"><input type="date" value={f.date} onChange={set("date")} className={input} /></Field>
         </div>
         <Field label="Reference"><input value={f.reference} onChange={set("reference")} placeholder="Cheque no., M-Pesa code, transfer ref" className={input} /></Field>

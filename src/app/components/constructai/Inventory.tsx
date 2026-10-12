@@ -478,7 +478,7 @@ function ItemModal({ projects, item, onClose, onSaved }: { projects: ProjectDto[
           <Section title="Item">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Labeled label="Name">
-                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputCls} />
+                <input placeholder="e.g. Cement 50kg (Bamburi)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputCls} />
               </Labeled>
               <Labeled label="SKU / code">
                 <input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} placeholder="e.g. CEM-42.5" className={inputCls} />
@@ -508,17 +508,17 @@ function ItemModal({ projects, item, onClose, onSaved }: { projects: ProjectDto[
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {!editing && (
                 <Labeled label="Opening stock">
-                  <input type="number" value={form.currentStock} onChange={(e) => setForm({ ...form, currentStock: e.target.value })} className={inputCls} />
+                  <input placeholder="e.g. 120" type="number" value={form.currentStock} onChange={(e) => setForm({ ...form, currentStock: e.target.value })} className={inputCls} />
                 </Labeled>
               )}
               <Labeled label="Min level (critical)">
-                <input type="number" value={form.minLevel} onChange={(e) => setForm({ ...form, minLevel: e.target.value })} className={inputCls} />
+                <input placeholder="e.g. 20" type="number" value={form.minLevel} onChange={(e) => setForm({ ...form, minLevel: e.target.value })} className={inputCls} />
               </Labeled>
               <Labeled label="Reorder level">
-                <input type="number" value={form.reorderLevel} onChange={(e) => setForm({ ...form, reorderLevel: e.target.value })} className={inputCls} />
+                <input placeholder="e.g. 40" type="number" value={form.reorderLevel} onChange={(e) => setForm({ ...form, reorderLevel: e.target.value })} className={inputCls} />
               </Labeled>
               <Labeled label="Max level">
-                <input type="number" value={form.maxLevel} onChange={(e) => setForm({ ...form, maxLevel: e.target.value })} className={inputCls} />
+                <input placeholder="e.g. 300" type="number" value={form.maxLevel} onChange={(e) => setForm({ ...form, maxLevel: e.target.value })} className={inputCls} />
               </Labeled>
               {/* Without an allowance, a waste percentage is just a number — there
                   is nothing to say whether it is normal for this material. Tiles
@@ -531,7 +531,7 @@ function ItemModal({ projects, item, onClose, onSaved }: { projects: ProjectDto[
                 </div>
               </Labeled>
               <Labeled label="Reorder qty">
-                <input type="number" value={form.reorderQty} onChange={(e) => setForm({ ...form, reorderQty: e.target.value })} className={inputCls} />
+                <input placeholder="e.g. 100" type="number" value={form.reorderQty} onChange={(e) => setForm({ ...form, reorderQty: e.target.value })} className={inputCls} />
               </Labeled>
             </div>
           </Section>
@@ -540,13 +540,13 @@ function ItemModal({ projects, item, onClose, onSaved }: { projects: ProjectDto[
           <Section title="Supplier">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Labeled label="Supplier">
-                <input value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} className={inputCls} />
+                <input placeholder="e.g. Mabati Hardware, Thika" value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} className={inputCls} />
               </Labeled>
               <Labeled label="Supplier contact">
                 <input value={form.supplierContact} onChange={(e) => setForm({ ...form, supplierContact: e.target.value })} placeholder="phone / email" className={inputCls} />
               </Labeled>
               <Labeled label="Delivery time (days after ordering)">
-                <input type="number" value={form.leadTimeDays} onChange={(e) => setForm({ ...form, leadTimeDays: e.target.value })} className={inputCls} />
+                <input placeholder="e.g. 3" type="number" value={form.leadTimeDays} onChange={(e) => setForm({ ...form, leadTimeDays: e.target.value })} className={inputCls} />
                 <div className="text-[10px] text-[#5B6675] mt-1 leading-relaxed">
                   How many days this supplier normally takes to deliver after you place the order, so you reorder early enough not to stop work.
                 </div>
@@ -558,7 +558,7 @@ function ItemModal({ projects, item, onClose, onSaved }: { projects: ProjectDto[
           <Section title="Cost">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Labeled label="Unit cost (KES)">
-                <input type="number" value={form.unitCostKES} onChange={(e) => setForm({ ...form, unitCostKES: e.target.value })} className={inputCls} />
+                <input placeholder="e.g. 780" type="number" value={form.unitCostKES} onChange={(e) => setForm({ ...form, unitCostKES: e.target.value })} className={inputCls} />
               </Labeled>
             </div>
           </Section>
@@ -734,7 +734,7 @@ function ItemDrawer({
                     </select>
                   </Labeled>
                   <Labeled label="Quantity">
-                    <input type="number" value={mvQty} onChange={(e) => setMvQty(e.target.value)} className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" />
+                    <input placeholder="e.g. 25" type="number" value={mvQty} onChange={(e) => setMvQty(e.target.value)} className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-white focus:outline-none focus:border-[#FF6B1A]" />
                   </Labeled>
                 </div>
                 {/* Reason is required for waste and shown only then, so the common
@@ -764,7 +764,7 @@ function ItemDrawer({
                   <input value={mvRef} onChange={(e) => setMvRef(e.target.value)} placeholder="e.g. GRN-104 / Delivery note" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]" />
                 </Labeled>
                 <Labeled label="Notes">
-                  <textarea value={mvNotes} onChange={(e) => setMvNotes(e.target.value)} rows={2} className="w-full bg-[#11161D] border border-[#222A35] rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#FF6B1A]" />
+                  <textarea placeholder="e.g. Issued to Block A slab pour" value={mvNotes} onChange={(e) => setMvNotes(e.target.value)} rows={2} className="w-full bg-[#11161D] border border-[#222A35] rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#FF6B1A]" />
                 </Labeled>
                 <button disabled={saving} onClick={recordMovement} className="h-9 px-4 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[12px] flex items-center gap-1.5 disabled:opacity-60">
                   <Plus className="w-3.5 h-3.5" /> Record

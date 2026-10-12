@@ -208,9 +208,9 @@ export function SelectionsFolder({ projectId, canEdit, portalOn, onOpenPortal }:
             <Field label="Item *"><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Porcelain floor tile, matt grey" className={input} /></Field>
             <Field label="Size, colour, code or finish"><input value={form.spec} onChange={(e) => setForm({ ...form, spec: e.target.value })} placeholder="e.g. 60×60 cm, Ash Grey, code PG-6060" className={input} /></Field>
             <div className="grid grid-cols-3 gap-3">
-              <Field label="Quantity"><input type="number" inputMode="decimal" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} className={input} /></Field>
+              <Field label="Quantity"><input placeholder="e.g. 40" type="number" inputMode="decimal" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} className={input} /></Field>
               <Field label="Unit"><select value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} className={input}>{[...new Set([form.unit, ...UNITS])].filter(Boolean).map((u) => <option key={u}>{u}</option>)}</select></Field>
-              <Field label={money.unit("Price / unit")}><input type="number" inputMode="decimal" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className={input} /></Field>
+              <Field label={money.unit("Price / unit")}><input placeholder="e.g. 2500" type="number" inputMode="decimal" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className={input} /></Field>
             </div>
             <Field label="Photo">
               <div className="flex items-center gap-3">
@@ -222,7 +222,7 @@ export function SelectionsFolder({ projectId, canEdit, portalOn, onOpenPortal }:
             </Field>
             <Field label="Notes for the client" hint="Shown to the client in the portal."><textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="e.g. Anti-slip finish, suitable for wet areas" className={textarea} /></Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Supplier" hint="Internal only. The client doesn't see it."><input value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} className={input} /></Field>
+              <Field label="Supplier" hint="Internal only. The client doesn't see it."><input placeholder="e.g. Tile & Carpet Centre" value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} className={input} /></Field>
               <Field label="Product link"><input value={form.link} onChange={(e) => setForm({ ...form, link: e.target.value })} placeholder="https://" className={input} /></Field>
             </div>
             <div className="flex justify-end gap-2 pt-2">
