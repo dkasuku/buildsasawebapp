@@ -37,6 +37,7 @@ export type View =
   | "role-manager"
   | "bidding"
   | "quotes"
+  | "jobs"
   | "invoicing"
   | "inspections"
   | "safety-incidents"
@@ -75,6 +76,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Commitments & Money",
     items: [
+      { key: "jobs", label: "Jobs Board", icon: Briefcase },
       { key: "bidding", label: "Bidding", icon: Gavel },
       { key: "commitments", label: "Commitments", icon: Handshake },
       { key: "financials", label: "Financials", icon: BarChart3 },

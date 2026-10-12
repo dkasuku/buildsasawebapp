@@ -1,3 +1,4 @@
+import { batchRejectReason } from "../../services/uploadPolicy";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Send, Paperclip, Search, Plus, Users, Phone, Hash, X, UserPlus, Check, Image as ImageIcon, Camera, FileText, Reply, CornerDownLeft, Download, Settings, Crown, UserMinus, Trash2, Link2, Bell, ListChecks, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
@@ -488,8 +489,15 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
   const blobUrlsRef = useRef<string[]>([]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, type: "file" | "image") => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    const tooBig = batchRejectReason(files);
+    if (tooBig) { toast.error(tooBig, { duration: 9000 }); return; }
+    files.forEach((file) => attachOne(file, type));
+    setShowAttachMenu(false);
+  };
+
+  const attachOne = (file: File, type: "file" | "image") => {
     const size = file.size > 1024 * 1024 ? (file.size / (1024 * 1024)).toFixed(1) + " MB" : (file.size / 1024).toFixed(0) + " KB";
     const ext = file.name.split(".").pop()?.toLowerCase() || "";
     const fileType: Attachment["type"] = type === "image" ? "image" : (["pdf", "doc", "docx", "xls", "xlsx"].includes(ext) ? "doc" : "file");
@@ -497,7 +505,6 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
     blobUrlsRef.current.push(blobUrl);
     const att: Attachment = { id: "a-" + Date.now(), name: file.name, size, type: fileType, url: blobUrl };
     setAttachments((prev) => [...prev, att]);
-    setShowAttachMenu(false);
     toast.success("Attached: " + file.name);
     // Persist to storage in the background, then swap the blob URL for the real
     // one. A silent failure here left the blob URL on the attachment, so the
@@ -509,7 +516,6 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
         setAttachments((prev) => prev.filter((a) => a.id !== att.id));
         toast.error(`${file.name} was not attached — ${err?.message || "unknown error"}`, { duration: 8000 });
       });
-    e.target.value = "";
   };
 
   const openAttachment = (a: Attachment) => {
@@ -905,8 +911,8 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
                     </div>
                   )}
                 </div>
-                <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => handleFileSelect(e, "file")} />
-                <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleFileSelect(e, "image")} />
+                <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(e) => handleFileSelect(e, "file")} />
+                <input ref={photoInputRef} type="file" multiple accept="image/*" className="hidden" onChange={(e) => handleFileSelect(e, "image")} />
                 <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleFileSelect(e, "image")} />
                 <div className="flex-1 relative">
                   <input

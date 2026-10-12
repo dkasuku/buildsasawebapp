@@ -32,6 +32,7 @@ import { RoleManager } from "./components/constructai/RoleManager";
 import Bidding from "./components/constructai/Bidding";
 import Invoicing from "./components/constructai/Invoicing";
 import Quotes from "./components/constructai/Quotes";
+import { Jobs } from "./components/constructai/Jobs";
 import Inspections from "./components/constructai/Inspections";
 import SafetyIncidents from "./components/constructai/SafetyIncidents";
 import Inventory from "./components/constructai/Inventory";
@@ -84,6 +85,7 @@ const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }
   "company-docs": { title: "Company Documents", subtitle: "Organization-wide vault" },
   "role-manager": { title: "Role Manager", subtitle: "Configure team roles and permissions" },
   bidding: { title: "Bidding", subtitle: "Subcontractor bids and tendering" },
+  jobs: { title: "Jobs Board", subtitle: "Work opportunities from Buildsasa, open for bids" },
   quotes: { title: "Quotes", subtitle: "Price jobs, send them for online acceptance, convert wins to projects" },
   invoicing: { title: "Invoicing", subtitle: "Accounts receivable and invoice management" },
   inspections: { title: "Inspections", subtitle: "Quality, safety, and compliance inspections" },
@@ -172,8 +174,9 @@ export default function App() {
   };
   // Profile settings modal (opened from the sidebar profile menu).
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"profile" | "account" | "company">("profile");
   useEffect(() => {
-    const open = () => setSettingsOpen(true);
+    const open = (e: Event) => { setSettingsTab((e as CustomEvent).detail?.tab || "profile"); setSettingsOpen(true); };
     window.addEventListener("buildflex:open-settings", open);
     return () => window.removeEventListener("buildflex:open-settings", open);
   }, []);
@@ -565,6 +568,7 @@ export default function App() {
             {effectiveView === "company-docs" && <CompanyDocs role={role} />}
             {effectiveView === "role-manager" && <RoleManager role={role} />}
             {effectiveView === "bidding" && <Bidding role={role} />}
+            {effectiveView === "jobs" && <Jobs />}
             {effectiveView === "quotes" && <Quotes role={role} />}
             {effectiveView === "invoicing" && <Invoicing role={role} />}
             {effectiveView === "inspections" && <Inspections role={role} />}
@@ -584,7 +588,7 @@ export default function App() {
             onClose={dismissOnboarding}
           />
         )}
-        {settingsOpen && <ProfileSettings onClose={() => setSettingsOpen(false)} />}
+        {settingsOpen && <ProfileSettings initialTab={settingsTab} onClose={() => setSettingsOpen(false)} />}
         <AiAssistantPanel open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} onExpand={() => { setAiPanelOpen(false); navigate("buildflex-ai"); }} messages={aiMessages} setMessages={setAiMessages} onOpenForm={openAiForm} />
         {!paywalled && <ShemmySupport />}
       </div>

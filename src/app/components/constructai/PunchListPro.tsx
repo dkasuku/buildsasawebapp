@@ -4,6 +4,7 @@
 // detail panel (workflow, comments, attachments, activity) · CSV/PDF export.
 // ============================================================================
 
+import { batchRejectReason } from "../../services/uploadPolicy";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { jsPDF } from "jspdf";
@@ -388,7 +389,20 @@ export function PunchDetail({ id, role, onClose, onChange }: { id: string; role:
     catch (e: any) { toast.error(e.message || "Not permitted for your role"); }
   };
   const addComment = async () => { if (!comment.trim()) return; await api.addPunchComment(id, comment.trim()); setComment(""); load(); };
-  const addPhoto = async (file?: File) => { if (!file) return; toast.info("Uploading photo…"); try { const url = await api.uploadFile(file); await api.addPunchAttachment(id, url, "image"); load(); } catch { toast.error("Photo upload failed"); } };
+  const addPhotos = async (list: FileList | null) => {
+    const files = Array.from(list || []);
+    if (!files.length) return;
+    const tooBig = batchRejectReason(files);
+    if (tooBig) { toast.error(tooBig, { duration: 9000 }); return; }
+    toast.info(files.length === 1 ? "Uploading photo…" : `Uploading ${files.length} photos…`);
+    let failed = 0;
+    for (const file of files) {
+      try { const url = await api.uploadFile(file); await api.addPunchAttachment(id, url, "image"); }
+      catch { failed++; }
+    }
+    if (failed) toast.error(`${failed} photo${failed === 1 ? "" : "s"} could not be uploaded. Check your connection and try again.`);
+    load();
+  };
 
   return (
     <>
@@ -432,7 +446,7 @@ export function PunchDetail({ id, role, onClose, onChange }: { id: string; role:
           {/* attachments */}
           <div>
             <div className="flex items-center justify-between mb-1.5"><div className="text-[10px] uppercase text-[#5B6675]">Attachments</div><button onClick={() => fileRef.current?.click()} className="text-[11px] text-[#FF6B1A] flex items-center gap-1"><Paperclip className="w-3 h-3" /> Add photo</button></div>
-            <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => addPhoto(e.target.files?.[0])} />
+            <input ref={fileRef} type="file" multiple accept="image/*" className="hidden" onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }} />
             <div className="grid grid-cols-3 gap-2">
               {(item.attachments || []).map((a: any, i: number) => <button key={a.id} type="button" onClick={() => setLightbox({ images: (item.attachments || []).map((x: any) => x.fileUrl), index: i })} className="block"><img src={a.fileUrl} alt="att" className="w-full h-16 object-cover rounded border border-[#222A35] cursor-pointer hover:opacity-80" /></button>)}
               {(item.attachments || []).length === 0 && <div className="col-span-3 text-[11px] text-[#5B6675] flex items-center gap-1"><ImageIcon className="w-3.5 h-3.5" /> No photos yet</div>}

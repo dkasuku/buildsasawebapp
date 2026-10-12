@@ -1,3 +1,4 @@
+import { batchRejectReason } from "../../services/uploadPolicy";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { MultiAssign, parseAssignees, assigneeNames } from "./MultiAssign";
 import { toast } from "sonner";
@@ -113,6 +114,14 @@ export default function Inspections({ role = "Contractor" }: { role?: Role }) {
     const url = await uploadFile(file);
     if (!url) return;
     setForm((s) => ({ ...s, readinessPhotos: JSON.stringify([...parseReadiness(s), url]) }));
+  };
+
+  // Several files from one pick, one after another, within the total-size cap.
+  const attachMany = async (list: FileList | null, attach: (f: File) => Promise<void>) => {
+    const files = Array.from(list || []);
+    const tooBig = batchRejectReason(files);
+    if (tooBig) { toast.error(tooBig, { duration: 9000 }); return; }
+    for (const f of files) await attach(f);
   };
 
   const removePhoto = (url: string) => {
@@ -458,7 +467,7 @@ export default function Inspections({ role = "Contractor" }: { role?: Role }) {
                   <button onClick={() => readinessRef.current?.click()} disabled={uploading || parseReadiness(form).length >= 10} className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] border border-[#222A35] text-[#8A95A5] hover:text-white disabled:opacity-40">
                     <ImagePlus className="w-3 h-3" /> Readiness {parseReadiness(form).length}/10
                   </button>
-                  <input ref={readinessRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) attachReadiness(f); e.currentTarget.value = ""; }} />
+                  <input ref={readinessRef} type="file" multiple accept="image/*" className="hidden" onChange={(e) => { attachMany(e.target.files, attachReadiness); e.currentTarget.value = ""; }} />
                   <div className="flex flex-wrap gap-1.5">
                     {parseReadiness(form).map((url) => (
                       <div key={url} className="relative group shrink-0">
@@ -479,8 +488,8 @@ export default function Inspections({ role = "Contractor" }: { role?: Role }) {
                   <button onClick={() => videoRef.current?.click()} disabled={uploading || parseVideos(form).length >= 3} className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] border border-[#222A35] text-[#8A95A5] hover:text-white disabled:opacity-40">
                     <Video className="w-3 h-3" /> Video {parseVideos(form).length}/3
                   </button>
-                  <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) attachPhoto(f); e.currentTarget.value = ""; }} />
-                  <input ref={videoRef} type="file" accept="video/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) attachVideo(f); e.currentTarget.value = ""; }} />
+                  <input ref={photoRef} type="file" multiple accept="image/*" className="hidden" onChange={(e) => { attachMany(e.target.files, attachPhoto); e.currentTarget.value = ""; }} />
+                  <input ref={videoRef} type="file" multiple accept="video/*" className="hidden" onChange={(e) => { attachMany(e.target.files, attachVideo); e.currentTarget.value = ""; }} />
                   <div className="flex flex-wrap gap-1.5">
                     {parsePhotos(form).map((url) => (
                       <div key={url} className="relative group shrink-0">

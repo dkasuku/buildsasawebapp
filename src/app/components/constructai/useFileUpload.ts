@@ -15,8 +15,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import api from "../../services/api";
-import { rejectReason, shrinkImage } from "../../services/uploadPolicy";
-export { MAX_DOCUMENT_MB, MAX_IMAGE_MB, rejectReason, shrinkImage } from "../../services/uploadPolicy";
+import { batchRejectReason, rejectReason, shrinkImage } from "../../services/uploadPolicy";
+export { MAX_DOCUMENT_MB, MAX_IMAGE_MB, MAX_BATCH_MB, batchRejectReason, rejectReason, shrinkImage } from "../../services/uploadPolicy";
 
 export type PendingUpload = {
   /** Stable key for React lists. */
@@ -62,6 +62,8 @@ export function useFileUpload(options?: { onUploaded?: (urls: string[]) => void 
       list.push(await shrinkImage(f));
     }
     if (!list.length) return [];
+    const tooBig = batchRejectReason(list);
+    if (tooBig) { toast.error(tooBig, { duration: 9000 }); return []; }
 
     const items: PendingUpload[] = list.map((file) => {
       const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : "";

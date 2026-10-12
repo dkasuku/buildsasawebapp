@@ -597,6 +597,18 @@ export type BidPackageDto = {
 export type CompanyPublic = { name: string; logoUrl?: string | null; phone?: string | null; email?: string | null; address?: string | null; kraPin?: string | null; paymentDetails?: string | null };
 export type CompanyDto = CompanyPublic & { quoteTerms?: string | null; canEdit: boolean };
 
+export type FileRef = { name: string; url: string };
+export type JobBidDto = {
+  id: string; jobId: string; companyName: string; contactName: string; phone?: string | null; email?: string | null;
+  amountKES: number; timelineDays?: number | null; message?: string | null; attachments: FileRef[];
+  status: "submitted" | "shortlisted" | "awarded" | "rejected"; createdAt: string; updatedAt: string;
+};
+export type JobDto = {
+  id: string; title: string; description: string; category: string; location?: string | null; budgetKES?: number | null;
+  deadline?: string | null; clientName?: string | null; attachments: FileRef[]; status: "open" | "closed" | "awarded";
+  acceptingBids: boolean; createdAt: string; myBid: JobBidDto | null;
+};
+
 export type QuoteLine = { section?: string; description: string; unit: string; quantity: number; rate: number };
 export type QuoteStatus = "draft" | "sent" | "accepted" | "declined" | "expired";
 export type QuoteDto = {
@@ -1298,6 +1310,10 @@ export const api = {
   getCompany: () => http<CompanyDto>(`/api/company`),
   updateCompany: (payload: Partial<Omit<CompanyDto, "canEdit">>) => http<CompanyDto>(`/api/company`, { method: "PUT", body: JSON.stringify(payload) }),
   getCompanyLogoData: () => http<{ dataUrl: string | null; reason?: string }>(`/api/company/logo-data`),
+  // Jobs board (posted by Buildsasa staff; companies bid)
+  getJobs: () => http<JobDto[]>(`/api/jobs`),
+  bidOnJob: (jobId: string, payload: { amountKES: number; timelineDays?: number | null; contactName?: string; phone?: string; email?: string; message?: string; attachments?: FileRef[] }) => http<JobBidDto>(`/api/jobs/${jobId}/bid`, { method: "POST", body: JSON.stringify(payload) }),
+  withdrawJobBid: (jobId: string) => http<{ ok: boolean }>(`/api/jobs/${jobId}/bid`, { method: "DELETE" }),
   // Quotes (workspace-level; the client answers through a public link)
   getQuotes: () => http<{ companyName: string | null; company?: CompanyPublic | null; defaultTerms?: string | null; quotes: QuoteDto[] }>(`/api/quotes`),
   createQuote: (payload: QuoteInput) => http<QuoteDto>(`/api/quotes`, { method: "POST", body: JSON.stringify(payload) }),

@@ -1409,3 +1409,47 @@ model Selection {
 
   @@index([projectId])
 }
+
+// Jobs board: work opportunities posted by Buildsasa platform staff, visible to
+// every subscribed company, which can bid. Not tenant-scoped — a job belongs to
+// the platform; each bid belongs to the company that placed it.
+model Job {
+  id          String    @id @default(cuid())
+  title       String
+  description String
+  category    String    // Building, Roads, Electrical, Plumbing, Interiors, ...
+  location    String?
+  budgetKES   Float?    // indicative budget, optional
+  deadline    String?   // YYYY-MM-DD, bids close at the end of this day
+  clientName  String?   // who the work is for (optional, may stay private)
+  attachments String?   // JSON array of { name, url }
+  status      String    @default("open") // open | closed | awarded
+  createdBy   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  bids        JobBid[]
+
+  @@index([status])
+}
+
+model JobBid {
+  id           String   @id @default(cuid())
+  job          Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId        String
+  workspaceId  String
+  userId       String?
+  companyName  String
+  contactName  String
+  phone        String?
+  email        String?
+  amountKES    Float
+  timelineDays Int?
+  message      String?
+  attachments  String?  // JSON array of { name, url }
+  status       String   @default("submitted") // submitted | shortlisted | awarded | rejected
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([jobId, workspaceId])
+  @@index([workspaceId])
+}

@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import type { Role } from "./roles";
 import { ROLES } from "./roles";
-import api, { type QuoteDto, type QuoteLine, type QuoteStatus, type QuoteInput, type CompanyPublic } from "../../services/api";
+import api, { absoluteFileUrl, type QuoteDto, type QuoteLine, type QuoteStatus, type QuoteInput, type CompanyPublic } from "../../services/api";
 import { companyLogoData, drawLetterhead } from "../../services/brandPdf";
 import { useCurrency } from "./CurrencyContext";
 import { formatCurrency } from "./currency";
@@ -133,6 +133,13 @@ export default function Quotes({ role = "Contractor" }: { role?: Role }) {
     .catch((e) => toast.error(e.message || "Could not load quotes"))
     .finally(() => setLoading(false));
   useEffect(() => { load(); }, []);
+  // Branding changed in Settings → Company: pick it up without a reload.
+  useEffect(() => {
+    const refresh = () => api.getQuotes().then((r) => { setCompany(r.company || null); setCompanyName(r.companyName); if (r.defaultTerms) setDefaultTerms(r.defaultTerms); }).catch(() => {});
+    window.addEventListener("buildflex:company-updated", refresh);
+    return () => window.removeEventListener("buildflex:company-updated", refresh);
+  }, []);
+  const openBranding = () => window.dispatchEvent(new CustomEvent("buildflex:open-settings", { detail: { tab: "company" } }));
 
   const replace = (row: QuoteDto) => setQuotes((qs) => qs.map((x) => (x.id === row.id ? row : x)));
 
@@ -471,6 +478,7 @@ export default function Quotes({ role = "Contractor" }: { role?: Role }) {
               <button onClick={() => setEditing(null)} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button>
             </div>
             <div className="px-4 sm:px-5 py-4 space-y-5 overflow-y-auto">
+              <BrandingStrip company={company} fallbackName={companyName} onEdit={openBranding} canEdit={canManage} />
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="sm:col-span-2"><div className={label}>Job title <span className="text-[#FF6B1A]">*</span></div><input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Kitchen remodel, Runda" className={input} /></div>
                 <div><div className={label}>Valid until</div><input type="date" value={form.validUntil} onChange={(e) => setForm({ ...form, validUntil: e.target.value })} className={input} /></div>
@@ -572,6 +580,31 @@ export default function Quotes({ role = "Contractor" }: { role?: Role }) {
             <div className="px-5 py-4 border-t border-[#222A35] flex gap-2"><button onClick={() => setConverting(null)} className="flex-1 h-10 rounded-md border border-[#222A35] text-[12px] text-white">Cancel</button><button onClick={convert} className="flex-1 h-10 rounded-md bg-[#FF6B1A] text-white text-[12px]">Create project</button></div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** How the company appears at the top of the quote, and the way to change it. */
+function BrandingStrip({ company, fallbackName, onEdit, canEdit }: { company: CompanyPublic | null; fallbackName: string | null; onEdit: () => void; canEdit: boolean }) {
+  const name = company?.name || fallbackName || "Your company";
+  const complete = !!(company?.logoUrl && (company.phone || company.email));
+  return (
+    <div className={`rounded-lg border px-3 py-2.5 flex items-center gap-3 flex-wrap ${complete ? "border-[#222A35] bg-[#0A0E14]" : "border-[#FF6B1A]/40 bg-[#FF6B1A]/5"}`}>
+      <div className="text-[10px] uppercase tracking-wider text-[#5B6675] shrink-0">Your quotes show</div>
+      <div className="flex items-center gap-2 min-w-0 flex-1">
+        {company?.logoUrl
+          ? <span className="h-8 rounded bg-white px-1 flex items-center shrink-0"><img src={absoluteFileUrl(company.logoUrl)} alt="" className="h-6 w-auto max-w-[90px] object-contain" /></span>
+          : <span className="h-8 w-8 rounded border border-dashed border-[#5B6675] text-[9px] text-[#5B6675] flex items-center justify-center shrink-0">logo</span>}
+        <div className="min-w-0">
+          <div className="text-[12.5px] text-white truncate">{name}</div>
+          <div className="text-[10.5px] text-[#8A95A5] truncate">{complete ? [company?.phone, company?.email].filter(Boolean).join(" · ") : "No logo or contact details yet"}</div>
+        </div>
+      </div>
+      {canEdit && (
+        <button type="button" onClick={onEdit} className={`h-8 px-3 rounded-md text-[11.5px] shrink-0 ${complete ? "border border-[#222A35] text-[#C2CAD6] hover:text-white" : "bg-[#FF6B1A] text-white hover:bg-[#FF7E33]"}`}>
+          {complete ? "Change" : "Add your logo"}
+        </button>
       )}
     </div>
   );

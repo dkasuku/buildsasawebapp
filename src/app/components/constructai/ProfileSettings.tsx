@@ -43,8 +43,8 @@ function fileToAvatar(file: File): Promise<string> {
   });
 }
 
-export function ProfileSettings({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<"profile" | "account" | "company">("profile");
+export function ProfileSettings({ onClose, initialTab = "profile" }: { onClose: () => void; initialTab?: "profile" | "account" | "company" }) {
+  const [tab, setTab] = useState<"profile" | "account" | "company">(initialTab);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [me, setMe] = useState<UserProfile | null>(null);

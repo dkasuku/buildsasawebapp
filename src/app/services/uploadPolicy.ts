@@ -10,6 +10,15 @@ export const MAX_IMAGE_MB = 15;           // before downscaling; larger is refus
 // Site evidence clips: enough for 30–60 seconds from a phone, small enough to
 // upload on site data and play in the client portal without buffering forever.
 export const MAX_VIDEO_MB = 20;
+// Several files can be picked at once; together they must stay under this.
+export const MAX_BATCH_MB = 100;
+
+/** Why a whole selection must not be uploaded (too large in total), or null. */
+export function batchRejectReason(files: File[]): string | null {
+  const mb = files.reduce((s, f) => s + f.size, 0) / 1024 / 1024;
+  if (mb > MAX_BATCH_MB) return `Those ${files.length} files add up to ${mb.toFixed(0)} MB. Upload up to ${MAX_BATCH_MB} MB at a time: pick fewer files, or upload them in two goes.`;
+  return null;
+}
 const IMAGE_SHRINK_ABOVE_BYTES = 1.5 * 1024 * 1024;
 const IMAGE_MAX_EDGE = 2048;
 const IMAGE_QUALITY = 0.82;

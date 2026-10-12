@@ -47,6 +47,8 @@ export function CompanySettings() {
     try {
       await api.updateCompany(f);
       forgetCompanyLogo();
+      // Quotes and other open screens refresh their branding.
+      window.dispatchEvent(new Event("buildflex:company-updated"));
       toast.success("Company profile saved. It now appears on your quotes, invoices and client pages.");
     } catch (e: any) { toast.error(e.message || "Could not save"); }
     finally { setSaving(false); }
