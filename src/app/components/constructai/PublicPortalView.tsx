@@ -128,7 +128,7 @@ export function PublicPortalView({ token }: { token: string }) {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <Stat label="Waiting for you" value={String(pending.length)} tone={pending.length ? C.brand : undefined} onClick={() => setTab("approvals")} />
-            <Stat label="Site photos" value={String(photos.reduce((s, l) => s + l.photos.length, 0))} onClick={() => setTab("photos")} />
+            <Stat label="Site photos & videos" value={String(photos.reduce((s, l) => s + l.photos.length + (l.videos || []).length, 0))} onClick={() => setTab("photos")} />
             <Stat label="Invoiced" value={kes(invoiced)} onClick={() => setTab("invoices")} />
             <Stat label="Balance due" value={kes(invoiced - paid)} tone={invoiced - paid > 0 ? C.ink : C.green} onClick={() => setTab("invoices")} />
           </div>
@@ -173,6 +173,7 @@ export function PublicPortalView({ token }: { token: string }) {
               <div className="grid grid-cols-3 gap-2 mt-3">
                 {l.photos.map((u, j) => <button key={j} onClick={() => setLightbox(absoluteFileUrl(u))}><img src={absoluteFileUrl(u)} alt="" loading="lazy" className="w-full object-cover rounded-lg" style={{ aspectRatio: "1" }} /></button>)}
               </div>
+              {(l.videos || []).length > 0 && <div className="grid grid-cols-1 gap-2 mt-2">{(l.videos || []).map((u, j) => <video key={j} src={absoluteFileUrl(u)} controls playsInline preload="metadata" className="w-full rounded-lg bg-black" style={{ maxHeight: 260 }} />)}</div>}
             </div>
           ))}
         </div>

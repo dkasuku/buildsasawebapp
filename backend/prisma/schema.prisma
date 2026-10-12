@@ -213,6 +213,12 @@ model DailyLog {
   plant     String?
   materials String?
   photos    String?  // JSON array of URLs
+  videos    String?  // JSON array of URLs (short clips)
+  lat       Float?   // pinned on the map, when known
+  lng       Float?
+  // Whether the photos and videos appear in the client portal. Off for entries
+  // that show internal matters (an accident, a dispute, a supplier problem).
+  clientVisible Boolean @default(true)
   project   Project  @relation(fields: [projectId], references: [id])
   projectId String
   createdAt DateTime @default(now())

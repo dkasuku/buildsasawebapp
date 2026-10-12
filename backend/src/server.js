@@ -1210,8 +1210,8 @@ app.get('/api/projects/:projectId/daily-log', auth, async (req, res) => {
 });
 app.post('/api/projects/:projectId/daily-log', auth, async (req, res) => {
   try {
-    const { date, crew, crewId, headcount, location, notes, weather, labour, plant, materials, photos } = req.body;
-    if (!crew || !String(crew).trim()) return res.status(400).json({ error: 'Pick a crew for this log' });
+    const { date, crew, crewId, headcount, location, notes, weather, labour, plant, materials, photos, videos, lat, lng, clientVisible } = req.body;
+    if (!crew || !String(crew).trim()) return res.status(400).json({ error: 'Pick or type the crew on site' });
     // An absent/invalid date used to become `Invalid Date` and be rejected by
     // Postgres with an opaque error; default to today instead.
     const when = date ? new Date(date) : new Date();
@@ -1222,6 +1222,9 @@ app.post('/api/projects/:projectId/daily-log', auth, async (req, res) => {
         location: location || '', notes: notes || '', weather: weather || null,
         labour: labour || null, plant: plant || null, materials: materials || null,
         photos: Array.isArray(photos) ? JSON.stringify(photos) : (photos || null),
+        videos: Array.isArray(videos) && videos.length ? JSON.stringify(videos) : null,
+        lat: lat == null || lat === '' ? null : Number(lat), lng: lng == null || lng === '' ? null : Number(lng),
+        clientVisible: clientVisible === undefined ? true : !!clientVisible,
         projectId: req.params.projectId,
       },
     });
@@ -1230,8 +1233,12 @@ app.post('/api/projects/:projectId/daily-log', auth, async (req, res) => {
 });
 app.put('/api/projects/:projectId/daily-log/:id', auth, async (req, res) => {
   try {
-    const { date, crew, crewId, headcount, location, notes, weather, labour, plant, materials, photos } = req.body;
+    const { date, crew, crewId, headcount, location, notes, weather, labour, plant, materials, photos, videos, lat, lng, clientVisible } = req.body;
     const data = {};
+    if (videos !== undefined) data.videos = Array.isArray(videos) && videos.length ? JSON.stringify(videos) : null;
+    if (lat !== undefined) data.lat = lat == null || lat === '' ? null : Number(lat);
+    if (lng !== undefined) data.lng = lng == null || lng === '' ? null : Number(lng);
+    if (clientVisible !== undefined) data.clientVisible = !!clientVisible;
     if (date !== undefined) { const w = new Date(date); if (!isNaN(w.getTime())) data.date = w; }
     for (const [k, v] of Object.entries({ crew, crewId, location, notes, weather, labour, plant, materials })) {
       if (v !== undefined) data[k] = v;
@@ -2888,7 +2895,7 @@ app.get('/api/public/portal/:token', async (req, res) => {
     const [ws, schedule, logs, cos, invoices, selections] = await Promise.all([
       companyFor(p.workspaceId),
       prisma.scheduleItem.findMany({ where: { projectId: p.id }, orderBy: [{ startDate: 'asc' }, { sortOrder: 'asc' }] }),
-      prisma.dailyLog.findMany({ where: { projectId: p.id }, orderBy: { date: 'desc' }, take: 60 }),
+      prisma.dailyLog.findMany({ where: { projectId: p.id, clientVisible: true }, orderBy: { date: 'desc' }, take: 60 }),
       prisma.changeOrder.findMany({ where: { projectId: p.id, status: { in: ['owner_approval', 'approved', 'rejected'] } }, orderBy: { createdAt: 'desc' } }),
       prisma.invoice.findMany({ where: { projectId: p.id, status: { not: 'draft' } }, orderBy: { createdAt: 'desc' } }),
       prisma.selection.findMany({ where: { projectId: p.id, status: { not: 'draft' } }, orderBy: [{ room: 'asc' }, { position: 'asc' }, { createdAt: 'asc' }] }),
@@ -2905,8 +2912,12 @@ app.get('/api/public/portal/:token', async (req, res) => {
       // Site photos only: the diary's notes are written for the site team and can
       // carry internal matters, so they stay inside the workspace.
       photos: logs
-        .map((l) => ({ date: l.date, location: l.location, photos: parseJsonArr(l.photos).filter((u) => typeof u === 'string' && u && !/^(blob:|data:)/i.test(u)) }))
-        .filter((l) => l.photos.length),
+        .map((l) => ({
+          date: l.date, location: l.location,
+          photos: parseJsonArr(l.photos).filter((u) => typeof u === 'string' && u && !/^(blob:|data:)/i.test(u)),
+          videos: parseJsonArr(l.videos).filter((u) => typeof u === 'string' && u && !/^(blob:|data:)/i.test(u)),
+        }))
+        .filter((l) => l.photos.length || l.videos.length),
       changeOrders: cos.map((c) => ({
         id: c.id, number: c.number, title: c.title, area: c.area, description: c.description,
         amountKES: coKES(c), scheduleImpactDays: c.scheduleImpactDays, status: c.status, submittedDate: c.submittedDate, updatedAt: c.updatedAt,

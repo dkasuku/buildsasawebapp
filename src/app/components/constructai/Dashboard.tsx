@@ -1,3 +1,4 @@
+import { SiteWeather } from "./SiteWeather";
 import { useState, useEffect } from "react";
 import type { ElementType } from "react";
 import { TrendingUp, DollarSign, Clock, FileCheck2, AlertTriangle, ArrowUpRight, Sparkles } from "lucide-react";
@@ -111,6 +112,7 @@ export function Dashboard({
 
   return (
     <div className="px-4 sm:px-7 py-5 sm:py-6 space-y-5 sm:space-y-6">
+      {!emptyWorkspace && <SiteWeather />}
       {emptyWorkspace && (
         <div className="rounded-xl border border-[#FF6B1A]/30 bg-[#FF6B1A]/5 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-start gap-3">

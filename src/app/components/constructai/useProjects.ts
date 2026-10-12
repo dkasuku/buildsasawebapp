@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import api, { type ProjectDto } from "../../services/api";
 
-export type ProjectOption = { id: string; name: string; code: string; status: string };
+export type ProjectOption = { id: string; name: string; code: string; status: string; lat?: number | null; lng?: number | null };
 
 // Module-level cache. Several modules mount at once (and remount on navigation);
 // without this each one refetched the same list on every visit.
@@ -21,6 +21,8 @@ const toOption = (p: ProjectDto): ProjectOption => ({
   name: p.name,
   code: p.code,
   status: p.status,
+  lat: p.lat ?? null,
+  lng: p.lng ?? null,
 });
 
 async function load(force = false): Promise<ProjectOption[]> {

@@ -7,6 +7,9 @@
 // which turns a 12 MB camera JPEG into ~500 KB with no visible loss on screen.
 export const MAX_DOCUMENT_MB = 25;
 export const MAX_IMAGE_MB = 15;           // before downscaling; larger is refused outright
+// Site evidence clips: enough for 30–60 seconds from a phone, small enough to
+// upload on site data and play in the client portal without buffering forever.
+export const MAX_VIDEO_MB = 20;
 const IMAGE_SHRINK_ABOVE_BYTES = 1.5 * 1024 * 1024;
 const IMAGE_MAX_EDGE = 2048;
 const IMAGE_QUALITY = 0.82;
@@ -39,6 +42,10 @@ export function rejectReason(file: File): string | null {
   const mb = file.size / 1024 / 1024;
   if (file.type.startsWith("image/")) {
     if (mb > MAX_IMAGE_MB) return `${file.name} is ${mb.toFixed(0)} MB — photos must be under ${MAX_IMAGE_MB} MB`;
+    return null;
+  }
+  if (file.type.startsWith("video/")) {
+    if (mb > MAX_VIDEO_MB) return `${file.name} is ${mb.toFixed(0)} MB — videos must be under ${MAX_VIDEO_MB} MB. Record a shorter clip (30–60 seconds).`;
     return null;
   }
   if (mb > MAX_DOCUMENT_MB) return `${file.name} is ${mb.toFixed(0)} MB — files must be under ${MAX_DOCUMENT_MB} MB. Compress the PDF or split it.`;

@@ -356,6 +356,12 @@ export type DailyLogDto = {
   plant?: string | null;
   materials?: string | null;
   photos?: string[] | string | null;
+  /** Short video clips (URLs), stored as a JSON array like photos. */
+  videos?: string[] | string | null;
+  lat?: number | null;
+  lng?: number | null;
+  /** Whether the media shows in the client portal. */
+  clientVisible?: boolean;
   projectId?: string;
   createdAt?: string;
 };
@@ -648,7 +654,7 @@ export type PortalDto = {
   company?: CompanyPublic | null;
   project: { name: string; city: string; status: string; progress: number; startDate?: string | null; targetEndDate?: string | null; practicalCompletionAt?: string | null; description?: string | null; images: string[] };
   schedule: { name: string; type: string; startDate: string; endDate: string; percent: number; status: string }[];
-  photos: { date: string; location: string; photos: string[] }[];
+  photos: { date: string; location: string; photos: string[]; videos?: string[] }[];
   changeOrders: { id: string; number: string; title: string; area?: string | null; description?: string | null; amountKES: number; scheduleImpactDays: number; status: string; submittedDate?: string | null; updatedAt: string }[];
   selections: Pick<SelectionDto, "id" | "room" | "category" | "name" | "spec" | "quantity" | "unit" | "unitPriceKES" | "imageUrl" | "link" | "notes" | "status" | "clientComment" | "decidedBy" | "decidedAt">[];
   invoices: { invoiceNumber: string; amount: number; paidAmount: number; status: string; issueDate: string; dueDate: string; items: { description: string; quantity: number; rate: number }[] }[];

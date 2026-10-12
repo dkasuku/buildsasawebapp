@@ -67,7 +67,7 @@ const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }
   tasks: { title: "Tasks & Trades", subtitle: "Assign forms & checklists to trades and track their progress" },
   schedule: { title: "Schedule", subtitle: "Project timeline — Gantt, dates & milestones" },
   documents: { title: "Unfiled Documents", subtitle: "Documents with no project — file them into one" },
-  "daily-log": { title: "Daily Log", subtitle: "Crew headcount, locations, notes" },
+  "daily-log": { title: "Daily Log", subtitle: "Site record, weather, photos and video" },
   "punch-list": { title: "Punch List", subtitle: "Deficiencies and closeouts" },
   commitments: { title: "Commitments", subtitle: "Subcontracts, POs, obligations" },
   reports: { title: "Reports", subtitle: "Financial & operational analytics" },

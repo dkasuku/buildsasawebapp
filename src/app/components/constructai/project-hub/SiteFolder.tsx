@@ -14,12 +14,13 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, Camera, CalendarDays, Check, ClipboardList, CloudSun, HardHat, Loader2, Plus, ShieldAlert, Users, Wrench, Truck, Package, ImageIcon } from "lucide-react";
-import api, { absoluteFileUrl, type DocumentDto, type ProjectHubDto, type SafetyIncidentDto } from "../../../services/api";
+import api, { absoluteFileUrl, type DailyLogDto, type DocumentDto, type ProjectHubDto, type SafetyIncidentDto } from "../../../services/api";
 import { ImageWithFallback } from "../../figma/ImageWithFallback";
 import { ImageLightbox } from "../ImageLightbox";
 import { pickFiles, useFileUpload } from "../useFileUpload";
 import { UploadTray } from "../UploadTray";
 import { resolveName } from "../useTeam";
+import { DailyLogEditor, DailyLogFeed, useDailyLogs } from "../daily-log/DailyLogParts";
 import { MultiAssign } from "../MultiAssign";
 import { DocumentFolder } from "./DocumentFolder";
 import { Bar, Empty, Field, Kpi, Modal, Panel, Pill, btnGhost, btnPrimary, fmtDate, input, statusLabel, statusTone, textarea } from "./shared";
@@ -42,7 +43,7 @@ export function SiteFolder({
   const openDefects = site.punchItems.filter((p) => !["closed", "resolved"].includes(String(p.status).toLowerCase()));
   const openIncidents = site.safetyIncidents.filter((s) => s.status !== "closed");
   const TABS: { key: SubTab; label: string; icon: any; count?: number; tone?: "warn" | "bad" }[] = [
-    { key: "diary", label: "Site diary", icon: ClipboardList, count: site.dailyLogs.length },
+    { key: "diary", label: "Daily log", icon: ClipboardList, count: site.dailyLogs.length },
     { key: "progress", label: "Progress", icon: CalendarDays },
     { key: "defects", label: "Snagging & defects", icon: Wrench, count: openDefects.length, tone: openDefects.length ? "warn" : undefined },
     { key: "safety", label: "Health & safety", icon: ShieldAlert, count: openIncidents.length, tone: openIncidents.length ? "bad" : undefined },
@@ -71,9 +72,10 @@ export function SiteFolder({
 
 // ── Diary ──────────────────────────────────────────────────────────────────────
 
-function Diary({ projectId, logs, canEdit, onChanged }: { projectId: string; logs: ProjectHubDto["site"]["dailyLogs"]; canEdit: boolean; onChanged: () => void | Promise<void> }) {
-  const [adding, setAdding] = useState(false);
-  const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
+function Diary({ projectId, canEdit, onChanged }: { projectId: string; logs?: ProjectHubDto["site"]["dailyLogs"]; canEdit: boolean; onChanged: () => void | Promise<void> }) {
+  // Same form and feed as the Daily Log page (daily-log/DailyLogParts).
+  const { logs, loading, upsert, remove } = useDailyLogs(projectId);
+  const [editing, setEditing] = useState<DailyLogDto | "new" | null>(null);
   const week = useMemo(() => {
     const since = Date.now() - 7 * 86400000;
     const recent = logs.filter((l) => new Date(l.date).getTime() >= since);
@@ -83,116 +85,23 @@ function Diary({ projectId, logs, canEdit, onChanged }: { projectId: string; log
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-3">
-        <Kpi label="Diary entries" value={String(logs.length)} sub="on record" />
+        <Kpi label="Daily logs" value={String(logs.length)} sub="on record" />
         <Kpi label="Last 7 days" value={String(week.entries)} sub="entries logged" />
         <Kpi label="Labour-days this week" value={String(week.headcount)} sub="sum of headcounts" />
       </div>
-      <Panel title="Site diary" subtitle="Newest first" action={canEdit && <button onClick={() => setAdding(true)} className={btnPrimary}><Plus className="w-3.5 h-3.5" /> New entry</button>}>
-        {logs.length === 0 ? (
-          <Empty icon={ClipboardList} title="No diary entries yet" hint="Record each day: who was on site, what plant ran, what was delivered, the weather and what got done — with photos.">
-            {canEdit && <button onClick={() => setAdding(true)} className={btnPrimary}><Plus className="w-3.5 h-3.5" /> Write today's entry</button>}
-          </Empty>
-        ) : (
-          <div className="divide-y divide-[#222A35]">
-            {logs.map((l) => {
-              const photos = (l.photos || []).map((u) => absoluteFileUrl(u)).filter(Boolean);
-              return (
-                <div key={l.id} className="px-4 py-3">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[12.5px] text-white">{fmtDate(l.date, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</span>
-                    {l.weather && <Pill tone="info"><CloudSun className="w-3 h-3 inline mr-1 -mt-px" />{l.weather}</Pill>}
-                    <span className="text-[11px] text-[#8A95A5] flex items-center gap-1"><Users className="w-3 h-3" />{l.crew} · {l.headcount}</span>
-                    {l.location && <span className="text-[11px] text-[#5B6675]">· {l.location}</span>}
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
-                    <DiaryCell icon={Users} label="Labour" value={l.labour} />
-                    <DiaryCell icon={Truck} label="Plant" value={l.plant} />
-                    <DiaryCell icon={Package} label="Materials delivered" value={l.materials} />
-                  </div>
-                  {l.notes && <p className="text-[12px] text-[#C2CAD6] mt-2 whitespace-pre-wrap leading-relaxed">{l.notes}</p>}
-                  {photos.length > 0 && (
-                    <div className="flex gap-2 mt-2 overflow-x-auto">
-                      {photos.map((src, i) => (
-                        <button key={`${src}-${i}`} onClick={() => setLightbox({ images: photos, index: i })} className="shrink-0">
-                          <ImageWithFallback src={src} alt="" className="h-16 w-24 rounded-md object-cover border border-[#222A35] hover:border-[#FF6B1A]" />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+      <Panel title="Daily log" subtitle="Newest first. Also in the Daily Log module." action={canEdit && <button onClick={() => setEditing("new")} className={btnPrimary}><Plus className="w-3.5 h-3.5" /> New daily log</button>}>
+        <div className="p-4">
+          {!loading && logs.length === 0 ? (
+            <Empty icon={ClipboardList} title="No daily logs yet" hint="Record each day: what got done, who was on site, plant, deliveries and the weather, with photos or a short video.">
+              {canEdit && <button onClick={() => setEditing("new")} className={btnPrimary}><Plus className="w-3.5 h-3.5" /> Write today's log</button>}
+            </Empty>
+          ) : (
+            <DailyLogFeed logs={logs} loading={loading} canEdit={canEdit} onEdit={(l) => setEditing(l)} onDelete={async (l) => { if (await remove(l)) await onChanged(); }} />
+          )}
+        </div>
       </Panel>
-      {adding && <DiaryForm projectId={projectId} onClose={() => setAdding(false)} onDone={async () => { setAdding(false); await onChanged(); }} />}
-      {lightbox && <ImageLightbox images={lightbox.images} startIndex={lightbox.index} onClose={() => setLightbox(null)} />}
+      {editing && <DailyLogEditor projectId={projectId} log={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={async (row) => { upsert(row); setEditing(null); await onChanged(); }} />}
     </div>
-  );
-}
-
-function DiaryCell({ icon: Icon, label, value }: { icon: any; label: string; value?: string | null }) {
-  if (!value) return null;
-  return (
-    <div className="rounded-lg border border-[#222A35] bg-[#0A0E14] px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wider text-[#5B6675] flex items-center gap-1"><Icon className="w-3 h-3" /> {label}</div>
-      <div className="text-[11.5px] text-[#C2CAD6] whitespace-pre-wrap mt-0.5">{value}</div>
-    </div>
-  );
-}
-
-function DiaryForm({ projectId, onClose, onDone }: { projectId: string; onClose: () => void; onDone: () => Promise<void> }) {
-  const uploader = useFileUpload();
-  const [photos, setPhotos] = useState<string[]>([]);
-  const [f, setF] = useState({ date: new Date().toISOString().slice(0, 10), crew: "", headcount: "", location: "", weather: "", labour: "", plant: "", materials: "", notes: "" });
-  const [busy, setBusy] = useState(false);
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF((x) => ({ ...x, [k]: e.target.value }));
-  const addPhotos = async () => {
-    const files = await pickFiles({ multiple: true, accept: "image/*", capture: "environment" });
-    if (!files.length) return;
-    const urls = await uploader.upload(files);
-    setPhotos((p) => [...p, ...urls]);
-  };
-  const save = async () => {
-    if (!f.crew.trim()) return toast.error("Name the crew or gang on site");
-    setBusy(true);
-    try {
-      await api.createDailyLog(projectId, { ...f, headcount: Number(f.headcount) || 0, photos } as any);
-      toast.success("Diary entry saved");
-      await onDone();
-    } catch (e: any) { toast.error(e?.message || "Could not save"); }
-    finally { setBusy(false); }
-  };
-  return (
-    <Modal title="Site diary entry" subtitle="A record of the day — kept for claims, disputes and the final account." onClose={onClose} wide>
-      <div className="space-y-3">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <Field label="Date"><input type="date" value={f.date} onChange={set("date")} className={input} /></Field>
-          <Field label="Weather"><select value={f.weather} onChange={set("weather")} className={input}><option value="">—</option>{["Sunny", "Cloudy", "Light rain", "Heavy rain", "Windy", "Hot", "Cold"].map((w) => <option key={w}>{w}</option>)}</select></Field>
-          <Field label="Crew / gang"><input value={f.crew} onChange={set("crew")} placeholder="Main gang" className={input} /></Field>
-          <Field label="Headcount"><input type="number" min={0} value={f.headcount} onChange={set("headcount")} className={input} /></Field>
-        </div>
-        <Field label="Location / area"><input value={f.location} onChange={set("location")} placeholder="Block B, 2nd floor" className={input} /></Field>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <Field label="Labour on site"><textarea value={f.labour} onChange={set("labour")} placeholder={"4 masons\n6 helpers\n1 foreman"} className={textarea} /></Field>
-          <Field label="Plant & equipment"><textarea value={f.plant} onChange={set("plant")} placeholder={"Concrete mixer ×1\nPoker vibrator ×2"} className={textarea} /></Field>
-          <Field label="Materials delivered"><textarea value={f.materials} onChange={set("materials")} placeholder={"200 bags cement\n7t ballast"} className={textarea} /></Field>
-        </div>
-        <Field label="Progress notes"><textarea value={f.notes} onChange={set("notes")} placeholder="Work done today, delays, instructions received, visitors." className={textarea} /></Field>
-        <div>
-          <div className="text-[11px] text-[#8A95A5] mb-1.5">Photos</div>
-          <div className="flex gap-2 flex-wrap">
-            {photos.map((u) => <img key={u} src={absoluteFileUrl(u)} alt="" className="h-16 w-24 rounded-md object-cover border border-[#222A35]" />)}
-            <button onClick={addPhotos} className="h-16 w-24 rounded-md border-2 border-dashed border-[#222A35] flex flex-col items-center justify-center gap-1 text-[#8A95A5] hover:border-[#FF6B1A] hover:text-white"><Camera className="w-4 h-4" /><span className="text-[10px]">Add</span></button>
-          </div>
-          {uploader.pending.length > 0 && <div className="mt-2"><UploadTray state={uploader} /></div>}
-        </div>
-        <div className="flex justify-end gap-2 pt-1">
-          <button onClick={onClose} className={btnGhost}>Cancel</button>
-          <button onClick={save} disabled={busy || uploader.busy} className={btnPrimary}>{busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Save entry</button>
-        </div>
-      </div>
-    </Modal>
   );
 }
 
