@@ -42,6 +42,8 @@ export function DesignStudio({ onClose }: { onClose: () => void }) {
   const [history, setHistory] = useState<AiDesignDto[]>([]);
   const [current, setCurrent] = useState<AiDesignDto | null>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
+  const [costs, setCosts] = useState<Record<string, number>>({});
+  const [outOfCredits, setOutOfCredits] = useState(false);
   const [enabled, setEnabled] = useState(true);
   const [saving, setSaving] = useState<AiDesignDto | null>(null);
   const [sharing, setSharing] = useState<AiDesignDto | null>(null);
@@ -49,7 +51,8 @@ export function DesignStudio({ onClose }: { onClose: () => void }) {
   const timer = useRef<number | null>(null);
 
   useEffect(() => {
-    api.getDesigns().then((r) => { setHistory(r.designs); setRemaining(r.remainingToday); setEnabled(r.enabled); if (r.designs[0]) setCurrent(r.designs[0]); }).catch(() => {});
+    api.getDesigns().then((r) => { setHistory(r.designs); setEnabled(r.enabled); if (r.designs[0]) setCurrent(r.designs[0]); }).catch(() => {});
+    api.getCredits().then((c) => { setRemaining(c.balance); setCosts(c.costs); }).catch(() => {});
     const esc = (e: KeyboardEvent) => e.key === "Escape" && !busy && onClose();
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
@@ -68,15 +71,15 @@ export function DesignStudio({ onClose }: { onClose: () => void }) {
   const generate = async () => {
     if (prompt.trim().length < 8) return toast.error("Describe what you want in a sentence or two.");
     if (uploader.busy) return toast.error("Wait for the photos to finish uploading.");
-    setBusy(true); setElapsed(0); setError(null);
+    setBusy(true); setElapsed(0); setError(null); setOutOfCredits(false);
     timer.current = window.setInterval(() => setElapsed((s) => s + 1), 1000);
     try {
       const d = await api.generateDesign({ mode, prompt, images: refs, style: style || undefined, aspect });
       setHistory((h) => [d, ...h]);
       setCurrent(d);
-      if (d.remainingToday != null) setRemaining(d.remainingToday);
+      api.getCredits().then((c) => setRemaining(c.balance)).catch(() => {});
       toast.success("Design ready");
-    } catch (e: any) { setError(e.message || "The design couldn't be generated. Please try again."); }
+    } catch (e: any) { setError(e.message || "The design couldn't be generated. Please try again."); if (e.status === 402 || /Sasa Credits/.test(e.message || "")) setOutOfCredits(true); }
     finally { setBusy(false); if (timer.current) window.clearInterval(timer.current); }
   };
 
@@ -109,7 +112,7 @@ export function DesignStudio({ onClose }: { onClose: () => void }) {
           <div className="text-[15px] text-white font-display flex items-center gap-2"><Sparkles className="w-4 h-4 text-[#FF6B1A]" /> AI Design Studio</div>
           <div className="text-[11px] text-[#8A95A5] truncate">Floor plans, 3D renders, architectural and interior concepts from a description or a photo</div>
         </div>
-        {remaining != null && <div className="hidden sm:block text-[11px] text-[#8A95A5]">{remaining} designs left today</div>}
+        {remaining != null && <div className="hidden sm:flex items-center gap-1 text-[11px] text-[#8A95A5]"><Sparkles className="w-3 h-3 text-[#FF6B1A]" />{remaining.toLocaleString()} Sasa Credits</div>}
         <button onClick={onClose} className="w-9 h-9 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center"><X className="w-4 h-4" /></button>
       </div>
 
@@ -169,7 +172,7 @@ export function DesignStudio({ onClose }: { onClose: () => void }) {
           </div>
 
           <button onClick={generate} disabled={busy || !enabled} className="w-full h-12 rounded-lg bg-[#FF6B1A] hover:bg-[#FF7E33] disabled:opacity-60 text-white text-[14px] font-medium flex items-center justify-center gap-2">
-            {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Designing… {elapsed}s</> : <><Wand2 className="w-4 h-4" /> Generate design</>}
+            {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Designing… {elapsed}s</> : <><Wand2 className="w-4 h-4" /> Generate design{(() => { const c = costs[refs.length ? "design_photos" : "design"]; return c ? <span className="text-[12px] opacity-80">· {c} credits</span> : null; })()}</>}
           </button>
           <div className="text-[10.5px] text-[#5B6675] flex gap-1.5"><Info className="w-3 h-3 shrink-0 mt-0.5" />AI designs are concepts for ideas and client discussion. They aren't construction drawings: dimensions and structure must be checked and drawn by a qualified architect or engineer before building.</div>
         </div>
@@ -189,6 +192,7 @@ export function DesignStudio({ onClose }: { onClose: () => void }) {
               <div className="flex-1">
                 <div className="text-[13px] text-white">The design wasn't created</div>
                 <div className="text-[12px] text-[#FCA5A5] mt-0.5">{error}</div>
+                {outOfCredits && <button onClick={() => { onClose(); window.dispatchEvent(new CustomEvent("buildsasa:navigate", { detail: { view: "billing" } })); }} className="mt-2 h-8 px-3 rounded-md bg-[#FF6B1A] text-white text-[12px]">Buy Sasa Credits</button>}
               </div>
               <button onClick={() => setError(null)} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button>
             </div>

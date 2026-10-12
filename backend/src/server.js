@@ -5289,6 +5289,256 @@ app.post('/api/projects/:projectId/messages', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ===== SASA CREDITS (AI usage) =====
+// Every company gets a monthly allowance of Sasa Credits with its plan (the
+// package's aiCredits; a trial amount before subscribing) and can buy top-up
+// packs that never expire. AI actions cost credits; plan credits are spent
+// first. Support chats (Suzy, Shemmy) are free. Prices, pack sizes and the
+// trial amount are edited in the admin panel and stored in SiteContent.
+const CREDIT_DEFAULTS = {
+  costs: { assistant: 1, checklist: 5, extract: 5, design: 20, design_photos: 30 },
+  packs: [
+    { id: 'starter', name: 'Starter pack', credits: 100, kes: 500 },
+    { id: 'builder', name: 'Builder pack', credits: 300, kes: 1350 },
+    { id: 'pro', name: 'Pro pack', credits: 1000, kes: 4000 },
+  ],
+  trialCredits: 50,   // a month's allowance before the company subscribes
+  compCredits: 500,   // comped (free-access) companies
+};
+const CREDIT_ACTION_LABEL = { assistant: 'Buildsasa AI question', checklist: 'AI checklist', extract: 'AI document reading', design: 'AI design', design_photos: 'AI design from photos' };
+let creditSettingsCache = null;
+async function creditSettings() {
+  if (creditSettingsCache && Date.now() - creditSettingsCache.at < 60000) return creditSettingsCache.value;
+  let value = CREDIT_DEFAULTS;
+  try {
+    const row = await prismaBase.siteContent.findUnique({ where: { key: 'ai_credits' } });
+    if (row) {
+      const v = JSON.parse(row.value);
+      value = { ...CREDIT_DEFAULTS, ...v, costs: { ...CREDIT_DEFAULTS.costs, ...(v.costs || {}) }, packs: Array.isArray(v.packs) && v.packs.length ? v.packs : CREDIT_DEFAULTS.packs };
+    }
+  } catch (e) { console.error('[credits] settings load failed:', e.message); }
+  creditSettingsCache = { at: Date.now(), value };
+  return value;
+}
+const forgetCreditSettings = () => { creditSettingsCache = null; };
+
+class CreditError extends Error { constructor(msg, needed, balance) { super(msg); this.status = 402; this.needed = needed; this.balance = balance; } }
+
+/** The monthly allowance this company is entitled to right now. */
+async function monthlyAllowance(ws, ownerEmail) {
+  const s = await creditSettings();
+  if (ownerEmail && (hasFreeAccess(ownerEmail) || isPlatformAdmin(ownerEmail))) return s.compCredits;
+  const sub = await prismaBase.subscription.findFirst({ where: { workspaceId: ws, status: 'active' }, orderBy: { createdAt: 'desc' } });
+  if (!sub) return s.trialCredits;
+  const plan = await planById(sub.plan);
+  return plan && plan.aiCredits != null ? plan.aiCredits : 200;
+}
+
+/** Load the company's credits, refilling the monthly bucket when the period has rolled over. */
+async function ensureCredits(ws, ownerEmail) {
+  let w = await prismaBase.workspace.findUnique({ where: { id: ws } });
+  if (!w) return null;
+  if (!w.aiCreditsResetAt || w.aiCreditsResetAt < new Date()) {
+    const allowance = await monthlyAllowance(ws, ownerEmail);
+    const resetAt = new Date(Date.now() + 30 * 864e5);
+    const firstTime = !w.aiCreditsResetAt;
+    w = await prismaBase.workspace.update({ where: { id: ws }, data: { aiPlanCredits: allowance, aiCreditsResetAt: resetAt } });
+    await prismaBase.aiCreditTxn.create({ data: { workspaceId: ws, delta: allowance, bucket: 'plan', kind: 'monthly', note: firstTime ? 'Your first month of Sasa Credits' : 'Monthly Sasa Credits renewed (unused plan credits from last month expired)' } });
+  }
+  return w;
+}
+
+async function creditCost(action) { const s = await creditSettings(); return Math.max(0, Number(s.costs[action]) || 0); }
+
+/** Refuse (402) when the company can't afford the action. Call before doing the work. */
+async function requireCredits(req, action) {
+  const ws = currentWs();
+  if (!ws) return 0;
+  const cost = await creditCost(action);
+  if (!cost) return 0;
+  const w = await ensureCredits(ws, req.user?.email);
+  const balance = (w?.aiPlanCredits || 0) + (w?.aiTopupCredits || 0);
+  if (balance < cost) {
+    throw new CreditError(`You need ${cost} Sasa Credits for this, and your company has ${balance} left. Buy more credits under Billing → Sasa Credits${balance === 0 ? '' : ', or wait for your monthly credits to renew'}.`, cost, balance);
+  }
+  return cost;
+}
+
+/** Spend credits after the action succeeded (plan credits first, then top-ups). */
+async function chargeCredits(req, action, note) {
+  const ws = currentWs();
+  if (!ws) return null;
+  const cost = await creditCost(action);
+  if (!cost) return null;
+  const w = await ensureCredits(ws, req.user?.email);
+  if (!w) return null;
+  const fromPlan = Math.min(cost, w.aiPlanCredits);
+  const fromTopup = Math.min(cost - fromPlan, w.aiTopupCredits);
+  const updated = await prismaBase.workspace.update({ where: { id: ws }, data: { aiPlanCredits: { decrement: fromPlan }, aiTopupCredits: { decrement: fromTopup } } });
+  const base = { workspaceId: ws, kind: 'usage', action, note: note ? String(note).slice(0, 200) : CREDIT_ACTION_LABEL[action], userId: req.user?.sub || null, userName: req.user?.name || null };
+  if (fromPlan) await prismaBase.aiCreditTxn.create({ data: { ...base, delta: -fromPlan, bucket: 'plan' } });
+  if (fromTopup) await prismaBase.aiCreditTxn.create({ data: { ...base, delta: -fromTopup, bucket: 'topup' } });
+  return { spent: fromPlan + fromTopup, balance: updated.aiPlanCredits + updated.aiTopupCredits };
+}
+
+/** Express helper: answer a CreditError as a 402 the app can act on. */
+function sendCreditError(res, e) {
+  return res.status(402).json({ error: e.message, code: 'NO_CREDITS', needed: e.needed, balance: e.balance });
+}
+
+app.get('/api/ai-credits', auth, async (req, res) => {
+  try {
+    const ws = currentWs();
+    const s = await creditSettings();
+    if (!ws) return res.json({ balance: 0, plan: 0, topup: 0, costs: s.costs, packs: s.packs, history: [], payments: !!PAYSTACK_SECRET });
+    const w = await ensureCredits(ws, req.user?.email);
+    const allowance = await monthlyAllowance(ws, req.user?.email);
+    const history = await prismaBase.aiCreditTxn.findMany({ where: { workspaceId: ws }, orderBy: { createdAt: 'desc' }, take: 40 });
+    res.json({
+      balance: w.aiPlanCredits + w.aiTopupCredits, plan: w.aiPlanCredits, topup: w.aiTopupCredits, allowance,
+      resetsAt: w.aiCreditsResetAt, costs: s.costs, labels: CREDIT_ACTION_LABEL, packs: s.packs, history, payments: !!PAYSTACK_SECRET,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Buy a top-up pack through Paystack (M-Pesa or card).
+app.post('/api/ai-credits/checkout', auth, async (req, res) => {
+  try {
+    const ws = currentWs();
+    if (!ws) return res.status(400).json({ error: 'Your account isn\'t linked to a company.' });
+    const s = await creditSettings();
+    const pack = s.packs.find((p) => p.id === req.body?.packId);
+    if (!pack) return res.status(400).json({ error: 'Choose a credit pack.' });
+    if (!PAYSTACK_SECRET) return res.status(400).json({ error: 'Online payments aren\'t set up yet. Contact Buildsasa support to buy credits.' });
+    const init = await paystackRequest('/transaction/initialize', 'POST', {
+      email: req.user.email || 'owner@buildsasa.com', amount: Math.round(Number(pack.kes) * 100), currency: 'KES',
+      callback_url: `${process.env.APP_URL || 'http://localhost:5173'}?credits=1`,
+      metadata: { kind: 'ai_credits', workspaceId: ws, packId: pack.id, credits: pack.credits, userId: req.user.sub },
+    });
+    if (!init.status) return res.status(502).json({ error: init.message || 'The payment couldn\'t be started. Please try again.' });
+    res.json({ authorizationUrl: init.data.authorization_url, reference: init.data.reference });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+/** Credit a paid top-up exactly once (verify and webhook can both arrive). */
+async function applyCreditPurchase(data) {
+  const md = data.metadata || {};
+  if (md.kind !== 'ai_credits' || !md.workspaceId || !data.reference) return null;
+  const credits = Math.max(0, parseInt(md.credits, 10) || 0);
+  if (!credits) return null;
+  try {
+    await prismaBase.aiCreditTxn.create({ data: { workspaceId: md.workspaceId, delta: credits, bucket: 'topup', kind: 'topup', note: `Bought ${credits} credits (KES ${Math.round((data.amount || 0) / 100).toLocaleString('en-KE')})`, userId: md.userId || null, paystackRef: data.reference } });
+  } catch (e) {
+    if (e.code === 'P2002') return { already: true }; // this payment was already credited
+    throw e;
+  }
+  await prismaBase.workspace.update({ where: { id: md.workspaceId }, data: { aiTopupCredits: { increment: credits } } });
+  return { credited: credits };
+}
+
+app.post('/api/ai-credits/verify', auth, async (req, res) => {
+  try {
+    if (!PAYSTACK_SECRET) return res.status(400).json({ error: 'Payments aren\'t configured.' });
+    const ref = String(req.body?.reference || '');
+    const v = await paystackRequest(`/transaction/verify/${encodeURIComponent(ref)}`, 'GET');
+    if (!(v.status && v.data && v.data.status === 'success')) return res.json({ ok: false, status: v.data?.status || 'failed' });
+    if (v.data.metadata?.workspaceId !== currentWs()) return res.status(403).json({ error: 'This payment belongs to another company.' });
+    const r = await applyCreditPurchase(v.data);
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---- Admin (platform staff) ----
+const creditAdmin = (req, res, next) => (isPlatformAdmin(req.user && req.user.email) ? next() : res.status(403).json({ error: 'Only Buildsasa staff can manage Sasa Credits.' }));
+
+app.get('/api/admin/ai-credits/settings', auth, creditAdmin, async (_req, res) => {
+  try { forgetCreditSettings(); res.json({ ...(await creditSettings()), labels: CREDIT_ACTION_LABEL }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/admin/ai-credits/settings', auth, creditAdmin, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const cur = await creditSettings();
+    const costs = { ...cur.costs };
+    for (const k of Object.keys(CREDIT_DEFAULTS.costs)) if (b.costs && b.costs[k] !== undefined) costs[k] = Math.max(0, Math.min(1000, parseInt(b.costs[k], 10) || 0));
+    let packs = cur.packs;
+    if (Array.isArray(b.packs)) {
+      packs = b.packs.map((p, i) => ({
+        id: String(p.id || p.name || `pack-${i}`).toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40) || `pack-${i}`,
+        name: String(p.name || 'Credit pack').slice(0, 60),
+        credits: Math.max(1, parseInt(p.credits, 10) || 0),
+        kes: Math.max(1, parseInt(p.kes, 10) || 0),
+      })).filter((p) => p.credits > 0 && p.kes > 0).slice(0, 6);
+      if (!packs.length) return res.status(400).json({ error: 'Keep at least one credit pack.' });
+      if (new Set(packs.map((p) => p.id)).size !== packs.length) return res.status(400).json({ error: 'Each pack needs a different name.' });
+    }
+    const value = {
+      costs, packs,
+      trialCredits: b.trialCredits !== undefined ? Math.max(0, parseInt(b.trialCredits, 10) || 0) : cur.trialCredits,
+      compCredits: b.compCredits !== undefined ? Math.max(0, parseInt(b.compCredits, 10) || 0) : cur.compCredits,
+    };
+    await prismaBase.siteContent.upsert({ where: { key: 'ai_credits' }, create: { key: 'ai_credits', value: JSON.stringify(value), updatedBy: req.user?.email || null }, update: { value: JSON.stringify(value), updatedBy: req.user?.email || null } });
+    forgetCreditSettings();
+    res.json({ ...value, labels: CREDIT_ACTION_LABEL });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Every company's balance and this month's usage, heaviest users first.
+app.get('/api/admin/ai-credits/usage', auth, creditAdmin, async (_req, res) => {
+  try {
+    const since = new Date(Date.now() - 30 * 864e5);
+    const [workspaces, usage, bought] = await Promise.all([
+      prismaBase.workspace.findMany({ select: { id: true, name: true, aiPlanCredits: true, aiTopupCredits: true, aiCreditsResetAt: true, createdAt: true } }),
+      prismaBase.aiCreditTxn.groupBy({ by: ['workspaceId'], where: { kind: 'usage', createdAt: { gte: since } }, _sum: { delta: true } }),
+      prismaBase.aiCreditTxn.groupBy({ by: ['workspaceId'], where: { kind: 'topup', createdAt: { gte: since } }, _sum: { delta: true } }),
+    ]);
+    const used = Object.fromEntries(usage.map((u) => [u.workspaceId, -(u._sum.delta || 0)]));
+    const paid = Object.fromEntries(bought.map((u) => [u.workspaceId, u._sum.delta || 0]));
+    const rows = workspaces.map((w) => ({
+      id: w.id, name: w.name, balance: w.aiPlanCredits + w.aiTopupCredits, plan: w.aiPlanCredits, topup: w.aiTopupCredits,
+      resetsAt: w.aiCreditsResetAt, used30d: used[w.id] || 0, bought30d: paid[w.id] || 0,
+    })).sort((a, b) => b.used30d - a.used30d || a.name.localeCompare(b.name));
+    const totals = { used30d: rows.reduce((s, r) => s + r.used30d, 0), bought30d: rows.reduce((s, r) => s + r.bought30d, 0), companies: rows.length, outOfCredits: rows.filter((r) => r.resetsAt && r.balance === 0).length };
+    res.json({ rows, totals });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/admin/ai-credits/:workspaceId/history', auth, creditAdmin, async (req, res) => {
+  try { res.json(await prismaBase.aiCreditTxn.findMany({ where: { workspaceId: req.params.workspaceId }, orderBy: { createdAt: 'desc' }, take: 100 })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Give (or take back) credits — trials, goodwill, refunds, offline payments.
+app.post('/api/admin/ai-credits/:workspaceId/grant', auth, creditAdmin, async (req, res) => {
+  try {
+    const credits = parseInt(req.body?.credits, 10) || 0;
+    if (!credits || Math.abs(credits) > 100000) return res.status(400).json({ error: 'Enter how many credits to add (or a negative number to remove).' });
+    const w = await prismaBase.workspace.findUnique({ where: { id: req.params.workspaceId } });
+    if (!w) return res.status(404).json({ error: 'Company not found' });
+    const delta = credits < 0 ? -Math.min(-credits, w.aiTopupCredits) : credits;
+    if (!delta) return res.status(400).json({ error: 'This company has no top-up credits to remove.' });
+    const updated = await prismaBase.workspace.update({ where: { id: w.id }, data: { aiTopupCredits: { increment: delta } } });
+    await prismaBase.aiCreditTxn.create({ data: { workspaceId: w.id, delta, bucket: 'topup', kind: 'grant', note: String(req.body?.note || (delta > 0 ? 'Credits added by Buildsasa' : 'Credits removed by Buildsasa')).slice(0, 200), userName: 'Buildsasa team' } });
+    res.json({ balance: updated.aiPlanCredits + updated.aiTopupCredits, topup: updated.aiTopupCredits });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+/** Route guard: refuse when the company can't afford the action; charge only
+ *  when the handler answers successfully, so a failed AI call costs nothing. */
+const withCredits = (action) => async (req, res, next) => {
+  const act = typeof action === 'function' ? action(req) : action;
+  try { await requireCredits(req, act); }
+  catch (e) { if (e instanceof CreditError) return sendCreditError(res, e); return res.status(500).json({ error: e.message }); }
+  const json = res.json.bind(res);
+  res.json = (body) => {
+    if (res.statusCode < 400) chargeCredits(req, act).catch((err) => console.error('[credits] charge failed:', err.message));
+    return json(body);
+  };
+  next();
+};
+
+
 // ===== DEEPSEEK AI =====
 const https = require('https');
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
@@ -5414,7 +5664,7 @@ app.post('/api/website/chat', async (req, res) => {
   }
 });
 
-app.post('/api/ai/generate-checklist', auth, async (req, res) => {
+app.post('/api/ai/generate-checklist', auth, withCredits('checklist'), async (req, res) => {
   try {
     const { trade, projectType, scope } = req.body;
     const prompt = `Generate a comprehensive construction QA/QC checklist for ${trade} work on a ${projectType}${scope ? ` — ${scope}` : ''}. Return ONLY a JSON array of objects with fields: id (string), title (string), description (string), answerType (one of: text, number, percentage, photo, yes_no, checkbox), required (boolean), unit (string or null), options (string array or null for checkbox), and an optional subItems array.
@@ -5455,7 +5705,7 @@ Return ONLY valid JSON. No markdown, no explanations.`;
 
 // Generate checklist items in the Form Builder's exact model from a free-text
 // chat request. Returns { title, items } where each item matches the builder.
-app.post('/api/ai/build-checklist', auth, async (req, res) => {
+app.post('/api/ai/build-checklist', auth, withCredits('checklist'), async (req, res) => {
   try {
     const { prompt, trade, category, current, history } = req.body || {};
     if (!prompt || !String(prompt).trim()) return res.status(400).json({ error: 'prompt required' });
@@ -5493,7 +5743,7 @@ Rules: 6-14 items grouped into 2-5 logical groups; real construction terminology
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/ai/assistant', auth, async (req, res) => {
+app.post('/api/ai/assistant', auth, withCredits('assistant'), async (req, res) => {
   try {
     const userId = req.user.sub;
     const { question, history } = req.body;
@@ -5626,7 +5876,7 @@ const DESIGN_MODES = {
 };
 const DESIGN_SIZES = { square: '1024x1024', landscape: '1536x1024', portrait: '1024x1536' };
 const IMAGE_MODEL = process.env.AI_IMAGE_MODEL || 'gpt-image-1';
-const DESIGN_DAILY_LIMIT = Number(process.env.AI_DESIGN_DAILY_LIMIT || 30);
+const DESIGN_DAILY_LIMIT = Number(process.env.AI_DESIGN_DAILY_LIMIT || 200); // abuse guard; Sasa Credits are the real limit
 const designUsage = new Map(); // workspace -> { day, count }
 
 function designQuotaLeft(ws) {
@@ -5674,11 +5924,11 @@ const providerMessage = (e) => {
   return 'The design couldn\'t be generated. Please try again.';
 };
 
-app.post('/api/ai/design', auth, async (req, res) => {
+app.post('/api/ai/design', auth, withCredits((req) => (Array.isArray(req.body?.images) && req.body.images.filter(Boolean).length ? 'design_photos' : 'design')), async (req, res) => {
   try {
     if (!openai) return res.status(503).json({ error: 'AI design generation isn\'t set up on this server yet.' });
     const ws = currentWs();
-    if (designQuotaLeft(ws) <= 0) return res.status(429).json({ error: `Your company has used today\'s ${DESIGN_DAILY_LIMIT} AI designs. The limit resets at midnight.` });
+    if (designQuotaLeft(ws) <= 0) return res.status(429).json({ error: `Your company has generated ${DESIGN_DAILY_LIMIT} designs today, the daily safety limit. Try again tomorrow.` });
     const b = req.body || {};
     const mode = DESIGN_MODES[b.mode] ? b.mode : 'render3d';
     const prompt = String(b.prompt || '').trim().slice(0, 2000);
@@ -5938,7 +6188,7 @@ function extractJSON(str) {
   return str;
 }
 
-app.post('/api/ai/extract-checklist-from-document', auth, singleFile('file'), async (req, res) => {
+app.post('/api/ai/extract-checklist-from-document', auth, withCredits('extract'), singleFile('file'), async (req, res) => {
   try {
     const file = req.file;
     if (!file) return res.status(400).json({ error: 'No file uploaded' });
@@ -6091,8 +6341,8 @@ const USD_TO_KES = Number(process.env.USD_TO_KES || 130);
 // unreachable, so billing keeps working through a bad deploy or an empty
 // catalogue. The live catalogue is admin-editable and lives in the DB.
 const PLANS_FALLBACK = [
-  { id: 'standard-monthly', name: 'Buildsasa Standard — Monthly', cycle: 'monthly', usd: 250, kes: Math.round(250 * USD_TO_KES), days: 30, note: 'Billed every month. Cancel anytime.' },
-  { id: 'standard-yearly', name: 'Buildsasa Standard — Yearly', cycle: 'yearly', usd: 2500, kes: Math.round(2500 * USD_TO_KES), days: 365, note: 'Billed once a year — save $500 (2 months free).' },
+  { id: 'standard-monthly', name: 'Buildsasa Standard — Monthly', cycle: 'monthly', usd: 250, kes: Math.round(250 * USD_TO_KES), days: 30, note: 'Billed every month. Cancel anytime.', aiCredits: 200 },
+  { id: 'standard-yearly', name: 'Buildsasa Standard — Yearly', cycle: 'yearly', usd: 2500, kes: Math.round(2500 * USD_TO_KES), days: 365, note: 'Billed once a year — save $500 (2 months free).', aiCredits: 300 },
 ];
 
 // Map a SubscriptionPackage row to the plan shape the SaaS pricing screen and
@@ -6100,7 +6350,7 @@ const PLANS_FALLBACK = [
 function planShape(row) {
   let features;
   if (row.features) { try { features = JSON.parse(row.features); } catch { /* ignore bad JSON */ } }
-  return { id: row.id, name: row.name, cycle: row.cycle, usd: row.usd, kes: Math.round((row.usd || 0) * USD_TO_KES), days: row.days, note: row.note || undefined, features };
+  return { id: row.id, name: row.name, cycle: row.cycle, usd: row.usd, kes: Math.round((row.usd || 0) * USD_TO_KES), days: row.days, note: row.note || undefined, features, aiCredits: row.aiCredits ?? 200 };
 }
 
 // Load the plan catalogue from the DB (admin-managed), newest-ordered. Falls
@@ -6388,6 +6638,10 @@ app.post('/api/billing/webhook', async (req, res) => {
       if (hash !== req.headers['x-paystack-signature']) return res.status(401).end();
     }
     const evt = req.body;
+    if (evt.event === 'charge.success' && evt.data && evt.data.metadata && evt.data.metadata.kind === 'ai_credits') {
+      await applyCreditPurchase(evt.data);
+      return res.json({ received: true });
+    }
     if (evt.event === 'charge.success' && evt.data && evt.data.reference) {
       const planId = (evt.data.metadata && evt.data.metadata.planId) || 'standard-monthly';
       const end = new Date(Date.now() + (await planDays(planId)) * 864e5);

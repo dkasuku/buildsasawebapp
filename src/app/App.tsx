@@ -180,6 +180,13 @@ export default function App() {
     window.addEventListener("buildflex:open-settings", open);
     return () => window.removeEventListener("buildflex:open-settings", open);
   }, []);
+  // Any screen can ask to go somewhere: dispatch
+  //   new CustomEvent("buildsasa:navigate", { detail: { view: "billing" } })
+  useEffect(() => {
+    const go = (e: Event) => { const v = (e as CustomEvent).detail?.view; if (v) navigate(v as View); };
+    window.addEventListener("buildsasa:navigate", go);
+    return () => window.removeEventListener("buildsasa:navigate", go);
+  }, [navigate]);
   // No seed id. This used to default to "CO-1258", a demo record, so any route
   // that navigated without an id opened someone else's invented change order.
   const [activeChangeOrderId, setActiveChangeOrderId] = useState<string | null>(null);

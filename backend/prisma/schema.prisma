@@ -45,6 +45,12 @@ model Workspace {
   kraPin         String?
   paymentDetails String?  // e.g. M-Pesa paybill/till or bank details
   quoteTerms     String?  // default terms for new quotes
+  // Sasa Credits (AI usage). The monthly bucket is the plan allowance and resets
+  // each period; top-up credits are bought and never expire. Plan credits are
+  // spent first.
+  aiPlanCredits    Int       @default(0)
+  aiTopupCredits   Int       @default(0)
+  aiCreditsResetAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -1241,6 +1247,7 @@ model SubscriptionPackage {
   note      String?                         // short line under the price
   features  String?                         // optional JSON array of feature strings
   active    Boolean  @default(true)         // hidden from the SaaS when false
+  aiCredits Int      @default(200)          // Sasa Credits included per month
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1472,4 +1479,22 @@ model AiDesign {
   createdAt     DateTime @default(now())
 
   @@index([workspaceId])
+}
+
+// Every change to a company's Sasa Credits: the monthly allowance, top-ups
+// bought, credits granted by Buildsasa staff, and each AI action that spent them.
+model AiCreditTxn {
+  id          String   @id @default(cuid())
+  workspaceId String
+  delta       Int      // + added, - spent
+  bucket      String   // plan | topup
+  kind        String   // monthly | topup | grant | usage | refund
+  action      String?  // assistant | checklist | extract | design | design_photos
+  note        String?
+  userId      String?
+  userName    String?
+  paystackRef String?  @unique
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
 }

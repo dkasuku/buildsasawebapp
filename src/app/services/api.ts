@@ -597,6 +597,13 @@ export type BidPackageDto = {
 export type CompanyPublic = { name: string; logoUrl?: string | null; phone?: string | null; email?: string | null; address?: string | null; kraPin?: string | null; paymentDetails?: string | null };
 export type CompanyDto = CompanyPublic & { quoteTerms?: string | null; canEdit: boolean };
 
+export type CreditsDto = {
+  balance: number; plan: number; topup: number; allowance?: number; resetsAt?: string | null;
+  costs: Record<string, number>; labels?: Record<string, string>;
+  packs: { id: string; name: string; credits: number; kes: number }[];
+  history: { id: string; delta: number; bucket: string; kind: string; action?: string | null; note?: string | null; userName?: string | null; createdAt: string }[];
+  payments: boolean;
+};
 export type DesignMode = "plan2d" | "render3d" | "architectural" | "interior";
 export type AiDesignDto = {
   id: string; mode: DesignMode; prompt: string; imageUrl: string; sourceImages: string[]; notes?: string | null;
@@ -1316,6 +1323,10 @@ export const api = {
   getCompany: () => http<CompanyDto>(`/api/company`),
   updateCompany: (payload: Partial<Omit<CompanyDto, "canEdit">>) => http<CompanyDto>(`/api/company`, { method: "PUT", body: JSON.stringify(payload) }),
   getCompanyLogoData: () => http<{ dataUrl: string | null; reason?: string }>(`/api/company/logo-data`),
+  // Sasa Credits (AI allowance)
+  getCredits: () => http<CreditsDto>(`/api/ai-credits`),
+  buyCredits: (packId: string) => http<{ authorizationUrl?: string; reference?: string }>(`/api/ai-credits/checkout`, { method: "POST", body: JSON.stringify({ packId }) }),
+  verifyCredits: (reference: string) => http<{ ok: boolean; credited?: number; already?: boolean; status?: string }>(`/api/ai-credits/verify`, { method: "POST", body: JSON.stringify({ reference }) }),
   // AI Design Studio (Plans & Drawings)
   getDesigns: () => http<{ designs: AiDesignDto[]; remainingToday: number; enabled: boolean }>(`/api/ai/designs`),
   generateDesign: (payload: { mode: DesignMode; prompt: string; images?: string[]; style?: string; aspect?: "square" | "landscape" | "portrait"; quality?: "medium" | "high" }) => http<AiDesignDto>(`/api/ai/design`, { method: "POST", body: JSON.stringify(payload) }),

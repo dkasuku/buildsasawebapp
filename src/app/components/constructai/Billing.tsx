@@ -3,6 +3,7 @@
 // Standard plans: Monthly and Yearly.
 // ============================================================================
 
+import { CreditsPanel } from "./CreditsPanel";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { CheckCircle2, Sparkles, ShieldCheck, Loader2, CreditCard, FileText, Download } from "lucide-react";
@@ -10,7 +11,7 @@ import { jsPDF } from "jspdf";
 import type { Role } from "./roles";
 import api, { type BillingInvoiceDto, type UserProfile } from "../../services/api";
 
-type Plan = { id: string; name: string; cycle: string; usd: number; kes: number; note?: string; features?: string[] };
+type Plan = { id: string; name: string; cycle: string; usd: number; kes: number; note?: string; features?: string[]; aiCredits?: number };
 
 const FEATURES = [
   "Unlimited projects & drawings",
@@ -179,6 +180,17 @@ export default function Billing({ role }: { role: Role }) {
 
     window.history.replaceState({}, "", window.location.pathname); // clean URL immediately
     setVerifying(true);
+    // A Sasa Credits top-up returns with ?credits=1; verify it as a credit purchase.
+    if (q.get("credits")) {
+      api.verifyCredits(ref)
+        .then((r) => {
+          if (r.ok) { toast.success(r.credited ? `${r.credited} Sasa Credits added` : "Credits already added"); window.dispatchEvent(new Event("buildsasa:credits-updated")); }
+          else toast("Payment wasn't completed. You haven't been charged.", { duration: 5000 });
+        })
+        .catch(() => toast.error("We couldn't confirm that payment. If you were charged, contact support."))
+        .finally(() => { setVerifying(false); load(); setTimeout(() => document.getElementById("sasa-credits")?.scrollIntoView({ behavior: "smooth" }), 400); });
+      return;
+    }
     api.billingVerify(ref)
       .then((r) => {
         if (r.ok) { toast.success("Subscription activated 🎉"); window.dispatchEvent(new Event("buildsasa:billing-updated")); }
@@ -288,6 +300,7 @@ export default function Billing({ role }: { role: Role }) {
                 </div>
                 <div className="mt-3"><span className="text-[28px] text-white font-display">{fmt(p)}</span><span className="text-[12px] text-[#8A95A5]"> / {p.cycle === "yearly" ? "year" : p.cycle === "weekly" ? "week" : "month"}</span></div>
                 {p.note && <div className="text-[11px] text-[#22C55E] mt-1">{p.note}</div>}
+                {p.aiCredits ? <div className="text-[11px] text-[#FF6B1A] mt-1">Includes {p.aiCredits.toLocaleString()} Sasa Credits for AI every month</div> : null}
                 <ul className="mt-4 space-y-1.5 flex-1">
                   {/* Per-plan features come from the admin-managed catalogue; fall
                       back to the shared list when a plan has none set. */}
@@ -307,6 +320,7 @@ export default function Billing({ role }: { role: Role }) {
           })}
         </div>
       )}
+      <CreditsPanel />
       {invoices.length > 0 && (
         <div className="mt-7">
           <div className="text-[14px] text-white font-display mb-3 flex items-center gap-2"><FileText className="w-4 h-4 text-[#FF6B1A]" /> Invoices</div>
