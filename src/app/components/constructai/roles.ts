@@ -116,7 +116,7 @@ export const canAwardBids = (role: Role) => BID_AWARDER_ROLES.includes(role);
 
 export const ROLES: Record<Role, Permissions> = {
   Contractor: {
-    views: ["dashboard", "billing", "projects", "schedule","change-orders", "plans", "tasks", "documents", "daily-log", "attendance", "punch-list", "commitments", "financials", "reports", "team", "field-view", "inbox", "announcements", "observations", "action-plans", "coordination", "correspondence", "crews", "directory", "subcontractors", "company-docs", "role-manager", "bidding", "invoicing", "inspections", "checklists", "safety-incidents", "equipment", "buildflex-ai"],
+    views: ["dashboard", "billing", "projects", "schedule","change-orders", "plans", "tasks", "documents", "daily-log", "attendance", "punch-list", "commitments", "financials", "reports", "team", "field-view", "inbox", "announcements", "observations", "action-plans", "coordination", "correspondence", "crews", "directory", "subcontractors", "company-docs", "role-manager", "bidding", "quotes", "invoicing", "inspections", "checklists", "safety-incidents", "equipment", "buildflex-ai"],
     financials: true, approveAny: true, approveLimit: Infinity, createCO: true, manageTeam: true,
     sharePlans: true, viewReports: true, viewAuditTrail: true, viewKanban: true, viewFieldApp: true,
     assignTasks: true, completeTasks: true, viewChecklists: true, useAI: true, isWorkspaceOwner: true,
@@ -130,14 +130,14 @@ export const ROLES: Record<Role, Permissions> = {
     canCreateInspection: false, canFillInspection: false, canApproveInspection: false, canViewInspectionReports: true,
   },
   Architect: {
-    views: ["dashboard", "projects", "schedule","change-orders", "plans", "tasks", "documents", "daily-log", "attendance", "punch-list", "commitments", "financials", "team", "reports", "inbox", "announcements", "observations", "action-plans", "coordination", "correspondence", "directory", "subcontractors", "company-docs", "role-manager", "bidding", "invoicing", "inspections", "checklists", "safety-incidents", "equipment", "buildflex-ai"],
+    views: ["dashboard", "projects", "schedule","change-orders", "plans", "tasks", "documents", "daily-log", "attendance", "punch-list", "commitments", "financials", "team", "reports", "inbox", "announcements", "observations", "action-plans", "coordination", "correspondence", "directory", "subcontractors", "company-docs", "role-manager", "bidding", "quotes", "invoicing", "inspections", "checklists", "safety-incidents", "equipment", "buildflex-ai"],
     financials: true, approveAny: false, approveLimit: 0, createCO: false, manageTeam: false,
     sharePlans: true, viewReports: true, viewAuditTrail: true, viewKanban: true, viewFieldApp: true,
     assignTasks: false, completeTasks: false, viewChecklists: true, useAI: true, isWorkspaceOwner: false,
     canCreateInspection: false, canFillInspection: true, canApproveInspection: true, canViewInspectionReports: true,
   },
   "Quantity Surveyor": {
-    views: ["dashboard", "projects", "schedule","change-orders", "plans", "tasks", "documents", "daily-log", "attendance", "punch-list", "commitments", "financials", "reports", "team", "inbox", "announcements", "observations", "action-plans", "coordination", "correspondence", "directory", "subcontractors", "company-docs", "role-manager", "bidding", "invoicing", "inspections", "checklists", "safety-incidents", "equipment", "buildflex-ai"],
+    views: ["dashboard", "projects", "schedule","change-orders", "plans", "tasks", "documents", "daily-log", "attendance", "punch-list", "commitments", "financials", "reports", "team", "inbox", "announcements", "observations", "action-plans", "coordination", "correspondence", "directory", "subcontractors", "company-docs", "role-manager", "bidding", "quotes", "invoicing", "inspections", "checklists", "safety-incidents", "equipment", "buildflex-ai"],
     financials: true, approveAny: false, approveLimit: 0, createCO: true, manageTeam: false,
     sharePlans: true, viewReports: true, viewAuditTrail: true, viewKanban: true, viewFieldApp: true,
     assignTasks: false, completeTasks: false, viewChecklists: true, useAI: true, isWorkspaceOwner: false,
@@ -151,21 +151,21 @@ export const ROLES: Record<Role, Permissions> = {
     canCreateInspection: true, canFillInspection: true, canApproveInspection: true, canViewInspectionReports: true,
   },
   Owner: {
-    views: ["dashboard", "billing", "projects", "schedule","change-orders", "plans", "documents", "daily-log", "attendance", "punch-list", "commitments", "financials", "reports", "inbox", "announcements", "observations", "action-plans", "coordination", "correspondence", "directory", "subcontractors", "company-docs", "role-manager", "bidding", "invoicing", "inspections", "checklists", "safety-incidents", "equipment", "buildflex-ai"],
+    views: ["dashboard", "billing", "projects", "schedule","change-orders", "plans", "documents", "daily-log", "attendance", "punch-list", "commitments", "financials", "reports", "inbox", "announcements", "observations", "action-plans", "coordination", "correspondence", "directory", "subcontractors", "company-docs", "role-manager", "bidding", "quotes", "invoicing", "inspections", "checklists", "safety-incidents", "equipment", "buildflex-ai"],
     financials: true, approveAny: true, approveLimit: Infinity, createCO: false, manageTeam: false,
     sharePlans: false, viewReports: true, viewAuditTrail: true, viewKanban: false, viewFieldApp: false,
     assignTasks: false, completeTasks: false, viewChecklists: true, useAI: true, isWorkspaceOwner: false,
     canCreateInspection: false, canFillInspection: false, canApproveInspection: false, canViewInspectionReports: true,
   },
   Executive: {
-    views: ["dashboard", "billing", "projects", "schedule","change-orders", "plans", "tasks", "documents", "daily-log", "attendance", "punch-list", "commitments", "financials", "reports", "team", "inbox", "announcements", "observations", "action-plans", "coordination", "correspondence", "crews", "directory", "subcontractors", "company-docs", "role-manager", "bidding", "invoicing", "inspections", "checklists", "safety-incidents", "equipment", "buildflex-ai"],
+    views: ["dashboard", "billing", "projects", "schedule","change-orders", "plans", "tasks", "documents", "daily-log", "attendance", "punch-list", "commitments", "financials", "reports", "team", "inbox", "announcements", "observations", "action-plans", "coordination", "correspondence", "crews", "directory", "subcontractors", "company-docs", "role-manager", "bidding", "quotes", "invoicing", "inspections", "checklists", "safety-incidents", "equipment", "buildflex-ai"],
     financials: true, approveAny: true, approveLimit: 500_000, createCO: true, manageTeam: true,
     sharePlans: true, viewReports: true, viewAuditTrail: true, viewKanban: true, viewFieldApp: false,
     assignTasks: true, completeTasks: false, viewChecklists: true, useAI: true, isWorkspaceOwner: false,
     canCreateInspection: true, canFillInspection: true, canApproveInspection: false, canViewInspectionReports: true,
   },
   "Project Manager": {
-    views: ["dashboard", "projects", "schedule","change-orders", "plans", "tasks", "documents", "daily-log", "attendance", "punch-list", "commitments", "financials", "team", "inbox", "announcements", "observations", "action-plans", "coordination", "correspondence", "crews", "directory", "subcontractors", "company-docs", "role-manager", "bidding", "invoicing", "inspections", "checklists", "safety-incidents", "equipment", "buildflex-ai"],
+    views: ["dashboard", "projects", "schedule","change-orders", "plans", "tasks", "documents", "daily-log", "attendance", "punch-list", "commitments", "financials", "team", "inbox", "announcements", "observations", "action-plans", "coordination", "correspondence", "crews", "directory", "subcontractors", "company-docs", "role-manager", "bidding", "quotes", "invoicing", "inspections", "checklists", "safety-incidents", "equipment", "buildflex-ai"],
     financials: true, approveAny: true, approveLimit: 250_000, createCO: true, manageTeam: false,
     sharePlans: true, viewReports: false, viewAuditTrail: true, viewKanban: true, viewFieldApp: true,
     assignTasks: true, completeTasks: false, viewChecklists: true, useAI: true, isWorkspaceOwner: false,
@@ -179,7 +179,7 @@ export const ROLES: Record<Role, Permissions> = {
     canCreateInspection: true, canFillInspection: true, canApproveInspection: false, canViewInspectionReports: true,
   },
   Superintendent: {
-    views: ["projects", "schedule","change-orders", "plans", "tasks", "documents", "daily-log", "attendance", "punch-list", "commitments", "financials", "field-view", "inbox", "announcements", "observations", "action-plans", "coordination", "correspondence", "crews", "directory", "subcontractors", "company-docs", "role-manager", "bidding", "invoicing", "inspections", "checklists", "safety-incidents", "equipment", "buildflex-ai"],
+    views: ["projects", "schedule","change-orders", "plans", "tasks", "documents", "daily-log", "attendance", "punch-list", "commitments", "financials", "field-view", "inbox", "announcements", "observations", "action-plans", "coordination", "correspondence", "crews", "directory", "subcontractors", "company-docs", "role-manager", "bidding", "quotes", "invoicing", "inspections", "checklists", "safety-incidents", "equipment", "buildflex-ai"],
     financials: true, approveAny: false, approveLimit: 0, createCO: true, manageTeam: false,
     sharePlans: true, viewReports: false, viewAuditTrail: true, viewKanban: true, viewFieldApp: true,
     assignTasks: true, completeTasks: true, viewChecklists: true, useAI: true, isWorkspaceOwner: false,

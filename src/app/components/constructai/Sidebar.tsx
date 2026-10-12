@@ -1,4 +1,4 @@
-import { LayoutDashboard, CalendarDays, FolderKanban, FileText, BarChart3, Users, Settings, LifeBuoy, Smartphone, X, FileStack, ListChecks, ClipboardList, CheckCircle, Handshake, Mail, Bell, Eye, ClipboardCheck, MessageSquare, Briefcase, UsersRound, FolderOpen, Megaphone, Shield, ChevronDown, ChevronRight, Gavel, Receipt, ShieldAlert, Truck, Clock, FileDigit, CreditCard, LogOut, Boxes } from "lucide-react";
+import { LayoutDashboard, CalendarDays, FolderKanban, FileText, BarChart3, Users, Settings, LifeBuoy, Smartphone, X, FileStack, ListChecks, ClipboardList, CheckCircle, Handshake, Mail, Bell, Eye, ClipboardCheck, MessageSquare, Briefcase, UsersRound, FolderOpen, Megaphone, Shield, ChevronDown, ChevronRight, Gavel, Receipt, FileSignature, ShieldAlert, Truck, Clock, FileDigit, CreditCard, LogOut, Boxes } from "lucide-react";
 import { useState, useEffect } from "react";
 import type { Role } from "./roles";
 import { ROLES, ROLE_COLORS } from "./roles";
@@ -36,6 +36,7 @@ export type View =
   | "company-docs"
   | "role-manager"
   | "bidding"
+  | "quotes"
   | "invoicing"
   | "inspections"
   | "safety-incidents"
@@ -79,6 +80,7 @@ const NAV_GROUPS: NavGroup[] = [
       { key: "bidding", label: "Bidding", icon: Gavel },
       { key: "commitments", label: "Commitments", icon: Handshake },
       { key: "financials", label: "Financials", icon: BarChart3 },
+      { key: "quotes", label: "Quotes", icon: FileSignature },
       { key: "invoicing", label: "Invoicing", icon: Receipt },
       { key: "billing", label: "Billing & Plan", icon: CreditCard },
     ],

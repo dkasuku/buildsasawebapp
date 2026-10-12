@@ -7,6 +7,7 @@ import { Login } from "./components/constructai/Login";
 import { ResetPassword } from "./components/constructai/ResetPassword";
 import { PublicFormFill } from "./components/constructai/PublicFormFill";
 import { PublicBidSubmit } from "./components/constructai/PublicBidSubmit";
+import { PublicQuoteView } from "./components/constructai/PublicQuoteView";
 import { ErrorBoundary } from "./components/constructai/ErrorBoundary";
 import { Dashboard } from "./components/constructai/Dashboard";
 import { Projects } from "./components/constructai/Projects";
@@ -30,6 +31,7 @@ import { Announcements } from "./components/constructai/Announcements";
 import { RoleManager } from "./components/constructai/RoleManager";
 import Bidding from "./components/constructai/Bidding";
 import Invoicing from "./components/constructai/Invoicing";
+import Quotes from "./components/constructai/Quotes";
 import Inspections from "./components/constructai/Inspections";
 import SafetyIncidents from "./components/constructai/SafetyIncidents";
 import Inventory from "./components/constructai/Inventory";
@@ -83,6 +85,7 @@ const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }
   "company-docs": { title: "Company Documents", subtitle: "Organization-wide vault" },
   "role-manager": { title: "Role Manager", subtitle: "Configure team roles and permissions" },
   bidding: { title: "Bidding", subtitle: "Subcontractor bids and tendering" },
+  quotes: { title: "Quotes", subtitle: "Price jobs, send them for online acceptance, convert wins to projects" },
   invoicing: { title: "Invoicing", subtitle: "Accounts receivable and invoice management" },
   inspections: { title: "Inspections", subtitle: "Quality, safety, and compliance inspections" },
   checklists: { title: "Checklists", subtitle: "Templates, assignments, and digital submissions" },
@@ -345,6 +348,11 @@ export default function App() {
     );
   }
 
+  // Public quote deep link: /?quote=TOKEN (no auth required). Always light: the
+  // reader is the job's client, not a workspace user.
+  const quoteToken = (() => { try { return new URLSearchParams(window.location.search).get("quote"); } catch { return null; } })();
+  if (quoteToken) return <PublicQuoteView token={quoteToken} />;
+
   // Public tender bid deep link: /?bid=TOKEN (no auth required)
   const bidToken = (() => { try { return new URLSearchParams(window.location.search).get("bid"); } catch { return null; } })();
   if (bidToken) {
@@ -547,6 +555,7 @@ export default function App() {
             {effectiveView === "company-docs" && <CompanyDocs role={role} />}
             {effectiveView === "role-manager" && <RoleManager role={role} />}
             {effectiveView === "bidding" && <Bidding role={role} />}
+            {effectiveView === "quotes" && <Quotes role={role} />}
             {effectiveView === "invoicing" && <Invoicing role={role} />}
             {effectiveView === "inspections" && <Inspections role={role} />}
             {effectiveView === "checklists" && <Checklists role={role} aiDraft={aiFormDraft} onConsumeAiDraft={() => setAiFormDraft(null)} />}

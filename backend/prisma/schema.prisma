@@ -1318,3 +1318,41 @@ model RateLibraryItem {
 
   @@index([workspaceId])
 }
+
+// A priced offer to a client, made before there is a project — remodelers and
+// interior designers quote many small jobs and win some. Shared by an unguessable
+// link the client opens to accept or decline; an accepted quote is converted into
+// a project (its lines become the BOQ) plus a deposit invoice.
+model Quote {
+  id            String    @id @default(cuid())
+  workspaceId   String?
+  quoteNumber   String    // Q-0001, unique per workspace
+  title         String    // the job, e.g. "Kitchen remodel — Runda"
+  clientName    String
+  clientPhone   String?
+  clientEmail   String?
+  clientAddress String?
+  items         String    // JSON: [{ section, description, unit, quantity, rate }]
+  subtotal      Float     @default(0)
+  discount      Float?    // KES amount
+  taxRate       Float?    // percent
+  total         Float     @default(0)
+  depositPercent Float?   // share of the total invoiced on acceptance
+  validUntil    String?   // YYYY-MM-DD
+  notes         String?   // scope notes / inclusions / exclusions shown on the quote
+  terms         String?
+  status        String    @default("draft") // draft | sent | accepted | declined
+  publicToken   String?   @unique
+  sentAt        DateTime?
+  viewedAt      DateTime?
+  respondedAt   DateTime?
+  acceptedBy    String?   // name the client typed when accepting
+  declineReason String?
+  projectId     String?   // set once converted
+  invoiceId     String?   // the deposit invoice raised on conversion
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([workspaceId, quoteNumber])
+  @@index([workspaceId])
+}

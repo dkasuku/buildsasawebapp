@@ -31,7 +31,7 @@ const TENANT_MODELS = new Set([
   'DirectoryContact', 'CompanyDoc', 'Announcement', 'FormTemplate', 'Conversation',
   'PaymentApplication', 'RetentionRecord', 'CostCode', 'Approval',
   'InventoryItem', 'InventoryMovement',
-  'BoqRevision', 'RateLibraryItem',
+  'BoqRevision', 'RateLibraryItem', 'Quote',
 ]);
 const prismaBase = new PrismaClient();
 const delegateOf = (m) => prismaBase[m.charAt(0).toLowerCase() + m.slice(1)];
@@ -2563,6 +2563,232 @@ app.delete('/api/projects/:projectId/invoices/:id', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ===== QUOTES =====
+// Priced offers made before a project exists. The client opens a share link
+// (/?quote=<token>) to accept or decline; an accepted quote converts into a
+// project whose BOQ is the quote's lines, plus a deposit invoice.
+const CAN_MANAGE_QUOTES = ['Contractor', 'Owner', 'Executive', 'Project Manager', 'Superintendent', 'Quantity Surveyor', 'Architect'];
+const QUOTE_FIELDS = ['title', 'clientName', 'clientPhone', 'clientEmail', 'clientAddress', 'validUntil', 'notes', 'terms'];
+const quoteNum = (v) => (v === undefined || v === null || v === '' ? null : Number(v) || 0);
+
+// Lines are re-priced here, never trusted from the client, so the stored totals
+// and the PDF/public page always agree with the lines they show.
+function priceQuote(rawItems, discount, taxRate) {
+  const items = (Array.isArray(rawItems) ? rawItems : [])
+    .map((i) => ({
+      section: String(i.section || '').trim().slice(0, 120),
+      description: String(i.description || '').trim().slice(0, 1000),
+      unit: String(i.unit || 'item').trim().slice(0, 20) || 'item',
+      quantity: Number(i.quantity) || 0,
+      rate: Number(i.rate) || 0,
+    }))
+    .filter((i) => i.description);
+  const subtotal = items.reduce((s, i) => s + i.quantity * i.rate, 0);
+  const disc = Math.max(0, Number(discount) || 0);
+  const tax = Math.max(0, Number(taxRate) || 0);
+  const total = Math.max(0, (subtotal - disc) * (1 + tax / 100));
+  return { items, subtotal: Math.round(subtotal * 100) / 100, total: Math.round(total * 100) / 100 };
+}
+
+// A sent quote past its valid-until date reads as expired; nothing is stored.
+const isExpired = (q) => q.status === 'sent' && q.validUntil && q.validUntil < new Date().toISOString().slice(0, 10);
+const quoteDto = (q) => ({ ...q, items: (() => { try { return JSON.parse(q.items || '[]'); } catch { return []; } })(), status: isExpired(q) ? 'expired' : q.status });
+
+async function nextQuoteNumber() {
+  const rows = await prisma.quote.findMany({ select: { quoteNumber: true } });
+  const max = rows.reduce((m, r) => Math.max(m, Number(String(r.quoteNumber).replace(/\D/g, '')) || 0), 0);
+  return 'Q-' + String(max + 1).padStart(4, '0');
+}
+
+app.get('/api/quotes', auth, async (req, res) => {
+  try {
+    const rows = await prisma.quote.findMany({ orderBy: { createdAt: 'desc' } });
+    // The company name heads the quote PDF the browser builds.
+    const ws = currentWs() ? await prismaBase.workspace.findUnique({ where: { id: currentWs() }, select: { name: true } }) : null;
+    res.json({ companyName: ws ? ws.name : null, quotes: rows.map(quoteDto) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/quotes', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_QUOTES)) return res.status(403).json({ error: 'Your role cannot create quotes' });
+    const b = req.body || {};
+    if (!String(b.title || '').trim() || !String(b.clientName || '').trim()) return res.status(400).json({ error: 'A job title and client name are required' });
+    const priced = priceQuote(b.items, b.discount, b.taxRate);
+    if (!priced.items.length) return res.status(400).json({ error: 'Add at least one line item' });
+    const data = { status: 'draft' };
+    for (const k of QUOTE_FIELDS) data[k] = b[k] ? String(b[k]).trim() : null;
+    Object.assign(data, { items: JSON.stringify(priced.items), subtotal: priced.subtotal, total: priced.total, discount: quoteNum(b.discount), taxRate: quoteNum(b.taxRate), depositPercent: quoteNum(b.depositPercent) });
+    // Two people saving at once can race to the same number; retry.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const row = await prisma.quote.create({ data: { ...data, quoteNumber: await nextQuoteNumber() } });
+        return res.json(quoteDto(row));
+      } catch (e) { if (e.code !== 'P2002' || attempt > 1) throw e; }
+    }
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/quotes/:id', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_QUOTES)) return res.status(403).json({ error: 'Your role cannot edit quotes' });
+    const cur = await prisma.quote.findUnique({ where: { id: req.params.id } });
+    if (!cur) return res.status(404).json({ error: 'Quote not found' });
+    if (cur.status === 'accepted') return res.status(409).json({ error: 'The client has accepted this quote, so it can no longer be changed. Duplicate it to make a new version.' });
+    const b = req.body || {};
+    const data = {};
+    for (const k of QUOTE_FIELDS) if (b[k] !== undefined) data[k] = b[k] ? String(b[k]).trim() : null;
+    if (data.title === null || data.clientName === null) return res.status(400).json({ error: 'A job title and client name are required' });
+    for (const k of ['discount', 'taxRate', 'depositPercent']) if (b[k] !== undefined) data[k] = quoteNum(b[k]);
+    if (b.items !== undefined || b.discount !== undefined || b.taxRate !== undefined) {
+      const priced = priceQuote(
+        b.items !== undefined ? b.items : JSON.parse(cur.items || '[]'),
+        data.discount !== undefined ? data.discount : cur.discount,
+        data.taxRate !== undefined ? data.taxRate : cur.taxRate,
+      );
+      if (!priced.items.length) return res.status(400).json({ error: 'Add at least one line item' });
+      Object.assign(data, { items: JSON.stringify(priced.items), subtotal: priced.subtotal, total: priced.total });
+    }
+    // Editing a declined quote reopens it as a draft to be re-sent.
+    if (cur.status === 'declined') Object.assign(data, { status: 'draft', declineReason: null, respondedAt: null });
+    const row = await prisma.quote.update({ where: { id: cur.id }, data });
+    res.json(quoteDto(row));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/quotes/:id', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_QUOTES)) return res.status(403).json({ error: 'Your role cannot delete quotes' });
+    await prisma.quote.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Issue (or reuse) the share link and mark the quote sent.
+app.post('/api/quotes/:id/share', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_QUOTES)) return res.status(403).json({ error: 'Your role cannot send quotes' });
+    const cur = await prisma.quote.findUnique({ where: { id: req.params.id } });
+    if (!cur) return res.status(404).json({ error: 'Quote not found' });
+    const data = { publicToken: cur.publicToken || crypto.randomBytes(12).toString('base64url') };
+    if (cur.status === 'draft') Object.assign(data, { status: 'sent', sentAt: new Date() });
+    const row = await prisma.quote.update({ where: { id: cur.id }, data });
+    res.json(quoteDto(row));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Manual status for quotes agreed outside the link (phone, in person, paper).
+app.post('/api/quotes/:id/status', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_QUOTES)) return res.status(403).json({ error: 'Your role cannot update quotes' });
+    const status = req.body?.status;
+    if (!['accepted', 'declined', 'sent'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+    const cur = await prisma.quote.findUnique({ where: { id: req.params.id } });
+    if (!cur) return res.status(404).json({ error: 'Quote not found' });
+    if (cur.projectId) return res.status(409).json({ error: 'This quote is already a project' });
+    const data = { status, respondedAt: status === 'sent' ? null : new Date() };
+    if (status === 'accepted') data.acceptedBy = String(req.body?.acceptedBy || cur.clientName).slice(0, 120);
+    if (status === 'sent' && !cur.sentAt) data.sentAt = new Date();
+    const row = await prisma.quote.update({ where: { id: cur.id }, data });
+    res.json(quoteDto(row));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Turn an accepted quote into a project: BOQ from its lines, plus a deposit invoice.
+app.post('/api/quotes/:id/convert', auth, async (req, res) => {
+  try {
+    if (!hasRole(req, CAN_MANAGE_QUOTES)) return res.status(403).json({ error: 'Your role cannot convert quotes' });
+    const q = await prisma.quote.findUnique({ where: { id: req.params.id } });
+    if (!q) return res.status(404).json({ error: 'Quote not found' });
+    if (q.projectId) return res.status(409).json({ error: 'This quote is already a project' });
+    if (q.status !== 'accepted') return res.status(409).json({ error: 'Only an accepted quote can become a project. Mark it accepted first.' });
+    const items = JSON.parse(q.items || '[]');
+    const ws = currentWs();
+    const project = await prisma.project.create({ data: {
+      code: q.quoteNumber + '-' + crypto.randomBytes(2).toString('hex').toUpperCase(),
+      name: q.title,
+      city: req.body?.city ? String(req.body.city).slice(0, 120) : '—',
+      value: String(Math.round(q.total)),
+      contractSumKES: Math.round(q.total),
+      status: 'Planning',
+      progress: 0,
+      description: [q.notes, 'Client: ' + q.clientName + (q.clientPhone ? ' · ' + q.clientPhone : '')].filter(Boolean).join('\n\n'),
+    } });
+    // Group lines by section so the BOQ keeps the quote's structure.
+    const groups = new Map();
+    for (const i of items) {
+      const k = i.section || 'Quoted works';
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(i);
+    }
+    let pos = 0;
+    for (const [title, lines] of groups) {
+      pos += 1;
+      await prisma.boqSection.create({ data: {
+        workspaceId: ws, projectId: project.id, code: String(pos), title, position: pos - 1,
+        items: { create: lines.map((i, idx) => ({
+          workspaceId: ws, code: pos + '.' + (idx + 1), description: i.description, unit: i.unit || 'item',
+          quantity: Number(i.quantity) || 0, rate: Number(i.rate) || 0,
+          amount: (Number(i.quantity) || 0) * (Number(i.rate) || 0), position: idx,
+        })) },
+      } });
+    }
+    let invoice = null;
+    const pct = Number(q.depositPercent) || 0;
+    if (pct > 0) {
+      const amount = Math.round(q.total * pct / 100);
+      const today = new Date().toISOString().slice(0, 10);
+      invoice = await prisma.invoice.create({ data: {
+        invoiceNumber: 'DEP-' + q.quoteNumber + '-' + crypto.randomBytes(2).toString('hex').toUpperCase(),
+        clientName: q.clientName, billToAddress: q.clientAddress, amount, status: 'draft',
+        issueDate: today, dueDate: today, paymentTerms: 'Due on receipt', subtotal: amount,
+        items: JSON.stringify([{ description: pct + '% deposit for ' + q.title + ' (quote ' + q.quoteNumber + ')', quantity: 1, rate: amount }]),
+        notes: 'Deposit on accepted quote ' + q.quoteNumber + '.',
+        projectId: project.id,
+      } });
+    }
+    const row = await prisma.quote.update({ where: { id: q.id }, data: { projectId: project.id, invoiceId: invoice ? invoice.id : null } });
+    res.json({ quote: quoteDto(row), project: projectDto(project), invoice });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Public: the client's view of a shared quote. No workspace context here, so the
+// tenant extension passes through; the unguessable token is the only key, and
+// only client-facing fields are returned.
+app.get('/api/public/quotes/:token', async (req, res) => {
+  try {
+    const q = await prisma.quote.findUnique({ where: { publicToken: req.params.token } });
+    if (!q) return res.status(404).json({ error: 'This quote is not available.' });
+    if (!q.viewedAt) await prisma.quote.update({ where: { id: q.id }, data: { viewedAt: new Date() } }).catch(() => {});
+    const ws = q.workspaceId ? await prismaBase.workspace.findUnique({ where: { id: q.workspaceId }, select: { name: true } }) : null;
+    const d = quoteDto(q);
+    res.json({
+      companyName: ws ? ws.name : null,
+      quoteNumber: d.quoteNumber, title: d.title, clientName: d.clientName, clientAddress: d.clientAddress,
+      items: d.items, subtotal: d.subtotal, discount: d.discount, taxRate: d.taxRate, total: d.total,
+      depositPercent: d.depositPercent, validUntil: d.validUntil, notes: d.notes, terms: d.terms,
+      status: d.status, acceptedBy: d.acceptedBy, respondedAt: d.respondedAt, issuedAt: d.sentAt || d.createdAt,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/public/quotes/:token/respond', async (req, res) => {
+  try {
+    const q = await prisma.quote.findUnique({ where: { publicToken: req.params.token } });
+    if (!q) return res.status(404).json({ error: 'This quote is not available.' });
+    if (q.status === 'accepted' || q.status === 'declined') return res.status(409).json({ error: 'This quote has already been ' + q.status + '.' });
+    if (q.status === 'draft') return res.status(409).json({ error: 'This quote is being revised. Please wait for the updated version.' });
+    if (isExpired(q)) return res.status(409).json({ error: 'This quote has expired. Please contact us for an updated quote.' });
+    const accept = req.body?.decision === 'accept';
+    const name = String(req.body?.name || '').trim().slice(0, 120);
+    if (accept && !name) return res.status(400).json({ error: 'Please type your name to accept.' });
+    const row = await prisma.quote.update({ where: { id: q.id }, data: accept
+      ? { status: 'accepted', acceptedBy: name, respondedAt: new Date() }
+      : { status: 'declined', declineReason: String(req.body?.reason || '').trim().slice(0, 1000) || null, respondedAt: new Date() } });
+    res.json({ ok: true, status: row.status });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ===== INSPECTIONS =====
 const INSPECTION_STATUSES = ['draft', 'pending_consultant', 'in_review', 'approved', 'rejected', 'rework_required', 'closed'];
 const VALID_TRANSITIONS = {
@@ -4649,7 +4875,7 @@ app.post('/api/ai/chat', async (req, res) => {
 // keeps a short rolling conversation so follow-up questions have context.
 const SUPPORT_WHATSAPP = process.env.SUPPORT_WHATSAPP || '+254782223749';
 const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || 'hello@buildsasa.com';
-const SHEMMY_SYSTEM_PROMPT = `You are Shemmy, the friendly customer-support assistant for Buildsasa — a construction project-management software built for contractors, project managers and site teams in Kenya and East Africa (currency KES, payments via Paystack/M-Pesa). Help users understand and use the product, troubleshoot, and answer billing/account questions. Be warm, concise, and practical; use simple language; sentence case. Buildsasa's features include: Dashboard with AI insights; Projects; Change Orders with an approval pipeline; Checklists & digitized forms; Tasks & Trades; Schedule (Gantt, dates, milestones); Daily Log; Punch List; Plans & Drawings; Inspections; Safety Incidents; Observations; Action Plans; Coordination Issues; Financials (cash flow ledger, budget vs actual, commitments/payables, payment applications/progress claims with retention, cost codes); Invoicing (line-item invoices with PDF download + emailed receipts); Bidding/Tendering (post bid packages, share a public bid link, receive and award bids); Inventory (materials with a stock-movement ledger plus an equipment register with hire/service/compliance tracking); Documents; Directory; Crews; Team & Role Manager; Attendance; Reports; and a Buildsasa AI assistant. Billing is per company (workspace) — new companies see a paywall until they choose a plan; plans are paid in KES via Paystack. When a question needs account-specific action you can't do (refunds, data changes, bugs), tell them to contact our team on WhatsApp at ${SUPPORT_WHATSAPP} or by email at ${SUPPORT_EMAIL}, or use the in-app billing page. Never invent features that aren't listed; if unsure, say so and offer to connect them to the team. Keep answers short unless asked for detail.`;
+const SHEMMY_SYSTEM_PROMPT = `You are Shemmy, the friendly customer-support assistant for Buildsasa — a construction project-management software built for contractors, project managers and site teams in Kenya and East Africa (currency KES, payments via Paystack/M-Pesa). Help users understand and use the product, troubleshoot, and answer billing/account questions. Be warm, concise, and practical; use simple language; sentence case. Buildsasa's features include: Dashboard with AI insights; Projects; Change Orders with an approval pipeline; Checklists & digitized forms; Tasks & Trades; Schedule (Gantt, dates, milestones); Daily Log; Punch List; Plans & Drawings; Inspections; Safety Incidents; Observations; Action Plans; Coordination Issues; Financials (cash flow ledger, budget vs actual, commitments/payables, payment applications/progress claims with retention, cost codes); Quotes (price a job from templates like kitchen or bathroom remodels, send a link the client accepts or declines online, download a PDF, then turn an accepted quote into a project with its BOQ and a deposit invoice); Invoicing (line-item invoices with PDF download + emailed receipts); Bidding/Tendering (post bid packages, share a public bid link, receive and award bids); Inventory (materials with a stock-movement ledger plus an equipment register with hire/service/compliance tracking); Documents; Directory; Crews; Team & Role Manager; Attendance; Reports; and a Buildsasa AI assistant. Billing is per company (workspace) — new companies see a paywall until they choose a plan; plans are paid in KES via Paystack. When a question needs account-specific action you can't do (refunds, data changes, bugs), tell them to contact our team on WhatsApp at ${SUPPORT_WHATSAPP} or by email at ${SUPPORT_EMAIL}, or use the in-app billing page. Never invent features that aren't listed; if unsure, say so and offer to connect them to the team. Keep answers short unless asked for detail.`;
 
 app.post('/api/support/chat', async (req, res) => {
   try {
@@ -4667,7 +4893,7 @@ app.post('/api/support/chat', async (req, res) => {
 // Suzy — the buildsasa.com website assistant. Unlike Shemmy (signed-in users), her
 // audience is mostly prospects, so she also answers sales questions and steers
 // people to a demo, pricing or sign-up. Public, so it is rate limited per IP.
-const SUZY_SYSTEM_PROMPT = `You are Suzy, the friendly assistant on the Buildsasa website (buildsasa.com). Buildsasa Technologies is a Kenyan tech company that builds ERP systems, custom software and ICT solutions; its main product, Buildsasa, is construction project-management software for contractors, project managers, quantity surveyors, architects, developers and county/government project teams in Kenya and East Africa (currency KES, payments via Paystack/M-Pesa). It can run in Buildsasa's cloud or be installed on the client's own servers. Visitors are mostly people evaluating the product, plus some existing customers needing help. Answer questions about what Buildsasa does, who it is for, how it helps, and how to get started; help existing users with how-to questions. Buildsasa's features include: Dashboard; Projects; Daily Log (work done, deliveries, delays, weather, from a phone); Attendance (present/late/absent); Checklists & digitized forms, shareable by public link; Inspections; Safety Incidents; Observations; Action Plans; Punch List with PDF export; Tasks & Trades; Schedule (Gantt, milestones); Plans & Drawings with revisions; Change Orders with an approval pipeline; Bill of quantities with a rate library; Bidding/Tendering with a public bid link; Commitments (subcontracts and orders) with a claim calculator that deducts retention and recovers advances; Financials (budget vs actual, cost codes, payment applications with retention, cash flow); Invoicing with PDF; Inventory (materials stock ledger) and an equipment register; Documents; Correspondence; Coordination Issues; Directory; Subcontractors; Crews; Team & Role Manager (control who sees what); Reports with Excel export; and Buildsasa AI. Pages to point to: pricing at https://buildsasa.com/pricing, book a demo at https://buildsasa.com/contact, sign up or log in at https://console.buildsasa.com. For exact prices, custom ERP/software projects, government or enterprise deals, refunds, account changes or bugs, offer to connect them with the team on WhatsApp at ${SUPPORT_WHATSAPP} or email ${SUPPORT_EMAIL}. End every answer about Buildsasa (what it does, features, who it is for, how it helps, pricing, how to start) with a short call to action on its own line inviting them to get started at https://console.buildsasa.com — e.g. \"Get started at https://console.buildsasa.com\". You may also offer a free demo at https://buildsasa.com/contact. Skip the call to action only for replies that are not about Buildsasa (such as a polite refusal) or when you have already handed them to the team for an account issue. Be warm, concise and plain-spoken — many visitors are not technical; avoid jargon; short paragraphs or a few bullets; sentence case; no markdown headings. Never invent features, prices, clients or guarantees that aren't stated here; if unsure, say so and offer the team's contact. Politely decline questions unrelated to Buildsasa, construction or the company's services.`;
+const SUZY_SYSTEM_PROMPT = `You are Suzy, the friendly assistant on the Buildsasa website (buildsasa.com). Buildsasa Technologies is a Kenyan tech company that builds ERP systems, custom software and ICT solutions; its main product, Buildsasa, is construction project-management software for contractors, project managers, quantity surveyors, architects, developers and county/government project teams in Kenya and East Africa (currency KES, payments via Paystack/M-Pesa). It can run in Buildsasa's cloud or be installed on the client's own servers. Visitors are mostly people evaluating the product, plus some existing customers needing help. Answer questions about what Buildsasa does, who it is for, how it helps, and how to get started; help existing users with how-to questions. Buildsasa's features include: Dashboard; Projects; Daily Log (work done, deliveries, delays, weather, from a phone); Attendance (present/late/absent); Checklists & digitized forms, shareable by public link; Inspections; Safety Incidents; Observations; Action Plans; Punch List with PDF export; Tasks & Trades; Schedule (Gantt, milestones); Plans & Drawings with revisions; Change Orders with an approval pipeline; Bill of quantities with a rate library; Bidding/Tendering with a public bid link; Commitments (subcontracts and orders) with a claim calculator that deducts retention and recovers advances; Financials (budget vs actual, cost codes, payment applications with retention, cash flow); Quotes (price a job from templates such as kitchen, bathroom, tiling, painting or electrical works, send the client a link to accept online, and turn an accepted quote into a project with a deposit invoice); Invoicing with PDF; Inventory (materials stock ledger) and an equipment register; Documents; Correspondence; Coordination Issues; Directory; Subcontractors; Crews; Team & Role Manager (control who sees what); Reports with Excel export; and Buildsasa AI. Pages to point to: pricing at https://buildsasa.com/pricing, book a demo at https://buildsasa.com/contact, sign up or log in at https://console.buildsasa.com. For exact prices, custom ERP/software projects, government or enterprise deals, refunds, account changes or bugs, offer to connect them with the team on WhatsApp at ${SUPPORT_WHATSAPP} or email ${SUPPORT_EMAIL}. End every answer about Buildsasa (what it does, features, who it is for, how it helps, pricing, how to start) with a short call to action on its own line inviting them to get started at https://console.buildsasa.com — e.g. \"Get started at https://console.buildsasa.com\". You may also offer a free demo at https://buildsasa.com/contact. Skip the call to action only for replies that are not about Buildsasa (such as a polite refusal) or when you have already handed them to the team for an account issue. Be warm, concise and plain-spoken — many visitors are not technical; avoid jargon; short paragraphs or a few bullets; sentence case; no markdown headings. Never invent features, prices, clients or guarantees that aren't stated here; if unsure, say so and offer the team's contact. Politely decline questions unrelated to Buildsasa, construction or the company's services.`;
 
 const suzyHits = new Map();
 function suzyRateLimited(ip) {

@@ -579,6 +579,39 @@ export type BidPackageDto = {
   bids?: BidDto[];
 };
 
+export type QuoteLine = { section?: string; description: string; unit: string; quantity: number; rate: number };
+export type QuoteStatus = "draft" | "sent" | "accepted" | "declined" | "expired";
+export type QuoteDto = {
+  id: string;
+  quoteNumber: string;
+  title: string;
+  clientName: string;
+  clientPhone?: string | null;
+  clientEmail?: string | null;
+  clientAddress?: string | null;
+  items: QuoteLine[];
+  subtotal: number;
+  discount?: number | null;
+  taxRate?: number | null;
+  total: number;
+  depositPercent?: number | null;
+  validUntil?: string | null;
+  notes?: string | null;
+  terms?: string | null;
+  status: QuoteStatus;
+  publicToken?: string | null;
+  sentAt?: string | null;
+  viewedAt?: string | null;
+  respondedAt?: string | null;
+  acceptedBy?: string | null;
+  declineReason?: string | null;
+  projectId?: string | null;
+  invoiceId?: string | null;
+  createdAt: string;
+};
+export type QuoteInput = Pick<QuoteDto, "title" | "clientName" | "clientPhone" | "clientEmail" | "clientAddress" | "items" | "discount" | "taxRate" | "depositPercent" | "validUntil" | "notes" | "terms">;
+export type PublicQuoteDto = Pick<QuoteDto, "quoteNumber" | "title" | "clientName" | "clientAddress" | "items" | "subtotal" | "discount" | "taxRate" | "total" | "depositPercent" | "validUntil" | "notes" | "terms" | "status" | "acceptedBy" | "respondedAt"> & { companyName?: string | null; issuedAt: string };
+
 export type InvoiceDto = {
   id: string;
   invoiceNumber: string;
@@ -1205,6 +1238,16 @@ export const api = {
   // Public tender link (no auth needed; http() still sends a token if present — harmless)
   getPublicBidPackage: (token: string) => http<{ title: string; trade?: string | null; description?: string | null; budgetKES?: number | null; dueDate?: string | null; status: string; companyName?: string | null; closed?: boolean }>(`/api/public/bids/${token}`),
   submitPublicBid: (token: string, payload: { subcontractor?: string; contactName?: string; contactEmail?: string; contactPhone?: string; trade?: string; amount: number; notes?: string; fileUrl?: string }) => http<{ ok: boolean; id?: string }>(`/api/public/bids/${token}`, { method: "POST", body: JSON.stringify(payload) }),
+  // Quotes (workspace-level; the client answers through a public link)
+  getQuotes: () => http<{ companyName: string | null; quotes: QuoteDto[] }>(`/api/quotes`),
+  createQuote: (payload: QuoteInput) => http<QuoteDto>(`/api/quotes`, { method: "POST", body: JSON.stringify(payload) }),
+  updateQuote: (id: string, payload: Partial<QuoteInput>) => http<QuoteDto>(`/api/quotes/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteQuote: (id: string) => http(`/api/quotes/${id}`, { method: "DELETE" }),
+  shareQuote: (id: string) => http<QuoteDto>(`/api/quotes/${id}/share`, { method: "POST" }),
+  setQuoteStatus: (id: string, status: "accepted" | "declined" | "sent") => http<QuoteDto>(`/api/quotes/${id}/status`, { method: "POST", body: JSON.stringify({ status }) }),
+  convertQuote: (id: string, payload: { city?: string } = {}) => http<{ quote: QuoteDto; project: { id: string; name: string }; invoice: InvoiceDto | null }>(`/api/quotes/${id}/convert`, { method: "POST", body: JSON.stringify(payload) }),
+  getPublicQuote: (token: string) => http<PublicQuoteDto>(`/api/public/quotes/${token}`),
+  respondToQuote: (token: string, payload: { decision: "accept" | "decline"; name?: string; reason?: string }) => http<{ ok: boolean; status: string }>(`/api/public/quotes/${token}/respond`, { method: "POST", body: JSON.stringify(payload) }),
   // Invoices
   getInvoices: (projectId: string) => http<InvoiceDto[]>(`/api/projects/${projectId}/invoices`),
   createInvoice: (projectId: string, payload: Partial<InvoiceDto>) => http<InvoiceDto>(`/api/projects/${projectId}/invoices`, { method: "POST", body: JSON.stringify(payload) }),
