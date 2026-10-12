@@ -75,7 +75,7 @@ function StatusBadge({ status }: { status?: string | null }) {
   return <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] capitalize ${tone}`}>{s.replace(/_/g, " ")}</span>;
 }
 
-export default function Financials({ role = "Contractor", initialTab = "overview" }: { role?: Role; initialTab?: Tab }) {
+export default function Financials({ role = "Contractor", initialTab = "overview", only = false }: { role?: Role; initialTab?: Tab; /** Show just this one tab, no tracker header or tab bar (the sidebar Commitments page). */ only?: boolean }) {
   const { currency } = useCurrency();
   const perms = ROLES[role];
   const canApprove = !!perms.financials; // "Finance can approve" capability gates approve/pay/release
@@ -543,10 +543,10 @@ export default function Financials({ role = "Contractor", initialTab = "overview
   return (
     <div className="px-4 sm:px-7 py-5 sm:py-6 space-y-5 sm:space-y-6">
       <div className="flex flex-wrap gap-2 justify-between items-center">
-        <div>
+        {!only && <div>
           <div className="text-[13px] text-white font-display">Financial tracker</div>
           <div className="text-[11px] text-[#8A95A5]">Money in/out, budget vs actual, exports</div>
-        </div>
+        </div>}
         <div className="flex items-center gap-2 text-[12px] text-white">
           <span className="text-[#8A95A5]">Project</span>
           <select
@@ -559,18 +559,18 @@ export default function Financials({ role = "Contractor", initialTab = "overview
             ))}
           </select>
         </div>
-        <div className="flex flex-wrap gap-2">
+        {!only && <div className="flex flex-wrap gap-2">
           <button onClick={exportExcel} className="h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[12px] text-white flex items-center gap-1.5 hover:border-[#FF6B1A]/50">
             <FileSpreadsheet className="w-3.5 h-3.5" /> Export Excel
           </button>
           <button onClick={exportPdf} className="h-9 px-3 rounded-md bg-[#FF6B1A] text-white text-[12px] flex items-center gap-1.5 hover:bg-[#FF7E33]">
             <FileText className="w-3.5 h-3.5" /> Export PDF
           </button>
-        </div>
+        </div>}
       </div>
 
       {/* Tab bar */}
-      <div className="flex flex-nowrap gap-1 border-b border-[#222A35] overflow-x-auto whitespace-nowrap">
+      {!only && <div className="flex flex-nowrap gap-1 border-b border-[#222A35] overflow-x-auto whitespace-nowrap">
         {([
           { id: "overview", label: "Overview", icon: Wallet },
           { id: "ledger", label: "Ledger", icon: Receipt },
@@ -590,7 +590,7 @@ export default function Financials({ role = "Contractor", initialTab = "overview
             <t.icon className="w-3.5 h-3.5" /> {t.label}
           </button>
         ))}
-      </div>
+      </div>}
 
       {/* OVERVIEW — existing summary cards */}
       {tab === "overview" && (

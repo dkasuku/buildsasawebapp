@@ -558,7 +558,7 @@ export default function App() {
             {effectiveView === "daily-log" && <DailyLog />}
             {effectiveView === "punch-list" && <PunchListPro role={role} />}
             {/* The old standalone Commitments page read fields the API never returns (blank rows); show the real one inside Financials. */}
-            {effectiveView === "commitments" && <Financials role={role} initialTab="commitments" />}
+            {effectiveView === "commitments" && <Financials role={role} initialTab="commitments" only />}
             {effectiveView === "field-view" && <FieldView role={role} />}
             {effectiveView === "reports" && <Reports />}
             {effectiveView === "financials" && <Financials role={role} />}
