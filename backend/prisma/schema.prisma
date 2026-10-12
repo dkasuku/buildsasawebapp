@@ -1498,3 +1498,29 @@ model AiCreditTxn {
 
   @@index([workspaceId, createdAt])
 }
+
+// A construction project someone requested on buildsasa.com ("Request a
+// project"): a homeowner or business that wants work done. Buildsasa staff
+// review it in the admin panel and can post it to the Jobs Board for
+// subscribed contractors to bid on.
+model ProjectRequest {
+  id          String   @id @default(cuid())
+  name        String
+  email       String
+  phone       String
+  company     String?
+  projectType String   // e.g. New house, Renovation, Commercial building
+  location    String
+  budget      String?  // a range picked on the form, e.g. "KES 5M – 20M"
+  timeline    String?  // e.g. "Within 3 months"
+  description String
+  status      String   @default("new") // new | reviewing | posted | closed
+  jobId       String?  // the Jobs Board job created from it
+  adminNote   String?
+  pageUrl     String?
+  ip          String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status, createdAt])
+}

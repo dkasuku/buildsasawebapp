@@ -3252,6 +3252,101 @@ app.delete('/api/jobs/:id/bid', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+
+// ===== PROJECT REQUESTS (website "Request a project") =====
+// Anyone can ask for construction work on buildsasa.com. The request lands in
+// the admin panel; staff can post it to the Jobs Board in one step, where
+// subscribed contractors bid. Public endpoint: rate-limited per IP, honeypot,
+// and free text that looks like markup is refused rather than stored.
+const PR_STATUSES = ['new', 'reviewing', 'posted', 'closed'];
+const prHits = new Map();
+const prLimited = (ip) => {
+  const now = Date.now();
+  const hits = (prHits.get(ip) || []).filter((t) => now - t < 60 * 60 * 1000);
+  hits.push(now); prHits.set(ip, hits);
+  if (prHits.size > 5000) prHits.clear();
+  return hits.length > 5;
+};
+const prText = (v, max) => (v == null || String(v).trim() === '' ? null : String(v).trim().slice(0, max));
+const prMarkup = (v) => /<[a-z!\/?]|javascript:|on[a-z]+\s*=/i.test(String(v || ''));
+
+app.post('/api/public/project-requests', async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (prText(b.website, 200)) return res.json({ ok: true }); // honeypot: bots fill it, people never see it
+    const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+    if (prLimited(ip)) return res.status(429).json({ error: 'Too many requests from this connection. Please try again in an hour, or call us on +254 782 223 749.' });
+    const d = {
+      name: prText(b.name, 120), email: prText(b.email, 200), phone: prText(b.phone, 40), company: prText(b.company, 160),
+      projectType: prText(b.projectType, 120), location: prText(b.location, 300), budget: prText(b.budget, 80), timeline: prText(b.timeline, 80),
+      description: prText(b.description, 5000),
+    };
+    if (!d.name || !d.email || !d.phone || !d.projectType || !d.location || !d.description) return res.status(400).json({ error: 'Please fill in your name, email, phone, the type of project, its location and a short description.' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) return res.status(400).json({ error: 'Please enter a valid email address.' });
+    if (!/^[+\d][\d\s()-]{6,}$/.test(d.phone)) return res.status(400).json({ error: 'Please enter a valid phone number, e.g. 0712 345 678.' });
+    if (d.description.length < 20) return res.status(400).json({ error: 'Please describe the project in a little more detail (a sentence or two).' });
+    for (const [k, v] of Object.entries(d)) if (v && prMarkup(v)) return res.status(400).json({ error: `Please remove any code or HTML from the ${k === 'projectType' ? 'project type' : k} field.` });
+    const row = await prismaBase.projectRequest.create({ data: { ...d, email: d.email.toLowerCase(), pageUrl: prText(b.pageUrl, 400), ip } });
+    const notify = String(process.env.LEADS_NOTIFY_EMAIL || '').trim();
+    if (notify) {
+      const esc = (v) => String(v || '').replace(/</g, '&lt;');
+      sendEmail({
+        to: notify,
+        subject: `New project request: ${d.projectType} in ${d.location}`,
+        html: emailShell('New project request', `<table cellpadding="6">${[['Name', d.name], ['Phone', d.phone], ['Email', d.email], ['Company', d.company], ['Project', d.projectType], ['Location', d.location], ['Budget', d.budget], ['Timeline', d.timeline], ['Details', d.description]].filter(([, v]) => v).map(([k, v]) => `<tr><td><strong>${k}</strong></td><td>${esc(v)}</td></tr>`).join('')}</table><p style="font-size:13px">Review it in the admin panel under Project requests.</p>`),
+      }).catch((e) => console.error('[project request] notify failed:', e.message));
+    }
+    // A short acknowledgement to the person who asked.
+    sendEmail({
+      to: d.email,
+      subject: 'We received your project request',
+      html: emailShell('Thanks, we have your request', `<p style="font-size:14px;color:#11161D">Hi ${String(d.name).replace(/</g, '&lt;')}, thank you for telling us about your ${String(d.projectType).toLowerCase().replace(/</g, '&lt;')} in ${String(d.location).replace(/</g, '&lt;')}. A member of the Buildsasa team will call you within one working day to understand the work and connect you with suitable contractors.</p><p style="font-size:14px;color:#11161D">Questions? WhatsApp us on +254 782 223 749.</p>`),
+    }).catch(() => {});
+    res.json({ ok: true, id: row.id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+const prAdmin = (req, res, next) => (isPlatformAdmin(req.user && req.user.email) ? next() : res.status(403).json({ error: 'Only Buildsasa staff can see project requests.' }));
+
+app.get('/api/admin/project-requests', auth, prAdmin, async (_req, res) => {
+  try { res.json(await prismaBase.projectRequest.findMany({ orderBy: { createdAt: 'desc' }, take: 300 })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/admin/project-requests/:id', auth, prAdmin, async (req, res) => {
+  try {
+    const data = {};
+    if (req.body?.status !== undefined) { if (!PR_STATUSES.includes(req.body.status)) return res.status(400).json({ error: 'Unknown status' }); data.status = req.body.status; }
+    if (req.body?.adminNote !== undefined) data.adminNote = prText(req.body.adminNote, 2000);
+    res.json(await prismaBase.projectRequest.update({ where: { id: req.params.id }, data }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/admin/project-requests/:id', auth, prAdmin, async (req, res) => {
+  try { await prismaBase.projectRequest.delete({ where: { id: req.params.id } }); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Post a request to the Jobs Board. The admin can edit the wording first; the
+// client's contact details are never published (only the area and the work).
+app.post('/api/admin/project-requests/:id/post-job', auth, prAdmin, async (req, res) => {
+  try {
+    const r = await prismaBase.projectRequest.findUnique({ where: { id: req.params.id } });
+    if (!r) return res.status(404).json({ error: 'Request not found' });
+    if (r.jobId) return res.status(409).json({ error: 'This request is already on the Jobs Board.' });
+    const b = req.body || {};
+    const title = prText(b.title, 300) || `${r.projectType} in ${r.location}`;
+    const description = prText(b.description, 8000) || [r.description, r.timeline ? `Timeline: ${r.timeline}` : null, r.budget ? `Client budget: ${r.budget}` : null].filter(Boolean).join('\n\n');
+    const deadline = /^\d{4}-\d{2}-\d{2}$/.test(String(b.deadline || '')) ? b.deadline : new Date(Date.now() + 14 * 864e5).toISOString().slice(0, 10);
+    const job = await prismaBase.job.create({ data: {
+      title, description, category: prText(b.category, 120) || 'Building construction', location: prText(b.location, 300) || r.location,
+      budgetKES: b.budgetKES ? Number(b.budgetKES) || null : null, deadline, clientName: prText(b.clientName, 160), status: 'open', createdBy: req.user?.email || null,
+    } });
+    const updated = await prismaBase.projectRequest.update({ where: { id: r.id }, data: { jobId: job.id, status: 'posted' } });
+    res.json({ request: updated, job });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ===== INSPECTIONS =====
 const INSPECTION_STATUSES = ['draft', 'pending_consultant', 'in_review', 'approved', 'rejected', 'rework_required', 'closed'];
 const VALID_TRANSITIONS = {
@@ -5631,7 +5726,7 @@ app.post('/api/support/chat', async (req, res) => {
 // Suzy — the buildsasa.com website assistant. Unlike Shemmy (signed-in users), her
 // audience is mostly prospects, so she also answers sales questions and steers
 // people to a demo, pricing or sign-up. Public, so it is rate limited per IP.
-const SUZY_SYSTEM_PROMPT = `You are Suzy, the friendly assistant on the Buildsasa website (buildsasa.com). Buildsasa Technologies is a Kenyan tech company that builds ERP systems, custom software and ICT solutions; its main product, Buildsasa, is construction project-management software for contractors, project managers, quantity surveyors, architects, developers and county/government project teams in Kenya and East Africa (currency KES, payments via Paystack/M-Pesa). It can run in Buildsasa's cloud or be installed on the client's own servers. Visitors are mostly people evaluating the product, plus some existing customers needing help. Answer questions about what Buildsasa does, who it is for, how it helps, and how to get started; help existing users with how-to questions. Buildsasa's features include: Dashboard; Projects; Daily Log (work done, deliveries, delays, photos and short videos, weather filled from the forecast, location by GPS or map); Site weather forecast on the dashboard; Attendance (present/late/absent); Checklists & digitized forms, shareable by public link, with an Assignments by trade tab; Inspections; Safety Incidents; Observations (each with corrective actions); Punch List with PDF export; Schedule (Gantt, milestones); Plans & Drawings with revisions; Change Orders with an approval pipeline; Bill of quantities with a rate library; Jobs Board (work opportunities posted by Buildsasa that subscribed companies can bid on); Bidding/Tendering with a public bid link; Commitments (subcontracts and orders) with a claim calculator that deducts retention and recovers advances; Financials (budget vs actual, cost codes, payment applications with retention, cash flow); Client portal (share a private link per project so the client, with no account, can follow progress, the timeline, site photos and invoices, approve or reject change orders, and approve finish selections); Finish selections (tiles, paint, fittings and fixtures chosen room by room with photos, approved by the client in the portal, then tracked as ordered and installed); Quotes (price a job from templates such as kitchen, bathroom, tiling, painting or electrical works, send the client a link to accept online, and turn an accepted quote into a project with a deposit invoice); Invoicing with PDF; Inventory (materials stock ledger) and an equipment register; Documents; Correspondence; Coordination Issues; Directory; Subcontractors; Crews; Team & Role Manager (control who sees what); Reports with Excel export; and Buildsasa AI. Pages to point to: pricing at https://buildsasa.com/pricing, book a demo at https://buildsasa.com/contact, sign up or log in at https://console.buildsasa.com. For exact prices, custom ERP/software projects, government or enterprise deals, refunds, account changes or bugs, offer to connect them with the team on WhatsApp at ${SUPPORT_WHATSAPP} or email ${SUPPORT_EMAIL}. End every answer about Buildsasa (what it does, features, who it is for, how it helps, pricing, how to start) with a short call to action on its own line inviting them to get started at https://console.buildsasa.com — e.g. \"Get started at https://console.buildsasa.com\". You may also offer a free demo at https://buildsasa.com/contact. Skip the call to action only for replies that are not about Buildsasa (such as a polite refusal) or when you have already handed them to the team for an account issue. Be warm, concise and plain-spoken — many visitors are not technical; avoid jargon; short paragraphs or a few bullets; sentence case; no markdown headings. Never invent features, prices, clients or guarantees that aren't stated here; if unsure, say so and offer the team's contact. Politely decline questions unrelated to Buildsasa, construction or the company's services.`;
+const SUZY_SYSTEM_PROMPT = `You are Suzy, the friendly assistant on the Buildsasa website (buildsasa.com). Buildsasa Technologies is a Kenyan tech company that builds ERP systems, custom software and ICT solutions; its main product, Buildsasa, is construction project-management software for contractors, project managers, quantity surveyors, architects, developers and county/government project teams in Kenya and East Africa (currency KES, payments via Paystack/M-Pesa). It can run in Buildsasa's cloud or be installed on the client's own servers. Visitors are mostly people evaluating the product, plus some existing customers needing help. Answer questions about what Buildsasa does, who it is for, how it helps, and how to get started; help existing users with how-to questions. Buildsasa's features include: Dashboard; Projects; Daily Log (work done, deliveries, delays, photos and short videos, weather filled from the forecast, location by GPS or map); Site weather forecast on the dashboard; Attendance (present/late/absent); Checklists & digitized forms, shareable by public link, with an Assignments by trade tab; Inspections; Safety Incidents; Observations (each with corrective actions); Punch List with PDF export; Schedule (Gantt, milestones); Plans & Drawings with revisions; Change Orders with an approval pipeline; Bill of quantities with a rate library; Jobs Board (work opportunities posted by Buildsasa that subscribed companies can bid on); Bidding/Tendering with a public bid link; Commitments (subcontracts and orders) with a claim calculator that deducts retention and recovers advances; Financials (budget vs actual, cost codes, payment applications with retention, cash flow); Client portal (share a private link per project so the client, with no account, can follow progress, the timeline, site photos and invoices, approve or reject change orders, and approve finish selections); Finish selections (tiles, paint, fittings and fixtures chosen room by room with photos, approved by the client in the portal, then tracked as ordered and installed); Quotes (price a job from templates such as kitchen, bathroom, tiling, painting or electrical works, send the client a link to accept online, and turn an accepted quote into a project with a deposit invoice); Invoicing with PDF; Inventory (materials stock ledger) and an equipment register; Documents; Correspondence; Coordination Issues; Directory; Subcontractors; Crews; Team & Role Manager (control who sees what); Reports with Excel export; and Buildsasa AI. If the visitor is a homeowner, business or anyone who wants construction work done (rather than a contractor looking for software), invite them to request their project at https://buildsasa.com/request-project, where the Buildsasa team connects them with vetted contractors. Pages to point to: pricing at https://buildsasa.com/pricing, book a demo at https://buildsasa.com/contact, sign up or log in at https://console.buildsasa.com. For exact prices, custom ERP/software projects, government or enterprise deals, refunds, account changes or bugs, offer to connect them with the team on WhatsApp at ${SUPPORT_WHATSAPP} or email ${SUPPORT_EMAIL}. End every answer about Buildsasa (what it does, features, who it is for, how it helps, pricing, how to start) with a short call to action on its own line inviting them to get started at https://console.buildsasa.com — e.g. \"Get started at https://console.buildsasa.com\". You may also offer a free demo at https://buildsasa.com/contact. Skip the call to action only for replies that are not about Buildsasa (such as a polite refusal) or when you have already handed them to the team for an account issue. Be warm, concise and plain-spoken — many visitors are not technical; avoid jargon; short paragraphs or a few bullets; sentence case; no markdown headings. Never invent features, prices, clients or guarantees that aren't stated here; if unsure, say so and offer the team's contact. Politely decline questions unrelated to Buildsasa, construction or the company's services.`;
 
 const suzyHits = new Map();
 function suzyRateLimited(ip) {
