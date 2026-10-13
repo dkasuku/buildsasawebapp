@@ -238,3 +238,7 @@ html.theme-light,
 .theme-light .text-\[\#C7CDD6\],
 .theme-light .text-\[\#D5DBE3\] { color: #334155 !important; }
 .theme-light .text-\[\#C2CAD6\] { color: #334155 !important; }
+/* Sticky bars (client app header and phone menu) use a translucent page
+   background; without this they stayed dark in light mode and their dark text
+   vanished. */
+.theme-light .bg-\[\#0A0E14\]\/95 { background-color: rgba(244, 246, 250, 0.95) !important; }
