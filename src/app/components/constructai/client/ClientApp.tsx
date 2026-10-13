@@ -54,7 +54,7 @@ export function ClientApp({ theme, setTheme, onSignOut }: { theme: "dark" | "lig
     { key: "quotes", label: "Quotes & proposals", icon: FileSignature },
     { key: "reporting", label: "Site reporting", icon: ShieldCheck },
     { key: "companies", label: "Companies", icon: Users },
-    { key: "jobs", label: "Post a job", icon: Briefcase },
+    { key: "jobs", label: "Jobs & bids", icon: Briefcase },
     { key: "account", label: "Account", icon: User },
   ];
   const activeKey = view.name === "site" ? "sites" : view.name === "report" ? "reporting" : view.name;
@@ -453,6 +453,12 @@ function JobsView({ home, company, reload }: { home: ClientHome; company?: Compa
   const [busy, setBusy] = useState(false);
   const [bids, setBids] = useState<{ jobId: string; rows: any[] } | null>(null);
   const [rate, setRate] = useState<{ id: string; name: string } | null>(null);
+  // Two tabs: your jobs and their bids, or a new job. Lands on your jobs once you have any.
+  const [tab, setTab] = useState<"mine" | "post">(company || !home.jobs.length ? "post" : "mine");
+  const openBids = async (jobId: string) => {
+    if (bids?.jobId === jobId) return setBids(null);
+    try { setBids({ jobId, rows: await clientApi.jobBids(jobId) }); } catch (e: any) { toast.error(e?.message || "Couldn't load the bids."); }
+  };
   const award = async (jobId: string, b: any) => {
     if (!window.confirm(`Award this job to ${b.companyName} for ${kes(b.amountKES)}? Other bids will be declined and ${b.companyName} gets your contact details.`)) return;
     try { await clientApi.awardBid(jobId, b.id); toast.success(`Awarded to ${b.companyName}. They'll contact you.`); reload(); setBids({ jobId, rows: await clientApi.jobBids(jobId) }); }
@@ -468,13 +474,23 @@ function JobsView({ home, company, reload }: { home: ClientHome; company?: Compa
       const location = jobPin && f.location && !/-?\d+\.\d+, ?-?\d+\.\d+/.test(f.location) ? `${f.location} (${jobPin.lat.toFixed(5)}, ${jobPin.lng.toFixed(5)})` : f.location;
       await clientApi.postJob({ ...f, location, budgetKES: Number(f.budgetKES) || null, media });
       toast.success("Job sent. Buildsasa will review it, usually within one working day, then contractors can bid.");
-      setF({ ...blank, targetWorkspaceId: "" }); setMedia([]); setJobPin(null); reload();
+      setF({ ...blank, targetWorkspaceId: "" }); setMedia([]); setJobPin(null); reload(); setTab("mine");
     } catch (e: any) { toast.error(e?.message || "Couldn't post the job."); }
     finally { setBusy(false); }
   };
   return (
     <div className="space-y-5">
-      <Title title="Post a job" sub="Anything from land clearing, fencing, a borehole, solar, CCTV, a gate or garbage collection to a full house. Buildsasa checks every job before contractors see it." />
+      <Title title="Jobs" sub="Post work you need done, from fencing, a borehole, solar or CCTV to a full house, then compare the bids and award it." />
+      <div className="flex gap-1.5">
+        <button onClick={() => setTab("mine")} className={`h-10 px-4 rounded-lg text-[13px] border inline-flex items-center gap-1.5 ${tab === "mine" ? "bg-[#FF6B1A] border-[#FF6B1A] text-white" : "border-[#222A35] bg-[#11161D] text-[#C2CAD6]"}`}>
+          My jobs &amp; bids{home.jobs.length ? <span className={`text-[10.5px] px-1.5 rounded-full ${tab === "mine" ? "bg-white/25" : "bg-[#222A35]"}`}>{home.jobs.length}</span> : null}
+        </button>
+        <button onClick={() => setTab("post")} className={`h-10 px-4 rounded-lg text-[13px] border ${tab === "post" ? "bg-[#FF6B1A] border-[#FF6B1A] text-white" : "border-[#222A35] bg-[#11161D] text-[#C2CAD6]"}`}>+ Post a new job</button>
+      </div>
+
+      {tab === "post" && (
+        <>
+          <p className="text-[12px] text-[#8A95A5]">Buildsasa checks every job, usually within one working day, before contractors see it. Your phone number and email are never shown to them.</p>
       <section className={`${card} p-4 space-y-3`}>
         <div className="grid sm:grid-cols-2 gap-3">
           <label className="block sm:col-span-2"><span className="text-[11.5px] text-[#8A95A5]">What do you need done? *</span><input value={f.title} onChange={set("title")} placeholder="e.g. Chain-link fence and gate for a 1/4 acre plot" className={input} /></label>
@@ -496,20 +512,52 @@ function JobsView({ home, company, reload }: { home: ClientHome; company?: Compa
         <div><div className="text-[11.5px] text-[#8A95A5] mb-1">Photos or short videos of the site (optional)</div><MediaPicker value={media} onChange={setMedia} /></div>
         <button onClick={submit} disabled={busy} className={primary}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}Send job for approval</button>
       </section>
+        </>
+      )}
 
       {rate && <RateDialog companyId={rate.id} companyName={rate.name} onClose={() => setRate(null)} />}
-      <section>
-        <div className="text-[13px] font-medium mb-2">Your jobs</div>
-        {home.jobs.length === 0 ? <Empty text="Jobs you post appear here with their approval status and the bids contractors send." /> : (
-          <div className="space-y-2">{home.jobs.map((j) => (
-            <div key={j.id} className={`${card} p-3`}>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="min-w-0 flex-1"><div className="text-[13px] truncate">{j.title}</div><div className="text-[11.5px] text-[#8A95A5]">{j.category}{j.location ? ` · ${j.location}` : ""} · {new Date(j.createdAt).toLocaleDateString("en-GB")}</div></div>
-                <Badge s={j.approval === "approved" ? j.status : j.approval} label={j.approval === "approved" ? (j.status === "open" ? "Live, taking bids" : j.status) : undefined} />
-                {j.bidCount > 0 && <button onClick={async () => setBids({ jobId: j.id, rows: await clientApi.jobBids(j.id) })} className="text-[12px] text-[#FF6B1A]">{j.bidCount} bid{j.bidCount > 1 ? "s" : ""}</button>}
-              </div>
-              {bids?.jobId === j.id && (
-                <div className="mt-3 divide-y divide-[#222A35] border-t border-[#222A35]">{bids.rows.map((b) => (
+      {tab === "mine" && (
+        home.jobs.length === 0 ? (
+          <div className={`${card} p-6 text-center`}>
+            <Briefcase className="w-8 h-8 text-[#2C3744] mx-auto" />
+            <div className="text-[14px] mt-2">You haven't posted a job yet</div>
+            <p className="text-[12.5px] text-[#8A95A5] mt-1">Post one and the bids from contractors appear here.</p>
+            <button onClick={() => setTab("post")} className={`${primary} mt-4`}>+ Post a job</button>
+          </div>
+        ) : (
+          <div className="space-y-3">{home.jobs.map((j) => {
+            // Where the job is: waiting for Buildsasa → live and taking bids → awarded.
+            const step = j.approval === "rejected" ? -1 : j.approval === "pending" ? 0 : j.status === "awarded" ? 2 : 1;
+            return (
+              <div key={j.id} className={`${card} p-4`}>
+                <div className="flex flex-wrap items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[14px]">{j.title}</div>
+                    <div className="text-[11.5px] text-[#8A95A5]">{j.category}{j.location ? ` · ${j.location}` : ""} · posted {new Date(j.createdAt).toLocaleDateString("en-GB")}</div>
+                  </div>
+                  <Badge s={step === -1 ? "rejected" : step === 0 ? "pending" : step === 2 ? "awarded" : "open"} label={step === -1 ? "Not approved" : step === 0 ? "Waiting for Buildsasa" : step === 2 ? "Awarded" : "Live, taking bids"} />
+                </div>
+                {step >= 0 && (
+                  <div className="flex items-center gap-1.5 mt-3 text-[10.5px]">
+                    {["Sent", "Approved & live", "Awarded"].map((label, i) => (
+                      <span key={label} className="flex items-center gap-1.5 flex-1 min-w-0">
+                        <span className={`h-1.5 flex-1 rounded-full ${i <= step ? "bg-[#FF6B1A]" : "bg-[#222A35]"}`} />
+                        <span className={`whitespace-nowrap ${i <= step ? "text-[#C2CAD6]" : "text-[#5B6675]"}`}>{label}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {step === 0 && <p className="text-[12px] text-[#8A95A5] mt-2">Buildsasa is checking your job. Contractors see it once it's approved, usually within one working day.</p>}
+                {step === -1 && <p className="text-[12px] text-[#8A95A5] mt-2">Our team will contact you to adjust the job before it goes live.</p>}
+                {step >= 1 && (
+                  j.bidCount === 0 ? <p className="text-[12px] text-[#8A95A5] mt-2">No bids yet. Contractors are being notified; check back soon.</p> : (
+                    <button onClick={() => openBids(j.id)} className="mt-3 h-9 px-3 rounded-md border border-[#FF6B1A]/40 text-[#FF6B1A] text-[12.5px] hover:bg-[#FF6B1A]/10">
+                      {bids?.jobId === j.id ? "Hide bids" : `View ${j.bidCount} bid${j.bidCount > 1 ? "s" : ""}${step === 1 ? " and award" : ""}`}
+                    </button>
+                  )
+                )}
+                {bids?.jobId === j.id && (
+                  <div className="mt-3 divide-y divide-[#222A35] border-t border-[#222A35]">{bids.rows.map((b) => (
                   <div key={b.id} className="py-2.5 text-[12.5px]">
                     <div className="flex justify-between gap-2"><span className="text-white">{b.companyName}</span><span className="text-[#FF6B1A]">{kes(b.amountKES)}</span></div>
                     <div className="text-[11.5px] text-[#8A95A5]">{b.timelineDays ? `${b.timelineDays} days · ` : ""}{b.contactName}{b.phone ? ` · ${b.phone}` : ""}</div>
@@ -524,11 +572,13 @@ function JobsView({ home, company, reload }: { home: ClientHome; company?: Compa
                     </div>
                   </div>
                 ))}<p className="text-[11px] text-[#5B6675] pt-2">You can award a job to any bidder whose Buildsasa subscription is active. Want independent eyes on the work? Ask Buildsasa for site reporting.</p></div>
-              )}
-            </div>
-          ))}</div>
-        )}
-      </section>
+
+                )}
+              </div>
+            );
+          })}</div>
+        )
+      )}
     </div>
   );
 }
