@@ -10,6 +10,8 @@ import type { Role } from "./roles";
 import { ROLES, ROLE_COLORS, ROLE_DESCRIPTIONS } from "./roles";
 
 const ALL_ROLES = Object.keys(ROLES) as Role[];
+// Clients aren't team members: they get their own account via a project's Client tab.
+const TEAM_ROLES = ALL_ROLES.filter((r) => r !== "Client");
 
 export default function TeamMembers({ role }: { role: Role }) {
   const canManage = ROLES[role].manageTeam || ROLES[role].isWorkspaceOwner;
@@ -159,7 +161,8 @@ function InviteModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
           <div><div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">Work email</div><input value={email} onChange={(e) => setEmail(e.target.value)} className={cls} placeholder="name@company.co.ke" /></div>
           <div>
             <div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">Role</div>
-            <select value={memberRole} onChange={(e) => setMemberRole(e.target.value as Role)} className={cls}>{ALL_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select>
+            <select value={memberRole} onChange={(e) => setMemberRole(e.target.value as Role)} className={cls}>{TEAM_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select>
+            <p className="text-[11px] text-[#5B6675] mt-1">Inviting a client? Open the project and use its Client tab. They create their own free account and password.</p>
             <div className="text-[10px] text-[#5B6675] mt-1">{ROLE_DESCRIPTIONS[memberRole]}</div>
           </div>
           <div><div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">Temp password (optional — auto-generated if blank)</div><input value={password} onChange={(e) => setPassword(e.target.value)} className={cls} placeholder="min 6 characters" /><div className="text-[10px] text-[#5B6675] mt-1">We'll email them an invite with sign-in details. If email isn't set up yet, you'll get the temporary password to share.</div></div>

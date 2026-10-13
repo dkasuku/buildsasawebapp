@@ -286,6 +286,11 @@ function SiteView({ id, initialTab, go }: { id: string; initialTab?: string; go:
           {company.phone && <a href={`https://wa.me/${String(company.phone).replace(/\D/g, "").replace(/^0/, "254")}`} target="_blank" rel="noreferrer" className={ghost}><MessageCircle className="w-4 h-4" /> WhatsApp</a>}
         </div>
       )}
+      {d.companyActive === false && (
+        <div className="rounded-xl border border-[#F59E0B]/40 bg-[#F59E0B]/10 p-3 mb-4 text-[12.5px] text-[#C2CAD6]">
+          <b className="text-[#F59E0B]">{company?.name || "Your contractor"}'s Buildsasa account is paused.</b> Everything already shared stays here for you, and your messages are saved, but they may not see or answer them, or post new updates, until their account is active again. You can call them directly, or ask Buildsasa to report on your site in the meantime.
+        </div>
+      )}
       <div className="flex gap-1.5 overflow-x-auto pb-1 mb-4 -mx-1 px-1">
         {tabs.map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)} className={`shrink-0 h-9 px-3 rounded-lg text-[12.5px] inline-flex items-center gap-1.5 border ${tab === t.key ? "bg-[#FF6B1A] border-[#FF6B1A] text-white" : "border-[#222A35] bg-[#11161D] text-[#C2CAD6]"}`}>

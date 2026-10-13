@@ -54,7 +54,7 @@ export type Reporting = {
 };
 export type ClientHome = {
   user: { name: string; email: string; phone?: string | null; country?: string | null };
-  projects: { id: string; name: string; city: string; status: string; progress: number; startDate?: string | null; targetEndDate?: string | null; cover?: string | null; company: { name: string; logoUrl?: string | null; phone?: string | null; email?: string | null } | null; lastUpdate: { title: string; stage: string; createdAt: string } | null }[];
+  projects: { id: string; name: string; city: string; status: string; progress: number; startDate?: string | null; targetEndDate?: string | null; cover?: string | null; companyActive?: boolean; company: { name: string; logoUrl?: string | null; phone?: string | null; email?: string | null } | null; lastUpdate: { title: string; stage: string; createdAt: string } | null }[];
   todo: { kind: string; projectId?: string; reportingId?: string; label: string }[];
   reporting: Reporting[];
   jobs: { id: string; title: string; category: string; location?: string | null; status: string; approval: string; bidCount: number; createdAt: string }[];

@@ -20,7 +20,7 @@ const REPORTING_FEE_PERCENT = 10;
 
 module.exports = function clientRoutes(app, d) {
   const { prisma, prismaBase, auth, currentWs, hasRole, CAN_SHARE_PORTAL, sendEmail, emailShell, button,
-    paystackRequest, PAYSTACK_SECRET, isPlatformAdmin, portalPayload, companyPublic, APP_URL } = d;
+    paystackRequest, PAYSTACK_SECRET, isPlatformAdmin, portalPayload, companyPublic, APP_URL, freeAccessEmails } = d;
 
   const text = (v, max = 2000) => { const s = String(v == null ? '' : v).trim(); return s ? s.slice(0, max) : null; };
   const parse = (v) => { try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
@@ -60,7 +60,10 @@ module.exports = function clientRoutes(app, d) {
   async function activeWorkspaceIds() {
     const subs = await prismaBase.subscription.findMany({ where: { status: 'active', workspaceId: { not: null } }, select: { workspaceId: true, currentPeriodEnd: true } });
     const now = Date.now();
-    return [...new Set(subs.filter((s) => !s.currentPeriodEnd || new Date(s.currentPeriodEnd).getTime() > now).map((s) => s.workspaceId))];
+    // Comped companies (Buildsasa staff, FREE_ACCESS_EMAILS) never pay, so they have
+    // no subscription row but are just as active.
+    const comped = freeAccessEmails ? await prismaBase.user.findMany({ where: { email: { in: freeAccessEmails() }, workspaceId: { not: null } }, select: { workspaceId: true } }) : [];
+    return [...new Set([...subs.filter((s) => !s.currentPeriodEnd || new Date(s.currentPeriodEnd).getTime() > now).map((s) => s.workspaceId), ...comped.map((u) => u.workspaceId)])];
   }
 
   // Best-effort email; never blocks a request.
@@ -155,6 +158,7 @@ module.exports = function clientRoutes(app, d) {
       ]);
       const wsIds = [...new Set(projects.map((p) => p.workspaceId).filter(Boolean))];
       const companies = await prismaBase.workspace.findMany({ where: { id: { in: wsIds } } });
+      const activeWs = new Set(await activeWorkspaceIds());
       const byWs = Object.fromEntries(companies.map((w) => [w.id, w]));
       const [cos, sels, invs, lastUpdates] = await Promise.all([
         prismaBase.changeOrder.findMany({ where: { projectId: { in: ids }, status: 'owner_approval' }, select: { id: true, projectId: true, title: true, number: true } }),
@@ -171,7 +175,7 @@ module.exports = function clientRoutes(app, d) {
         user: { name: u.name, email: u.email, phone: u.phone, country: u.country },
         projects: projects.map((p) => ({
           id: p.id, name: p.name, city: p.city, status: p.status, progress: p.progress, startDate: p.startDate, targetEndDate: p.targetEndDate,
-          cover: parse(p.images)[0] || null, company: companyPublic(byWs[p.workspaceId]),
+          cover: parse(p.images)[0] || null, company: companyPublic(byWs[p.workspaceId]), companyActive: activeWs.has(p.workspaceId),
           lastUpdate: (() => { const x = lastUpdates.find((l) => l.projectId === p.id); return x ? { title: x.title, stage: x.stage, createdAt: x.createdAt } : null; })(),
         })),
         todo,
@@ -214,7 +218,10 @@ module.exports = function clientRoutes(app, d) {
       ]);
       const urls = (raw) => parse(raw).filter((x) => typeof x === 'string' && /^https?:\/\//i.test(x));
       res.json({
-        id: p.id, companyId: p.workspaceId, portalToken: token, ...portal,
+        // A lapsed contractor subscription never locks the client out: what was
+        // shared stays theirs to see. The flag only explains why the team may be
+        // slow to reply and why new updates may pause.
+        id: p.id, companyId: p.workspaceId, companyActive: (await activeWorkspaceIds()).includes(p.workspaceId), portalToken: token, ...portal,
         updates: updates.map(updateDto),
         // Daily logs ARE shared (a client abroad wants to know the site was worked
         // on, by how many people, in what weather) but the free-text notes are

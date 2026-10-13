@@ -783,6 +783,9 @@ app.get('/api/users', auth, async (_req, res) => {
 app.post('/api/users/invite', auth, async (req, res) => {
   try {
     const { name, email, role, trade, password } = req.body || {};
+    // A client must create their own login (Client tab invite), never get one
+    // made by the contractor: their account, password and chats are theirs.
+    if (role === 'Client') return res.status(400).json({ error: 'Clients create their own free account. Invite them from the project\'s Client tab instead, so you never handle their password.' });
     if (!name || !email || !role) return res.status(400).json({ error: 'Name, email and role are required' });
     const em = String(email).toLowerCase();
     // prismaBase: the scoped client only sees this company, so an email used in
@@ -6794,7 +6797,7 @@ app.post('/api/billing/verify', auth, async (req, res) => {
 });
 
 // Client accounts, sharing with clients, client jobs and Buildsasa site reporting.
-Object.assign(clientRouteDeps, { prisma, prismaBase, auth, currentWs, hasRole, CAN_SHARE_PORTAL, sendEmail, emailShell, button, paystackRequest, PAYSTACK_SECRET, isPlatformAdmin, portalPayload, companyPublic, APP_URL });
+Object.assign(clientRouteDeps, { prisma, prismaBase, auth, currentWs, hasRole, CAN_SHARE_PORTAL, sendEmail, emailShell, button, paystackRequest, PAYSTACK_SECRET, isPlatformAdmin, portalPayload, companyPublic, APP_URL, freeAccessEmails: () => [...new Set([...FREE_ACCESS_EMAILS, ...PLATFORM_ADMIN_EMAILS, ...dbAdminEmails])] });
 require('./client-routes')(app, clientRouteDeps);
 
 // Paystack webhook — activates on charge.success. (Signature checked when key is set.)
