@@ -11,6 +11,8 @@ import {
 import { ChatThread, Chip, MediaGrid, MediaPicker, UpdateFeed } from "./ClientParts";
 import { PublicPortalView } from "../PublicPortalView";
 import { RateDialog, Stars, TrustBadge } from "./Trust";
+import { MapPicker } from "../MapPicker";
+import { useWelcome, WelcomeModal } from "../Welcome";
 import { clientApi, kes, SERVICES, STAGES, stageLabel, toMedia, when, type ClientHome, type Company, type Media, type Reporting } from "./clientData";
 
 type View = { name: "home" } | { name: "sites" } | { name: "site"; id: string; tab?: string } | { name: "messages" } | { name: "companies" }
@@ -35,6 +37,7 @@ export function ClientApp({ theme, setTheme, onSignOut }: { theme: "dark" | "lig
   const [home, setHome] = useState<ClientHome | null>(null);
   const reload = () => clientApi.home().then(setHome).catch((e) => toast.error(e?.message || "Couldn't load your account."));
   useEffect(() => { reload(); }, []);
+  const welcome = useWelcome("client", home?.user.email, !!home);
 
   const go = (v: View) => { setView(v); window.scrollTo({ top: 0 }); };
   // The phone menu has five slots; Account links to the rest through this event.
@@ -101,6 +104,8 @@ export function ClientApp({ theme, setTheme, onSignOut }: { theme: "dark" | "lig
           )}
         </main>
       </div>
+
+      {welcome.show && home && <WelcomeModal kind="client" name={home.user.name} onClose={welcome.close} />}
 
       {/* Phone navigation */}
       <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-[#222A35] bg-[#0A0E14]/95 backdrop-blur grid grid-cols-5">
@@ -396,6 +401,7 @@ function JobsView({ home, company, reload }: { home: ClientHome; company?: Compa
   const blank = { title: "", category: SERVICES[0], location: "", budgetKES: "", deadline: "", description: "", phone: home.user.phone || "", targetWorkspaceId: company?.id || "" };
   const [f, setF] = useState(blank);
   const [media, setMedia] = useState<Media[]>([]);
+  const [jobPin, setJobPin] = useState<{ lat: number; lng: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [bids, setBids] = useState<{ jobId: string; rows: any[] } | null>(null);
   const [rate, setRate] = useState<{ id: string; name: string } | null>(null);
@@ -410,9 +416,11 @@ function JobsView({ home, company, reload }: { home: ClientHome; company?: Compa
     if (!f.title.trim() || !f.description.trim()) return toast.error("Add a title and describe the work.");
     setBusy(true);
     try {
-      await clientApi.postJob({ ...f, budgetKES: Number(f.budgetKES) || null, media });
+      // The pin travels with the place name so contractors can find the plot.
+      const location = jobPin && f.location && !/-?\d+\.\d+, ?-?\d+\.\d+/.test(f.location) ? `${f.location} (${jobPin.lat.toFixed(5)}, ${jobPin.lng.toFixed(5)})` : f.location;
+      await clientApi.postJob({ ...f, location, budgetKES: Number(f.budgetKES) || null, media });
       toast.success("Job sent. Buildsasa will review it, usually within one working day, then contractors can bid.");
-      setF({ ...blank, targetWorkspaceId: "" }); setMedia([]); reload();
+      setF({ ...blank, targetWorkspaceId: "" }); setMedia([]); setJobPin(null); reload();
     } catch (e: any) { toast.error(e?.message || "Couldn't post the job."); }
     finally { setBusy(false); }
   };
@@ -423,7 +431,9 @@ function JobsView({ home, company, reload }: { home: ClientHome; company?: Compa
         <div className="grid sm:grid-cols-2 gap-3">
           <label className="block sm:col-span-2"><span className="text-[11.5px] text-[#8A95A5]">What do you need done? *</span><input value={f.title} onChange={set("title")} placeholder="e.g. Chain-link fence and gate for a 1/4 acre plot" className={input} /></label>
           <label className="block"><span className="text-[11.5px] text-[#8A95A5]">Type of work *</span><select value={f.category} onChange={set("category")} className={input}>{SERVICES.map((s) => <option key={s}>{s}</option>)}</select></label>
-          <label className="block"><span className="text-[11.5px] text-[#8A95A5]">Where is the site?</span><input value={f.location} onChange={set("location")} placeholder="e.g. Kitengela, Kajiado" className={input} /></label>
+          <div className="block sm:col-span-2"><span className="text-[11.5px] text-[#8A95A5]">Where is the site? Search, use your location, or pin it on the map</span>
+            <MapPicker value={f.location} latLng={jobPin} onChange={(location) => setF((x) => ({ ...x, location }))} onLatLngChange={setJobPin} placeholder="e.g. Kitengela, Kajiado" />
+          </div>
           <label className="block"><span className="text-[11.5px] text-[#8A95A5]">Budget in KES (optional)</span><input type="number" value={f.budgetKES} onChange={set("budgetKES")} placeholder="e.g. 350000" className={input} /></label>
           <label className="block"><span className="text-[11.5px] text-[#8A95A5]">Bids close on (optional)</span><input type="date" value={f.deadline} onChange={set("deadline")} className={input} /></label>
           <label className="block sm:col-span-2"><span className="text-[11.5px] text-[#8A95A5]">Describe the work *</span><textarea rows={4} value={f.description} onChange={set("description")} placeholder="e.g. 4-strand barbed wire on concrete posts, about 200 m, plus a 12 ft steel gate. Plot is cleared." className={area} /></label>
@@ -483,6 +493,7 @@ function ReportingView({ home, go, reload }: { home: ClientHome; go: (v: View) =
   const [stages, setStages] = useState<string[]>(["clearing", "fencing", "foundation", "walling", "roofing"]);
   const [busy, setBusy] = useState(false);
   const [agree, setAgree] = useState(false);
+  const [pin, setPin] = useState<{ lat: number; lng: number } | null>(null);
   const cost = Number(f.projectCostKES) || 0; const months = Math.max(1, parseInt(f.months, 10) || 1);
   const fee = cost * 0.1; const monthly = Math.round(fee / months);
   const set = (k: keyof typeof blank) => (e: any) => setF((x) => ({ ...x, [k]: e.target.value }));
@@ -490,9 +501,9 @@ function ReportingView({ home, go, reload }: { home: ClientHome; go: (v: View) =
     setBusy(true);
     try {
       if (!agree) { setBusy(false); return toast.error("Please tick the box to agree to the 10% reporting fee."); }
-      const r = await clientApi.requestReporting({ ...f, projectCostKES: cost, months, stages, agreeFee: true });
+      const r = await clientApi.requestReporting({ ...f, projectCostKES: cost, months, stages, agreeFee: true, lat: pin?.lat ?? null, lng: pin?.lng ?? null });
       toast.success("Request sent. Our team will call you within one working day.");
-      setF(blank); setOpen(false); reload(); go({ name: "report", id: r.id });
+      setF(blank); setPin(null); setOpen(false); reload(); go({ name: "report", id: r.id });
     } catch (e: any) { toast.error(e?.message || "Couldn't send the request."); }
     finally { setBusy(false); }
   };
@@ -514,7 +525,9 @@ function ReportingView({ home, go, reload }: { home: ClientHome; go: (v: View) =
           <div className="text-[14px] font-display">Request site reporting</div>
           <div className="grid sm:grid-cols-2 gap-3">
             <label className="block"><span className="text-[11.5px] text-[#8A95A5]">Name of the site *</span><input value={f.siteName} onChange={set("siteName")} placeholder="e.g. My plot in Juja Farm" className={input} /></label>
-            <label className="block"><span className="text-[11.5px] text-[#8A95A5]">Where is it? *</span><input value={f.location} onChange={set("location")} placeholder="e.g. Juja Farm, Kiambu, near the water tank" className={input} /></label>
+            <div className="block sm:col-span-2"><span className="text-[11.5px] text-[#8A95A5]">Where is it? * Search, use your location, or pin the plot on the map</span>
+              <MapPicker value={f.location} latLng={pin} onChange={(location) => setF((x) => ({ ...x, location }))} onLatLngChange={setPin} placeholder="e.g. Juja Farm, Kiambu" />
+            </div>
             <label className="block"><span className="text-[11.5px] text-[#8A95A5]">Total project cost in KES *</span><input type="number" value={f.projectCostKES} onChange={set("projectCostKES")} placeholder="e.g. 4500000" className={input} /></label>
             <label className="block"><span className="text-[11.5px] text-[#8A95A5]">How many months should we report? *</span><input type="number" min={1} max={60} value={f.months} onChange={set("months")} placeholder="e.g. 6" className={input} /></label>
             {home.projects.length > 0 && (
@@ -562,6 +575,7 @@ function ReportView({ id, go, reload }: { id: string; go: (v: View) => void; rel
           <Badge s={r.status} />
           <div className="text-[12px] text-[#8A95A5]">{r.paidMonths} of {r.months} months paid · {kes(r.monthlyFeeKES)} / month</div>
         </div>
+        {r.lat != null && r.lng != null && <a href={`https://www.google.com/maps?q=${r.lat},${r.lng}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-[#FF6B1A] mt-2"><MapPin className="w-3.5 h-3.5" /> Open the site on the map</a>}
         {r.inspectorName && <div className="text-[12.5px] mt-2">Your site reporter: <span className="text-white">{r.inspectorName}</span></div>}
         {r.adminNote && <p className="text-[12.5px] text-[#C2CAD6] mt-2 whitespace-pre-wrap">{r.adminNote}</p>}
         {r.status === "requested" && <p className="text-[12.5px] text-[#8A95A5] mt-2">Thank you. Our team will call you to confirm the site, the visit schedule and transport, and agree how you'll pay. Nothing is paid in the app.</p>}

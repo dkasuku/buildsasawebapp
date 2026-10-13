@@ -10,6 +10,7 @@ import { PublicBidSubmit } from "./components/constructai/PublicBidSubmit";
 import { PublicQuoteView } from "./components/constructai/PublicQuoteView";
 import { PublicPortalView } from "./components/constructai/PublicPortalView";
 import { ClientApp } from "./components/constructai/client/ClientApp";
+import { useWelcome, WelcomeModal } from "./components/constructai/Welcome";
 import { ErrorBoundary } from "./components/constructai/ErrorBoundary";
 import { Dashboard } from "./components/constructai/Dashboard";
 import { Projects } from "./components/constructai/Projects";
@@ -251,6 +252,9 @@ export default function App() {
   const [gate, setGate] = useState<{ configured: boolean; active: boolean; overdue: boolean; unpaidDue: string | null; isBillingOwner: boolean }>({ configured: false, active: false, overdue: false, unpaidDue: null, isBillingOwner: false });
   const [gateLoaded, setGateLoaded] = useState(false);
   const [gateNonce, setGateNonce] = useState(0);
+  // Welcome a company's people the first time they're in with an active plan.
+  const meUser = (() => { try { return JSON.parse(localStorage.getItem("constructai-user") || "null"); } catch { return null; } })();
+  const welcome = useWelcome("contractor", meUser?.role !== "Client" ? meUser?.email : null, gateLoaded && gate.active && !gate.overdue && view !== "login");
   useEffect(() => {
     if (view === "login") return;
     let alive = true;
@@ -458,6 +462,7 @@ export default function App() {
 
   return (
     <CurrencyProvider>
+      {welcome.show && !onboardingShowing && <div className={theme === "light" ? "theme-light" : ""}><WelcomeModal kind="contractor" name={meUser?.name || ""} onClose={welcome.close} /></div>}
       <div
         className={`size-full min-h-screen flex text-[#E6EAF0] ${theme === "light" ? "theme-light bg-[#F4F6FA]" : "bg-[#0A0E14]"}`}
         style={theme === "light" ? { backgroundColor: "#F4F6FA" } : undefined}
