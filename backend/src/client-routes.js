@@ -159,7 +159,6 @@ module.exports = function clientRoutes(app, d) {
         ...cos.map((c) => ({ kind: 'change_order', projectId: c.projectId, label: `Approve or reject change order ${c.number || ''}: ${c.title}`.replace('  ', ' ') })),
         ...sels.map((s) => ({ kind: 'selection', projectId: s.projectId, label: `Choose or approve a finish: ${s.name}` })),
         ...invs.map((i) => ({ kind: 'invoice', projectId: i.projectId, label: `Invoice ${i.invoiceNumber}: ${kes((i.amount || 0) - (i.paidAmount || 0))} to pay${i.dueDate ? `, due ${String(i.dueDate).slice(0, 10)}` : ''}` })),
-        ...reporting.filter((r) => r.status === 'approved').map((r) => ({ kind: 'reporting_payment', reportingId: r.id, label: `Pay the first month of site reporting for ${r.siteName} (${kes(r.monthlyFeeKES)}) to start visits` })),
       ];
       res.json({
         user: { name: u.name, email: u.email, phone: u.phone, country: u.country },
@@ -377,7 +376,7 @@ module.exports = function clientRoutes(app, d) {
       if (!r) return res.status(404).json({ error: 'Not found.' });
       const [updates, payments] = await Promise.all([
         prismaBase.clientUpdate.findMany({ where: { reportingId: r.id }, orderBy: { createdAt: 'desc' } }),
-        prismaBase.siteReportingPayment.findMany({ where: { reportingId: r.id, status: 'paid' }, orderBy: { paidAt: 'desc' } }),
+        prismaBase.siteReportingPayment.findMany({ where: { reportingId: r.id, status: 'paid' }, orderBy: { paidAt: 'desc' } }).then((ps) => ps.map((p) => ({ id: p.id, amountKES: p.amountKES, months: p.months, paidAt: p.paidAt, method: p.paystackRef.startsWith('offline:') ? p.paystackRef.split(':')[1] : 'Online' }))),
       ]);
       res.json({ ...reportingDto(r), updates: updates.map(updateDto), payments });
     } catch (e) { res.status(500).json({ error: e.message }); }
@@ -403,26 +402,9 @@ module.exports = function clientRoutes(app, d) {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  // Pay one or more months through Paystack (M-Pesa or card).
-  app.post('/api/client/reporting/:id/pay', auth, requireClient, async (req, res) => {
-    try {
-      const r = await ownReporting(req, req.params.id);
-      if (!r) return res.status(404).json({ error: 'Not found.' });
-      if (!['approved', 'active', 'paused'].includes(r.status)) return res.status(409).json({ error: r.status === 'requested' ? 'Our team will confirm your request first. You can pay once it is approved.' : 'This service is not open for payment.' });
-      const months = Math.max(1, Math.min(r.months - r.paidMonths || 1, parseInt(req.body?.months, 10) || 1));
-      if (r.paidMonths >= r.months) return res.status(409).json({ error: 'All months of this service are already paid.' });
-      if (!PAYSTACK_SECRET) return res.status(400).json({ error: 'Online payments aren\'t set up yet. Call or WhatsApp Buildsasa to pay.' });
-      const amount = Math.round(r.monthlyFeeKES * months);
-      const init = await paystackRequest('/transaction/initialize', 'POST', {
-        email: r.clientEmail, amount: amount * 100, currency: 'KES',
-        callback_url: `${APP_URL}/?reporting=${r.id}`,
-        metadata: { kind: 'site_reporting', reportingId: r.id, months },
-      });
-      if (!init.status) return res.status(502).json({ error: init.message || 'The payment couldn\'t be started. Please try again.' });
-      await prismaBase.siteReportingPayment.create({ data: { reportingId: r.id, amountKES: amount, months, paystackRef: init.data.reference } });
-      res.json({ authorizationUrl: init.data.authorization_url, reference: init.data.reference });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-  });
+  // Site reporting is paid off the platform (M-Pesa, bank, Wise…) after a call
+  // with the Buildsasa team, who record each payment in the admin panel. The
+  // client never starts a payment here; there is deliberately no checkout route.
 
   /** Mark a site-reporting payment paid exactly once (verify and webhook can both arrive). */
   async function applyReportingPayment(data) {
@@ -612,7 +594,7 @@ module.exports = function clientRoutes(app, d) {
       if (b.paidMonths !== undefined && parseInt(b.paidMonths, 10) >= 0) data.paidMonths = parseInt(b.paidMonths, 10); // offline payments
       const r = await prismaBase.siteReporting.update({ where: { id: before.id }, data });
       if (data.status === 'approved' && before.status !== 'approved') {
-        notify(r.clientEmail, `Site reporting approved: ${r.siteName}`, p14(`Good news, ${r.clientName}. We'll report on <b>${r.siteName}</b>${r.inspectorName ? `, with ${r.inspectorName} as your site reporter` : ''}. Pay the first month (${kes(r.monthlyFeeKES)}) in Buildsasa to start visits. Transport and lunch for each visit are paid separately, as agreed with our team.`) + button(`${APP_URL}/?as=client`, 'Open Buildsasa'));
+        notify(r.clientEmail, `Site reporting approved: ${r.siteName}`, p14(`Good news, ${r.clientName}. We'll report on <b>${r.siteName}</b>${r.inspectorName ? `, with ${r.inspectorName} as your site reporter` : ''}. Our team will share how to pay the first month (${kes(r.monthlyFeeKES)}); visits start once it is received. Transport and lunch for each visit are paid separately, as agreed with our team.`) + button(`${APP_URL}/?as=client`, 'Open Buildsasa'));
       }
       res.json(reportingDto(r));
     } catch (e) { res.status(500).json({ error: e.message }); }
@@ -636,6 +618,28 @@ module.exports = function clientRoutes(app, d) {
   app.delete('/api/admin/site-reporting/:id/updates/:uid', auth, requireStaff, async (req, res) => {
     try { await prismaBase.clientUpdate.deleteMany({ where: { id: req.params.uid, reportingId: req.params.id } }); res.json({ ok: true }); }
     catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Record a payment received off the platform. Adds the months, starts an
+  // approved service, and the client sees it as a receipt.
+  app.post('/api/admin/site-reporting/:id/payments', auth, requireStaff, async (req, res) => {
+    try {
+      const r = await prismaBase.siteReporting.findUnique({ where: { id: req.params.id } });
+      if (!r) return res.status(404).json({ error: 'Not found' });
+      const months = Math.max(1, Math.min(60, parseInt(req.body?.months, 10) || 1));
+      const amountKES = Number(req.body?.amountKES);
+      if (!(amountKES > 0)) return res.status(400).json({ error: 'Enter the amount received in KES.' });
+      const method = text(req.body?.method, 60) || 'Offline';
+      const reference = text(req.body?.reference, 120);
+      const pay = await prismaBase.siteReportingPayment.create({ data: {
+        reportingId: r.id, amountKES, months, status: 'paid', paidAt: new Date(),
+        // paystackRef is unique and required; offline payments get their own key.
+        paystackRef: `offline:${method}:${reference || ''}:${Date.now()}`,
+      } });
+      const next = await prismaBase.siteReporting.update({ where: { id: r.id }, data: { paidMonths: { increment: months }, ...(r.status === 'approved' || r.status === 'requested' ? { status: 'active' } : {}) } });
+      notify(r.clientEmail, `Payment received: ${r.siteName}`, p14(`Thank you, ${r.clientName}. We received ${kes(amountKES)} (${method}${reference ? `, ref ${reference}` : ''}) for ${months} month${months > 1 ? 's' : ''} of site reporting on <b>${r.siteName}</b>. ${next.paidMonths} of ${next.months} months are now paid.`) + button(`${APP_URL}/?as=client`, 'Open Buildsasa'));
+      res.json({ payment: pay, reporting: reportingDto(next) });
+    } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
   app.post('/api/admin/site-reporting/:id/messages', auth, requireStaff, async (req, res) => {

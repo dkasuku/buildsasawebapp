@@ -36,17 +36,6 @@ export function ClientApp({ theme, setTheme, onSignOut }: { theme: "dark" | "lig
   const reload = () => clientApi.home().then(setHome).catch((e) => toast.error(e?.message || "Couldn't load your account."));
   useEffect(() => { reload(); }, []);
 
-  // Back from Paystack after paying for site reporting.
-  useEffect(() => {
-    const q = new URLSearchParams(window.location.search);
-    const ref = q.get("reference") || q.get("trxref"); const rid = q.get("reporting");
-    if (!ref || !rid) return;
-    window.history.replaceState({}, "", window.location.pathname);
-    clientApi.verifyReporting(ref)
-      .then((r) => { if (r.ok) toast.success("Payment received. Thank you. Your site reporting is active."); else toast.error("The payment didn't go through. You can try again."); reload(); setView({ name: "report", id: rid }); })
-      .catch((e) => toast.error(e?.message || "We couldn't confirm the payment yet. Refresh in a minute."));
-  }, []);
-
   const go = (v: View) => { setView(v); window.scrollTo({ top: 0 }); };
   // The phone menu has five slots; Account links to the rest through this event.
   useEffect(() => {
@@ -514,7 +503,7 @@ function ReportingView({ home, go, reload }: { home: ClientHome; go: (v: View) =
         <div className="grid sm:grid-cols-3 gap-3 text-[12.5px]">
           <div><Eye className="w-5 h-5 text-[#FF6B1A]" /><div className="mt-1.5 text-white">Independent eyes on site</div><div className="text-[#8A95A5]">Our reporters work for you, not the contractor. No bias, no cover-ups.</div></div>
           <div><Camera className="w-5 h-5 text-[#FF6B1A]" /><div className="mt-1.5 text-white">Photos and videos of every stage</div><div className="text-[#8A95A5]">From beaconing and fencing to roofing, landscaping and handover, all in your account.</div></div>
-          <div><Wallet className="w-5 h-5 text-[#FF6B1A]" /><div className="mt-1.5 text-white">10% of the project cost, paid monthly</div><div className="text-[#8A95A5]">Spread over the months we report. Transport and lunch for each visit are paid separately.</div></div>
+          <div><Wallet className="w-5 h-5 text-[#FF6B1A]" /><div className="mt-1.5 text-white">10% of the project cost, paid monthly</div><div className="text-[#8A95A5]">Spread over the months we report and paid directly to Buildsasa after we call you (M-Pesa, bank or international transfer). Transport and lunch for each visit are paid separately.</div></div>
         </div>
       </section>
 
@@ -544,7 +533,7 @@ function ReportingView({ home, go, reload }: { home: ClientHome; go: (v: View) =
             <div className="rounded-lg border border-[#FF6B1A]/30 bg-[#FF6B1A]/5 p-3 text-[12.5px]">
               <div className="flex justify-between"><span className="text-[#8A95A5]">Reporting fee (10% of {kes(cost)})</span><span>{kes(fee)}</span></div>
               <div className="flex justify-between mt-1"><span className="text-[#8A95A5]">Paid monthly over {months} month{months > 1 ? "s" : ""}</span><span className="text-[#FF6B1A] font-medium">{kes(monthly)} / month</span></div>
-              <div className="text-[11px] text-[#8A95A5] mt-2">Plus transport and lunch for the reporter on each visit day, agreed with our team before the first visit. You pay nothing until we approve your request.</div>
+              <div className="text-[11px] text-[#8A95A5] mt-2">Plus transport and lunch for the reporter on each visit day, agreed with our team before the first visit. Nothing is paid in the app: our team calls you first and agrees how you'll pay.</div>
             </div>
           )}
           <label className="flex items-start gap-2.5 cursor-pointer rounded-lg border border-[#222A35] p-3">
@@ -562,16 +551,9 @@ function ReportingView({ home, go, reload }: { home: ClientHome; go: (v: View) =
 function ReportView({ id, go, reload }: { id: string; go: (v: View) => void; reload: () => void }) {
   const [r, setR] = useState<any>(null);
   const [tab, setTab] = useState("reports");
-  const [paying, setPaying] = useState(false);
-  const [months, setMonths] = useState(1);
   useEffect(() => { clientApi.reporting(id).then(setR).catch((e) => toast.error(e?.message || "Couldn't open this service.")); }, [id]);
   if (!r) return <div className="py-20 text-center text-[13px] text-[#8A95A5]"><Loader2 className="w-5 h-5 animate-spin inline mr-2" />Loading…</div>;
   const left = Math.max(0, r.months - r.paidMonths);
-  const pay = async () => {
-    setPaying(true);
-    try { const p = await clientApi.payReporting(r.id, months); window.location.href = p.authorizationUrl; }
-    catch (e: any) { toast.error(e?.message || "Couldn't start the payment."); setPaying(false); }
-  };
   return (
     <div>
       <Title title={r.siteName} sub={`${r.location} · Buildsasa site reporting`} back={() => { reload(); go({ name: "reporting" }); }} />
@@ -582,15 +564,9 @@ function ReportView({ id, go, reload }: { id: string; go: (v: View) => void; rel
         </div>
         {r.inspectorName && <div className="text-[12.5px] mt-2">Your site reporter: <span className="text-white">{r.inspectorName}</span></div>}
         {r.adminNote && <p className="text-[12.5px] text-[#C2CAD6] mt-2 whitespace-pre-wrap">{r.adminNote}</p>}
-        {r.status === "requested" && <p className="text-[12.5px] text-[#8A95A5] mt-2">Thank you. Our team will call you to confirm the site, the visit schedule and transport, then approve the service so you can pay the first month.</p>}
-        {["approved", "active", "paused"].includes(r.status) && left > 0 && (
-          <div className="flex flex-wrap items-center gap-2 mt-3">
-            <select value={months} onChange={(e) => setMonths(Number(e.target.value))} className="h-10 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[13px] text-white">
-              {Array.from({ length: Math.min(left, 12) }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n} month{n > 1 ? "s" : ""}: {kes(r.monthlyFeeKES * n)}</option>)}
-            </select>
-            <button onClick={pay} disabled={paying} className={primary}>{paying && <Loader2 className="w-4 h-4 animate-spin" />}Pay with M-Pesa or card</button>
-          </div>
-        )}
+        {r.status === "requested" && <p className="text-[12.5px] text-[#8A95A5] mt-2">Thank you. Our team will call you to confirm the site, the visit schedule and transport, and agree how you'll pay. Nothing is paid in the app.</p>}
+        {r.status === "approved" && <p className="text-[12.5px] text-[#C2CAD6] mt-2">Approved. Our team will contact you on {r.clientPhone || "your phone"} or by email with how to pay the first month ({kes(r.monthlyFeeKES)}). Visits start once it's received, and every payment shows under Payments.</p>}
+        {["active", "paused"].includes(r.status) && left > 0 && <p className="text-[12px] text-[#8A95A5] mt-2">{left} month{left > 1 ? "s" : ""} left to pay ({kes(r.monthlyFeeKES)} each). Our team will remind you; pay the way you agreed with them.</p>}
         <div className="text-[11px] text-[#5B6675] mt-2">Transport and lunch for each visit are paid separately, as agreed with our team.</div>
       </section>
       <div className="flex gap-1.5 mb-4">
@@ -602,7 +578,7 @@ function ReportView({ id, go, reload }: { id: string; go: (v: View) => void; rel
       {tab === "chat" && <ChatThread load={() => clientApi.reportingMessages(id)} send={(b, m) => clientApi.sendReportingMessage(id, b, m)} mine={(m) => m.senderType === "client"} placeholder="Ask the Buildsasa team anything about your site…" />}
       {tab === "payments" && (r.payments.length === 0 ? <Empty text="No payments yet." /> : (
         <div className={`${card} divide-y divide-[#222A35]`}>{r.payments.map((p: any) => (
-          <div key={p.id} className="p-3 flex justify-between text-[12.5px]"><span>{p.months} month{p.months > 1 ? "s" : ""} · {p.paidAt ? when(p.paidAt) : ""}</span><span className="text-[#22C55E]">{kes(p.amountKES)}</span></div>
+          <div key={p.id} className="p-3 flex justify-between text-[12.5px]"><span>{p.months} month{p.months > 1 ? "s" : ""} · {p.method} · {p.paidAt ? when(p.paidAt) : ""}</span><span className="text-[#22C55E]">{kes(p.amountKES)}</span></div>
         ))}</div>
       ))}
     </div>

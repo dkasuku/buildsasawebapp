@@ -75,8 +75,6 @@ export const clientApi = {
   reporting: (id: string) => http<Reporting & { updates: ClientUpdate[]; payments: any[] }>(`/api/client/reporting/${id}`),
   reportingMessages: (id: string) => http<ClientMessage[]>(`/api/client/reporting/${id}/messages`),
   sendReportingMessage: (id: string, body: string, media: Media[]) => http<ClientMessage>(`/api/client/reporting/${id}/messages`, j({ body, media })),
-  payReporting: (id: string, months: number) => http<{ authorizationUrl: string }>(`/api/client/reporting/${id}/pay`, j({ months })),
-  verifyReporting: (reference: string) => http<{ ok: boolean }>("/api/client/reporting/verify", j({ reference })),
 
   // Contractor side
   projectClients: (pid: string) => http<{ id: string; email: string; name?: string | null; joined: boolean }[]>(`/api/projects/${pid}/clients`),
