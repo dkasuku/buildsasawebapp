@@ -23,6 +23,7 @@ model User {
   emergencyPhone   String?
   trade     String?  // for Worker / Trade Lead
   avatar    String?  // profile photo (data URL or hosted URL)
+  country   String?  // where a client lives (many build in Kenya from abroad)
   workspaceId String? // the company/workspace this user belongs to (multi-tenant)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -45,6 +46,10 @@ model Workspace {
   kraPin         String?
   paymentDetails String?  // e.g. M-Pesa paybill/till or bank details
   quoteTerms     String?  // default terms for new quotes
+  // Shown to clients browsing companies: what the company does (JSON array of
+  // service names, e.g. "Fencing", "Borehole drilling") and a short intro.
+  services       String?
+  about          String?
   // Sasa Credits (AI usage). The monthly bucket is the plan allowance and resets
   // each period; top-up credits are bought and never expire. Plan credits are
   // spent first.
@@ -621,6 +626,7 @@ model Inspection {
   checklistId String?
   templateId  String?  // linked ChecklistTemplate id
   drawingRef  String?  // JSON {drawingId, x, y, note}
+  clientVisible Boolean @default(false) // shared with the project's client accounts
   project     Project  @relation(fields: [projectId], references: [id])
   projectId   String
   createdAt   DateTime @default(now())
@@ -1432,6 +1438,13 @@ model Job {
   attachments String?   // JSON array of { name, url }
   status      String    @default("open") // open | closed | awarded
   createdBy   String?
+  // Jobs posted by a client account wait for Buildsasa staff before contractors
+  // see them. A client may aim the job at one company; null = every subscriber.
+  approval          String  @default("approved") // pending | approved | rejected
+  clientUserId      String?
+  clientPhone       String?
+  clientEmail       String?
+  targetWorkspaceId String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   bids        JobBid[]
@@ -1523,4 +1536,106 @@ model ProjectRequest {
   updatedAt   DateTime @updatedAt
 
   @@index([status, createdAt])
+}
+
+// A client account linked to a project. The contractor invites by email; the
+// link is claimed (userId set) when someone signs up or signs in with that email.
+model ProjectClient {
+  id          String   @id @default(cuid())
+  workspaceId String
+  projectId   String
+  email       String
+  name        String?
+  userId      String?
+  invitedBy   String?
+  createdAt   DateTime @default(now())
+
+  @@unique([projectId, email])
+  @@index([email])
+  @@index([userId])
+}
+
+// Something shared with the client: a progress update with photos and short
+// videos tagged to a stage (land clearing, fencing, roofing…), an inspection
+// result, a milestone or an issue. Written by the contractor's team, an
+// inspector they assigned, or Buildsasa staff on a site-reporting service.
+model ClientUpdate {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  projectId   String?
+  reportingId String?
+  stage       String
+  kind        String   @default("progress") // progress | inspection | milestone | issue
+  title       String
+  body        String?
+  media       String?  // JSON [{ url, type: "image" | "video" }]
+  authorId    String?
+  authorName  String?
+  authorRole  String?  // e.g. Project Manager, Inspector, Buildsasa
+  createdAt   DateTime @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([reportingId, createdAt])
+}
+
+// Chat between a client and the contractor's team on a project, or between a
+// client and Buildsasa on a site-reporting service. Media is bulk photos/videos.
+model ClientMessage {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  projectId   String?
+  reportingId String?
+  senderType  String   // client | team | buildsasa
+  senderId    String?
+  senderName  String
+  body        String?
+  media       String?
+  createdAt   DateTime @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([reportingId, createdAt])
+}
+
+// Buildsasa neutral site reporting: the client pays Buildsasa (10% of the
+// project cost, spread monthly) to visit the site and report honestly, whoever
+// the contractor is. Transport and lunch for each visit are paid separately.
+model SiteReporting {
+  id             String    @id @default(cuid())
+  clientUserId   String
+  clientName     String
+  clientEmail    String
+  clientPhone    String?
+  projectId      String?   // a Buildsasa project the client is linked to, if any
+  siteName       String
+  location       String
+  lat            Float?
+  lng            Float?
+  stages         String?   // JSON array of stage keys the client wants watched
+  notes          String?
+  projectCostKES Float
+  months         Int
+  feePercent     Float     @default(10)
+  monthlyFeeKES  Float
+  status         String    @default("requested") // requested | approved | active | paused | ended | declined
+  inspectorName  String?
+  adminNote      String?
+  paidMonths     Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([clientUserId])
+  @@index([status, createdAt])
+}
+
+model SiteReportingPayment {
+  id          String   @id @default(cuid())
+  reportingId String
+  amountKES   Float
+  months      Int      @default(1)
+  paystackRef String   @unique
+  status      String   @default("pending") // pending | paid
+  paidAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([reportingId])
 }

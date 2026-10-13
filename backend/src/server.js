@@ -279,10 +279,21 @@ function requireRole(allowedRoles) {
 }
 
 // Auth middleware. If AUTH_REQUIRED is false, defaults to demo user when no/invalid token.
+// Client accounts (homeowners, landowners) have no workspace. With no workspace
+// the tenant extension does not scope queries at all, so a client token must
+// never reach a workspace route: only these prefixes are open to them, and every
+// handler under them checks ownership explicitly (src/client-routes.js).
+const CLIENT_ALLOWED = ['/api/client/', '/api/me', '/api/upload', '/api/auth/', '/api/public/'];
 function auth(req, res, next) {
   // Run the rest of the request inside the workspace context so the Prisma
   // engine scopes every query to this user's company.
-  const run = () => wsStore.run({ ws: (req.user && req.user.ws) || null }, next);
+  const run = () => {
+    if (req.user && req.user.role === 'Client') {
+      const p = String(req.originalUrl || req.url || '').split('?')[0];
+      if (!CLIENT_ALLOWED.some((a) => p === a.replace(/\/$/, '') || p.startsWith(a))) return res.status(403).json({ error: 'This page is for company accounts. You are signed in as a client.' });
+    }
+    return wsStore.run({ ws: (req.user && req.user.ws) || null }, next);
+  };
   const header = req.headers.authorization;
   if (header) {
     const token = header.replace('Bearer ', '');
@@ -367,7 +378,9 @@ const hasFreeAccess = (email) => {
   return !!e && (FREE_ACCESS_EMAILS.includes(e) || isPlatformAdmin(e));
 };
 
-const publicUser = (u) => ({ id: u.id, name: u.name, role: u.role, email: u.email, platformAdmin: isPlatformAdmin(u.email), freeAccess: hasFreeAccess(u.email) });
+const publicUser = (u) => ({ id: u.id, name: u.name, role: u.role, email: u.email, platformAdmin: isPlatformAdmin(u.email), freeAccess: hasFreeAccess(u.email), isClient: u.role === 'Client' });
+// Filled in when client-routes mounts (it needs helpers defined further down).
+const clientRouteDeps = {};
 
 // ===== GOOGLE OAUTH (Sign in with Google) =====
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
@@ -600,11 +613,22 @@ app.get('/api/access-logs', auth, async (_req, res) => {
 
 app.post('/api/signup', async (req, res) => {
   try {
-    const { name, email, password, role, company } = req.body || {};
+    const { name, email, password, role, company, accountType, phone, country } = req.body || {};
     if (!name || !email || !password) return res.status(400).json({ error: 'Name, email and password are required' });
     if (String(password).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
     const existing = await prisma.user.findUnique({ where: { email: String(email).toLowerCase() } });
     if (existing) return res.status(409).json({ error: 'An account with this email already exists' });
+    // A client (homeowner, landowner, investor) gets an account with no company:
+    // they follow sites contractors share with them and use Buildsasa services.
+    if (accountType === 'client') {
+      const user = await prismaBase.user.create({ data: {
+        name: String(name).trim().slice(0, 120), email: String(email).toLowerCase(), passwordHash: bcrypt.hashSync(password, 10), role: 'Client', workspaceId: null,
+        phone: phone ? String(phone).trim().slice(0, 40) : null, country: country ? String(country).trim().slice(0, 80) : null,
+      } });
+      if (clientRouteDeps.claimClientInvites) await clientRouteDeps.claimClientInvites(user);
+      sendVerifyEmail(user);
+      recordAccess(req, user); return res.json({ ...authTokens(user), user: publicUser(user) });
+    }
     // Multi-tenant: each new signup creates its own isolated company (workspace) and owns it.
     const ws = await prisma.workspace.create({ data: { name: (company && String(company).trim()) || `${name}'s company` } });
     const user = await prisma.user.create({ data: { name, email: String(email).toLowerCase(), passwordHash: bcrypt.hashSync(password, 10), role: role || 'Contractor', workspaceId: ws.id } });
@@ -2633,7 +2657,7 @@ app.delete('/api/projects/:projectId/invoices/:id', auth, async (req, res) => {
 // The workspace's own name, logo and contact details, printed on quotes and
 // invoices and shown on the client's quote page and portal.
 const CAN_EDIT_COMPANY = ['Contractor', 'Executive'];
-const COMPANY_FIELDS = ['name', 'logoUrl', 'phone', 'email', 'address', 'kraPin', 'paymentDetails', 'quoteTerms'];
+const COMPANY_FIELDS = ['name', 'logoUrl', 'phone', 'email', 'address', 'kraPin', 'paymentDetails', 'quoteTerms', 'services', 'about'];
 const companyPublic = (w) => (w ? { name: w.name, logoUrl: w.logoUrl, phone: w.phone, email: w.email, address: w.address, kraPin: w.kraPin, paymentDetails: w.paymentDetails } : null);
 async function companyFor(workspaceId) {
   if (!workspaceId) return null;
@@ -2660,7 +2684,7 @@ app.put('/api/company', auth, async (req, res) => {
     for (const k of COMPANY_FIELDS) {
       if (b[k] === undefined) continue;
       const v = b[k] == null ? '' : String(b[k]).trim();
-      data[k] = v ? v.slice(0, k === 'quoteTerms' || k === 'paymentDetails' || k === 'address' ? 2000 : 300) : null;
+      data[k] = v ? v.slice(0, ['quoteTerms', 'paymentDetails', 'address', 'services', 'about'].includes(k) ? 2000 : 300) : null;
     }
     if (data.name === null) return res.status(400).json({ error: 'The company name cannot be empty' });
     if (data.logoUrl && /^(blob:|data:)/i.test(data.logoUrl)) return res.status(400).json({ error: 'Upload the logo first' });
@@ -2947,10 +2971,7 @@ app.delete('/api/projects/:projectId/portal', auth, async (req, res) => {
 
 const parseJsonArr = (raw) => { try { const v = JSON.parse(raw || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
 
-app.get('/api/public/portal/:token', async (req, res) => {
-  try {
-    const p = await prisma.project.findUnique({ where: { portalToken: req.params.token } });
-    if (!p) return res.status(404).json({ error: 'This project link is no longer active. Please ask your contractor for a new one.' });
+async function portalPayload(p) {
     const [ws, schedule, logs, cos, invoices, selections] = await Promise.all([
       companyFor(p.workspaceId),
       prisma.scheduleItem.findMany({ where: { projectId: p.id }, orderBy: [{ startDate: 'asc' }, { sortOrder: 'asc' }] }),
@@ -2959,7 +2980,7 @@ app.get('/api/public/portal/:token', async (req, res) => {
       prisma.invoice.findMany({ where: { projectId: p.id, status: { not: 'draft' } }, orderBy: { createdAt: 'desc' } }),
       prisma.selection.findMany({ where: { projectId: p.id, status: { not: 'draft' } }, orderBy: [{ room: 'asc' }, { position: 'asc' }, { createdAt: 'asc' }] }),
     ]);
-    res.json({
+    return {
       companyName: ws ? ws.name : null,
       company: companyPublic(ws),
       project: {
@@ -2990,7 +3011,14 @@ app.get('/api/public/portal/:token', async (req, res) => {
         invoiceNumber: i.invoiceNumber, amount: i.amount, paidAmount: i.paidAmount || 0, status: i.status,
         issueDate: i.issueDate, dueDate: i.dueDate, items: parseJsonArr(i.items),
       })),
-    });
+    };
+}
+
+app.get('/api/public/portal/:token', async (req, res) => {
+  try {
+    const p = await prisma.project.findUnique({ where: { portalToken: req.params.token } });
+    if (!p) return res.status(404).json({ error: 'This project link is no longer active. Please ask your contractor for a new one.' });
+    res.json(await portalPayload(p));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3135,7 +3163,9 @@ const requireAdmin = (req, res, next) => (isPlatformAdmin(req.user && req.user.e
 app.get('/api/admin/jobs', auth, requireAdmin, async (req, res) => {
   try {
     const rows = await prismaBase.job.findMany({ orderBy: { createdAt: 'desc' }, include: { _count: { select: { bids: true } } } });
-    res.json(rows.map((j) => ({ ...jobDto(j), bidCount: j._count.bids })));
+    const targets = await prismaBase.workspace.findMany({ where: { id: { in: rows.map((j) => j.targetWorkspaceId).filter(Boolean) } }, select: { id: true, name: true } });
+    const name = Object.fromEntries(targets.map((w) => [w.id, w.name]));
+    res.json(rows.map((j) => ({ ...jobDto(j), bidCount: j._count.bids, targetCompany: j.targetWorkspaceId ? name[j.targetWorkspaceId] || 'A company' : null })));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3147,6 +3177,7 @@ const pickJob = (b) => {
   if (b.budgetKES !== undefined) d.budgetKES = b.budgetKES === '' || b.budgetKES == null ? null : (Number(b.budgetKES) || null);
   if (b.attachments !== undefined) d.attachments = jobFiles(b.attachments);
   if (b.status !== undefined && JOB_STATUSES.includes(b.status)) d.status = b.status;
+  if (b.approval !== undefined && ['pending', 'approved', 'rejected'].includes(b.approval)) d.approval = b.approval;
   return d;
 };
 
@@ -3163,7 +3194,13 @@ app.put('/api/admin/jobs/:id', auth, requireAdmin, async (req, res) => {
   try {
     const d = pickJob(req.body || {});
     if (d.title === null || d.description === null || d.category === null) return res.status(400).json({ error: 'A job needs a title, a category and a description.' });
+    const before = await prismaBase.job.findUnique({ where: { id: req.params.id } });
     const row = await prismaBase.job.update({ where: { id: req.params.id }, data: d });
+    // Tell the client who posted it when Buildsasa approves or turns it down.
+    if (before && row.clientEmail && d.approval && d.approval !== before.approval && d.approval !== 'pending') {
+      const ok = d.approval === 'approved';
+      sendEmail({ to: row.clientEmail, subject: ok ? `Your job is live: ${row.title}` : `About your job: ${row.title}`, html: emailShell(ok ? 'Your job is live' : 'Your job was not approved', `<p style="font-size:14px;color:#11161D">${ok ? `“${row.title}” is now visible to ${row.targetWorkspaceId ? 'the company you chose' : 'contractors on Buildsasa'}. Bids will appear in your Buildsasa client account.` : `We couldn't publish “${row.title}” as it is. Our team will contact you to adjust it.`}</p>`) }).catch(() => {});
+    }
     res.json(jobDto(row));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3198,9 +3235,10 @@ app.get('/api/jobs', auth, async (req, res) => {
     const ws = currentWs();
     const myBids = ws ? await prismaBase.jobBid.findMany({ where: { workspaceId: ws } }) : [];
     const mine = new Set(myBids.map((b) => b.jobId));
-    const jobs = await prismaBase.job.findMany({ where: { OR: [{ status: 'open' }, { id: { in: [...mine] } }] }, orderBy: { createdAt: 'desc' } });
+    const jobs = await prismaBase.job.findMany({ where: { OR: [{ status: 'open', approval: 'approved', OR: [{ targetWorkspaceId: null }, { targetWorkspaceId: ws || '-' }] }, { id: { in: [...mine] } }] }, orderBy: { createdAt: 'desc' } });
     const byJob = Object.fromEntries(myBids.map((b) => [b.jobId, { ...b, attachments: parseFiles(b.attachments) }]));
-    res.json(jobs.map((j) => ({ ...jobDto(j), createdBy: undefined, myBid: byJob[j.id] || null })));
+    // The client's own contact details stay with Buildsasa until a bid is awarded.
+    res.json(jobs.map((j) => ({ ...jobDto(j), createdBy: undefined, clientEmail: undefined, clientPhone: undefined, clientUserId: undefined, forYou: !!j.targetWorkspaceId, myBid: byJob[j.id] || null })));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3210,6 +3248,7 @@ app.post('/api/jobs/:id/bid', auth, async (req, res) => {
     if (!ws) return res.status(400).json({ error: 'Your account isn\'t linked to a company, so it can\'t bid.' });
     const job = await prismaBase.job.findUnique({ where: { id: req.params.id } });
     if (!job) return res.status(404).json({ error: 'This job is no longer available.' });
+    if (job.approval !== 'approved' || (job.targetWorkspaceId && job.targetWorkspaceId !== ws)) return res.status(404).json({ error: 'This job is no longer available.' });
     if (jobClosed(job)) return res.status(409).json({ error: job.status === 'awarded' ? 'This job has already been awarded.' : 'Bids for this job have closed.' });
     const b = req.body || {};
     const amount = Number(b.amountKES);
@@ -6724,6 +6763,10 @@ app.post('/api/billing/verify', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Client accounts, sharing with clients, client jobs and Buildsasa site reporting.
+Object.assign(clientRouteDeps, { prisma, prismaBase, auth, currentWs, hasRole, CAN_SHARE_PORTAL, sendEmail, emailShell, button, paystackRequest, PAYSTACK_SECRET, isPlatformAdmin, portalPayload, companyPublic, APP_URL });
+require('./client-routes')(app, clientRouteDeps);
+
 // Paystack webhook — activates on charge.success. (Signature checked when key is set.)
 app.post('/api/billing/webhook', async (req, res) => {
   try {
@@ -6733,6 +6776,10 @@ app.post('/api/billing/webhook', async (req, res) => {
       if (hash !== req.headers['x-paystack-signature']) return res.status(401).end();
     }
     const evt = req.body;
+    if (evt.event === 'charge.success' && evt.data && evt.data.metadata && evt.data.metadata.kind === 'site_reporting') {
+      await clientRouteDeps.applyReportingPayment(evt.data);
+      return res.json({ received: true });
+    }
     if (evt.event === 'charge.success' && evt.data && evt.data.metadata && evt.data.metadata.kind === 'ai_credits') {
       await applyCreditPurchase(evt.data);
       return res.json({ received: true });

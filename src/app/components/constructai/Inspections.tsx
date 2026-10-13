@@ -11,6 +11,7 @@ import { ROLES } from "./roles";
 import api, { type InspectionDto } from "../../services/api";
 import jsPDF from "jspdf";
 import { ImageLightbox } from "./ImageLightbox";
+import { clientApi } from "./client/clientData";
 
 
 const STATUS_COLOR: Record<string, string> = {
@@ -530,6 +531,16 @@ export default function Inspections({ role = "Contractor" }: { role?: Role }) {
                     <Download className="w-3.5 h-3.5" /> {generatingPdf === detailInspection.id ? "Generating…" : "PDF"}
                   </button>
                 )}
+                {/* Clients (often abroad) see shared inspections in their Buildsasa account. */}
+                <button
+                  onClick={async () => {
+                    const next = !detailInspection.clientVisible;
+                    try { await clientApi.shareInspection(detailInspection.id, next); setInspections((xs) => xs.map((x) => (x.id === detailInspection.id ? { ...x, clientVisible: next } : x))); toast.success(next ? "Shared with the client" : "No longer shared with the client"); }
+                    catch (e: any) { toast.error(e?.message || "Couldn't change sharing"); }
+                  }}
+                  className={`h-8 px-2 rounded-md border text-[11px] flex items-center gap-1 ${detailInspection.clientVisible ? "border-[#22C55E]/40 text-[#22C55E]" : "border-[#222A35] text-[#8A95A5] hover:text-white"}`}
+                  title="Show this inspection, its notes and photos to the project's client"
+                >{detailInspection.clientVisible ? "Shared with client" : "Share with client"}</button>
                 <button onClick={() => setDetailId(null)} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button>
               </div>
             </div>

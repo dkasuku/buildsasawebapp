@@ -133,7 +133,7 @@ async function readError(res: Response): Promise<string> {
   }
 }
 
-async function http<T>(path: string, init?: RequestInit, _retried = false): Promise<T> {
+export async function http<T>(path: string, init?: RequestInit, _retried = false): Promise<T> {
   const token = localStorage.getItem(TOKEN_KEY);
   const isFormData = init?.body instanceof FormData;
   const res = await fetch(`${API_URL}${path}`, {
@@ -620,6 +620,8 @@ export type JobDto = {
   id: string; title: string; description: string; category: string; location?: string | null; budgetKES?: number | null;
   deadline?: string | null; clientName?: string | null; attachments: FileRef[]; status: "open" | "closed" | "awarded";
   acceptingBids: boolean; createdAt: string; myBid: JobBidDto | null;
+  /** Aimed at this company by the client who posted it. */
+  forYou?: boolean;
 };
 
 export type QuoteLine = { section?: string; description: string; unit: string; quantity: number; rate: number };
@@ -720,6 +722,7 @@ export type InspectionDto = {
   inspector: string;
   date: string;
   status: string; // draft | pending_consultant | in_review | approved | rejected | rework_required | closed
+  clientVisible?: boolean;
   notes?: string | null;
   checklist?: string | null;
   photos?: string | null;
@@ -1106,6 +1109,7 @@ export type BillingInvoiceDto = {
 export const api = {
   login: (email: string, password: string) => http<{ token: string; refreshToken?: string; user: any }>("/api/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   signup: (name: string, email: string, password: string, company?: string, role?: string) => http<{ token: string; refreshToken?: string; user: any }>("/api/signup", { method: "POST", body: JSON.stringify({ name, email, password, company, role }) }),
+  signupClient: (p: { name: string; email: string; password: string; phone?: string; country?: string }) => http<{ token: string; refreshToken?: string; user: any }>("/api/signup", { method: "POST", body: JSON.stringify({ ...p, accountType: "client" }) }),
   verifyEmail: (token: string) => http<{ ok: boolean }>("/api/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) }),
   resendVerification: () => http<{ ok: boolean }>("/api/auth/resend-verification", { method: "POST" }),
   me: () => http<UserProfile>("/api/me"),

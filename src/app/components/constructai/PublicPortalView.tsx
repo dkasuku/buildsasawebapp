@@ -19,7 +19,7 @@ const card: React.CSSProperties = { background: "#fff", borderRadius: 14, border
 
 type Tab = "overview" | "approvals" | "selections" | "photos" | "timeline" | "invoices";
 
-export function PublicPortalView({ token }: { token: string }) {
+export function PublicPortalView({ token, embedded = false }: { token: string; /** Inside the client account: no page chrome, the account shell provides it. */ embedded?: boolean }) {
   const [data, setData] = useState<PortalDto | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
@@ -31,7 +31,9 @@ export function PublicPortalView({ token }: { token: string }) {
     .catch((e) => { setError(e?.message || "This project link is not available."); setState("error"); });
   useEffect(() => { load(); }, [token]);
 
-  const Shell = (children: React.ReactNode) => (
+  const Shell = (children: React.ReactNode) => embedded ? (
+    <div className="rounded-xl p-3 sm:p-4" style={{ background: "#F4F6FA", color: C.ink, fontFamily: "Inter, system-ui, sans-serif" }}>{children}</div>
+  ) : (
     <div style={{ minHeight: "100vh", background: "#F4F6FA", color: C.ink, fontFamily: "Inter, system-ui, sans-serif" }}>
       <div style={{ background: C.navy }}>
         <div className="max-w-3xl mx-auto px-4 h-14 flex items-center gap-2.5">

@@ -9,6 +9,7 @@ import { PublicFormFill } from "./components/constructai/PublicFormFill";
 import { PublicBidSubmit } from "./components/constructai/PublicBidSubmit";
 import { PublicQuoteView } from "./components/constructai/PublicQuoteView";
 import { PublicPortalView } from "./components/constructai/PublicPortalView";
+import { ClientApp } from "./components/constructai/client/ClientApp";
 import { ErrorBoundary } from "./components/constructai/ErrorBoundary";
 import { Dashboard } from "./components/constructai/Dashboard";
 import { Projects } from "./components/constructai/Projects";
@@ -402,6 +403,18 @@ export default function App() {
     return (
       <div className={`h-screen w-full ${theme === "light" ? "theme-light" : ""}`}>
         <Login onContinue={(user) => { if (user && user.role && ROLES[user.role as Role]) setRole(user.role as Role); setView(sessionStorage.getItem("pending-drawing") ? "plans" : "dashboard"); }} theme={theme} setTheme={setTheme} />
+        <Toaster theme={theme} position="top-right" />
+      </div>
+    );
+  }
+
+  // Client accounts (homeowners, landowners) get their own panel; they have no
+  // workspace, no paywall and no access to company screens.
+  const isClientUser = (() => { try { return JSON.parse(localStorage.getItem("constructai-user") || "null")?.role === "Client"; } catch { return false; } })();
+  if (isClientUser) {
+    return (
+      <div className={theme === "light" ? "theme-light" : ""}>
+        <ClientApp theme={theme} setTheme={setTheme} onSignOut={() => { try { localStorage.removeItem("constructai-token"); localStorage.removeItem("constructai-user"); localStorage.removeItem("constructai-refresh"); } catch { /* noop */ } setView("login"); }} />
         <Toaster theme={theme} position="top-right" />
       </div>
     );

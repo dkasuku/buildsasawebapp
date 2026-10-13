@@ -1,13 +1,18 @@
-import { ArrowRight, ArrowLeft, ShieldCheck, Zap, Wallet, Sun, Moon } from "lucide-react";
+import { ArrowRight, ArrowLeft, ShieldCheck, Zap, Wallet, Sun, Moon, HardHat, Home as HomeIcon } from "lucide-react";
 import { useState, useEffect } from "react";
 import api from "../../services/api";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
 
 export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { role?: string; name?: string; email?: string }) => void; theme?: "dark" | "light"; setTheme?: (t: "dark" | "light") => void }) {
-  const [mode, setMode] = useState<"login" | "signup" | "forgot">("login");
+  const params = (() => { try { return new URLSearchParams(window.location.search); } catch { return new URLSearchParams(); } })();
+  const [accountType, setAccountType] = useState<"client" | "contractor" | null>(() => (params.get("as") === "client" ? "client" : params.get("as") === "contractor" ? "contractor" : null));
+  const [mode, setMode] = useState<"login" | "signup" | "forgot">(() => (params.get("as") === "client" && params.get("email") ? "signup" : "login"));
+  const [phone, setPhone] = useState("");
+  const [country, setCountry] = useState("");
+  const isClient = accountType === "client";
   const [name, setName] = useState("");
   const [company, setCompany] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(() => params.get("email") || "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [agreedTerms, setAgreedTerms] = useState(false);
@@ -40,7 +45,12 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
     } finally { setLoading(false); }
   };
   const submit = async () => {
-    if (mode === "signup") {
+    if (mode === "signup" && isClient) {
+      if (!name.trim() || !email.trim()) return setError("Please fill in your name and email.");
+      if (password.length < 6) return setError("Password must be at least 6 characters.");
+      if (password !== confirmPassword) return setError("Passwords do not match.");
+      if (!agreedTerms) return setError("Please accept the Terms & Conditions and Privacy Policy to continue.");
+    } else if (mode === "signup") {
       if (!company.trim() || !name.trim() || !email.trim()) return setError("Please fill in your company, name and email.");
       if (password.length < 6) return setError("Password must be at least 6 characters.");
       if (password !== confirmPassword) return setError("Passwords do not match.");
@@ -50,7 +60,9 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
     }
     setLoading(true); setError("");
     try {
-      const res = mode === "signup"
+      const res = mode === "signup" && isClient
+        ? await api.signupClient({ name: name.trim(), email: email.trim(), password, phone: phone.trim(), country: country.trim() })
+        : mode === "signup"
         ? await api.signup(name.trim(), email.trim(), password, company.trim())
         : await api.login(email.trim(), password);
       localStorage.setItem("constructai-token", res.token);
@@ -70,9 +82,9 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
             {/* Signup and reset are detours off the sign-in page. Without a way
                 back, the only exit was the small link under the form (and on
                 reset, below the fold on short screens). */}
-            {mode !== "login" && (
+            {(mode !== "login" || accountType) && (
               <button
-                onClick={() => { setMode("login"); setError(""); setInfo(""); setDevLink(""); }}
+                onClick={() => { if (mode !== "login") setMode("login"); else setAccountType(null); setError(""); setInfo(""); setDevLink(""); }}
                 className="h-9 w-9 -ml-1 mr-0.5 rounded-md border border-[#222A35] bg-[#11161D] flex items-center justify-center text-[#8A95A5] hover:text-white hover:border-[#2C3744] shrink-0"
                 title="Back to sign in"
                 aria-label="Back to sign in"
@@ -100,21 +112,63 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
         </div>
 
         <div className="flex-1 flex items-center">
+          {!accountType && mode !== "forgot" ? (
+            <div className="w-full max-w-[440px]">
+              <h1 className="text-[30px] text-white tracking-tight leading-[1.1]" style={{ fontWeight: 500 }}>Welcome to Buildsasa.</h1>
+              <p className="text-[13px] text-[#8A95A5] mt-3">Tell us who you are, so we take you to the right place.</p>
+              <div className="mt-7 grid gap-3">
+                <button onClick={() => setAccountType("client")} className="text-left p-4 rounded-xl border border-[#222A35] bg-[#11161D] hover:border-[#FF6B1A]/60 transition flex gap-3">
+                  <span className="w-11 h-11 rounded-lg bg-[#FF6B1A]/10 text-[#FF6B1A] flex items-center justify-center shrink-0"><HomeIcon className="w-5 h-5" /></span>
+                  <span>
+                    <span className="block text-[14px] text-white">I'm a client</span>
+                    <span className="block text-[12px] text-[#8A95A5] mt-0.5">I own land or a project, in Kenya or abroad, and want to see every stage of the work, approve changes, chat with my contractor or hire one.</span>
+                  </span>
+                </button>
+                <button onClick={() => setAccountType("contractor")} className="text-left p-4 rounded-xl border border-[#222A35] bg-[#11161D] hover:border-[#FF6B1A]/60 transition flex gap-3">
+                  <span className="w-11 h-11 rounded-lg bg-[#3B82F6]/10 text-[#3B82F6] flex items-center justify-center shrink-0"><HardHat className="w-5 h-5" /></span>
+                  <span>
+                    <span className="block text-[14px] text-white">I'm a contractor or service provider</span>
+                    <span className="block text-[12px] text-[#8A95A5] mt-0.5">Builders, fencers, borehole drillers, solar and CCTV installers, landscapers, surveyors and their site teams.</span>
+                  </span>
+                </button>
+              </div>
+            </div>
+          ) : (
           <div className="w-full max-w-[400px]">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-[#222A35] bg-[#11161D] text-[10px] text-[#8A95A5] uppercase tracking-wider mb-5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]" /> For contractors &amp; site teams
+              <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]" /> {isClient ? "Client account" : "For contractors & site teams"}
             </div>
             <h1 className="text-[32px] text-white tracking-tight leading-[1.1]" style={{ fontWeight: 500 }}>
-              {mode === "signup" ? <>Create your<br /> company account.</> : mode === "forgot" ? <>Reset your<br /> password.</> : <>Sign in to<br /> Buildsasa.</>}
+              {mode === "signup" ? (isClient ? <>Create your<br /> client account.</> : <>Create your<br /> company account.</>) : mode === "forgot" ? <>Reset your<br /> password.</> : <>Sign in to<br /> Buildsasa.</>}
             </h1>
             <p className="text-[13px] text-[#8A95A5] mt-3">
               {mode === "forgot"
                 ? "Enter your work email and we'll send you a link to set a new password."
+                : isClient
+                ? "See photos and videos of every stage of your site, from beaconing and fencing to handover, approve changes, pay invoices and chat with your contractor, from anywhere."
                 : "Projects, checklists, financials, tenders and your team — one place to run construction, from groundbreaking to handover."}
             </p>
 
             <div className="mt-7 space-y-3">
-              {mode === "signup" && (
+              {mode === "signup" && isClient && (
+                <>
+                  <div>
+                    <label className="text-[11px] text-[#8A95A5] uppercase tracking-wider">Full Name</label>
+                    <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Mary Wanjiru" className="mt-1.5 w-full h-11 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[11px] text-[#8A95A5] uppercase tracking-wider">Phone / WhatsApp</label>
+                      <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. +44 7700 900123" className="mt-1.5 w-full h-11 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-[#8A95A5] uppercase tracking-wider">Country you live in</label>
+                      <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="e.g. Kenya or USA" className="mt-1.5 w-full h-11 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
+                    </div>
+                  </div>
+                </>
+              )}
+              {mode === "signup" && !isClient && (
                 <>
                   <div>
                     <label className="text-[11px] text-[#8A95A5] uppercase tracking-wider">Company Name</label>
@@ -137,11 +191,11 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
                 </>
               )}
               <div>
-                <label className="text-[11px] text-[#8A95A5] uppercase tracking-wider">Work Email</label>
+                <label className="text-[11px] text-[#8A95A5] uppercase tracking-wider">{isClient ? "Email" : "Work Email"}</label>
                 <input
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@company.com"
+                  placeholder={isClient ? "you@example.com" : "you@company.com"}
                   className="mt-1.5 w-full h-11 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]"
                 />
               </div>
@@ -202,12 +256,12 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
               >
                 {loading
                   ? (mode === "signup" ? "Creating account..." : mode === "forgot" ? "Sending..." : "Signing in...")
-                  : (mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : "Enter Workspace")} <ArrowRight className="w-4 h-4" />
+                  : (mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : isClient ? "Sign in" : "Enter Workspace")} <ArrowRight className="w-4 h-4" />
               </button>
               {mode === "forgot" && (
                 <button onClick={() => { setMode("login"); setError(""); setInfo(""); setDevLink(""); }} className="w-full h-10 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white text-[12px]">Back to sign in</button>
               )}
-              {mode !== "forgot" && (
+              {mode !== "forgot" && !isClient && (
                 <>
                   <div className="flex items-center gap-3 my-3">
                     <div className="flex-1 h-px bg-[#222A35]" />
@@ -233,11 +287,13 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
 
             {mode !== "forgot" && (
               <p className="mt-6 text-[11px] text-[#5B6675]">
-                {mode === "signup" ? "Already have an account? " : "New company? "}
-                <span onClick={() => { setMode(mode === "signup" ? "login" : "signup"); setError(""); }} className="text-[#FF6B1A] cursor-pointer hover:underline">{mode === "signup" ? "Sign in" : "Create your company account"}</span>
+                {mode === "signup" ? "Already have an account? " : isClient ? "New here? " : "New company? "}
+                <span onClick={() => { setMode(mode === "signup" ? "login" : "signup"); setError(""); }} className="text-[#FF6B1A] cursor-pointer hover:underline">{mode === "signup" ? "Sign in" : isClient ? "Create your free client account" : "Create your company account"}</span>
+                <br /><span onClick={() => { setAccountType(isClient ? "contractor" : "client"); setError(""); }} className="text-[#8A95A5] cursor-pointer hover:text-white">{isClient ? "Are you a contractor? Switch" : "Are you a client? Switch"}</span>
               </p>
             )}
           </div>
+          )}
         </div>
 
         <div className="text-[10px] text-[#5B6675]">© 2026 Buildsasa · SOC 2 Type II · ISO 27001</div>

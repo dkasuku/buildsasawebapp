@@ -4,6 +4,7 @@
 
 import { MapPicker } from "./MapPicker";
 import { useEffect, useRef, useState } from "react";
+import { SERVICES } from "./client/clientData";
 import { toast } from "sonner";
 import { Loader2, ImagePlus, Check } from "lucide-react";
 import api, { absoluteFileUrl, type CompanyDto } from "../../services/api";
@@ -14,13 +15,15 @@ const lbl = "text-[10px] uppercase tracking-[0.08em] text-[#5B6675] mb-1 block";
 const input = "w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2.5 text-[12.5px] text-white placeholder:text-[#3A4350] focus:outline-none focus:border-[#FF6B1A] disabled:opacity-60";
 const area = "w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-2.5 py-2 text-[12.5px] text-white placeholder:text-[#3A4350] focus:outline-none focus:border-[#FF6B1A] disabled:opacity-60";
 
-type Form = { name: string; logoUrl: string; phone: string; email: string; address: string; kraPin: string; paymentDetails: string; quoteTerms: string };
+type Form = { name: string; logoUrl: string; phone: string; email: string; address: string; kraPin: string; paymentDetails: string; quoteTerms: string; about: string };
 
 export function CompanySettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [canEdit, setCanEdit] = useState(false);
-  const [f, setF] = useState<Form>({ name: "", logoUrl: "", phone: "", email: "", address: "", kraPin: "", paymentDetails: "", quoteTerms: "" });
+  const [f, setF] = useState<Form>({ name: "", logoUrl: "", phone: "", email: "", address: "", kraPin: "", paymentDetails: "", quoteTerms: "", about: "" });
+  // What the company offers, shown to clients browsing companies on Buildsasa.
+  const [services, setServices] = useState<string[]>([]);
   const uploader = useFileUpload();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -28,7 +31,8 @@ export function CompanySettings() {
     api.getCompany()
       .then((c: CompanyDto) => {
         setCanEdit(c.canEdit);
-        setF({ name: c.name || "", logoUrl: c.logoUrl || "", phone: c.phone || "", email: c.email || "", address: c.address || "", kraPin: c.kraPin || "", paymentDetails: c.paymentDetails || "", quoteTerms: c.quoteTerms || "" });
+        setF({ name: c.name || "", logoUrl: c.logoUrl || "", phone: c.phone || "", email: c.email || "", address: c.address || "", kraPin: c.kraPin || "", paymentDetails: c.paymentDetails || "", quoteTerms: c.quoteTerms || "", about: (c as any).about || "" });
+        try { const sv = JSON.parse((c as any).services || "[]"); setServices(Array.isArray(sv) ? sv : []); } catch { setServices([]); }
       })
       .catch((e) => toast.error(e.message || "Could not load the company profile"))
       .finally(() => setLoading(false));
@@ -46,7 +50,7 @@ export function CompanySettings() {
     if (uploader.busy) return toast.error("Wait for the logo to finish uploading");
     setSaving(true);
     try {
-      await api.updateCompany(f);
+      await api.updateCompany({ ...f, services: JSON.stringify(services) } as any);
       forgetCompanyLogo();
       // Quotes and other open screens refresh their branding.
       window.dispatchEvent(new Event("buildflex:company-updated"));
@@ -99,6 +103,20 @@ export function CompanySettings() {
       <div>
         <span className={lbl}>Default terms for new quotes</span>
         <textarea value={f.quoteTerms} onChange={set("quoteTerms")} disabled={!canEdit} rows={3} placeholder="e.g. Prices are in KES. Work starts on receipt of the deposit." className={area} />
+      </div>
+
+      <div>
+        <span className={lbl}>Services you offer (clients use these to find you)</span>
+        <div className="flex flex-wrap gap-1.5 mt-1">
+          {SERVICES.map((sv) => {
+            const on = services.includes(sv);
+            return <button key={sv} type="button" disabled={!canEdit} onClick={() => setServices((x) => (on ? x.filter((y) => y !== sv) : [...x, sv]))} className={`h-8 px-3 rounded-full text-[11.5px] border ${on ? "bg-[#FF6B1A] border-[#FF6B1A] text-white" : "border-[#222A35] text-[#8A95A5] hover:text-white"}`}>{sv}</button>;
+          })}
+        </div>
+      </div>
+      <div>
+        <span className={lbl}>About the company (shown to clients)</span>
+        <textarea value={f.about} onChange={set("about")} disabled={!canEdit} rows={3} placeholder="e.g. We build homes and perimeter walls across Kiambu and Machakos, with 12 years of experience and our own borehole rig." className={area} />
       </div>
 
       {canEdit && (

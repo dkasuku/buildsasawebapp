@@ -86,7 +86,7 @@ export function Jobs() {
             return (
               <button key={j.id} onClick={() => setOpen(j)} className="text-left rounded-xl border border-[#222A35] bg-[#11161D] p-4 hover:border-[#FF6B1A]/50 transition flex flex-col gap-2">
                 <div className="flex items-start justify-between gap-2">
-                  <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#FF6B1A]/10 text-[#FF6B1A]">{j.category}</span>
+                  <span className="flex flex-wrap gap-1"><span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#FF6B1A]/10 text-[#FF6B1A]">{j.category}</span>{j.forYou && <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#22C55E]/10 text-[#22C55E]" title="The client chose your company for this job">Sent to you</span>}</span>
                   {meta ? <span className="text-[10.5px] px-2 py-0.5 rounded-full flex items-center gap-1" style={{ background: meta.color + "20", color: meta.color }}><meta.icon className="w-3 h-3" />{meta.label}</span>
                     : !j.acceptingBids ? <span className="text-[10.5px] text-[#8A95A5]">Closed</span> : null}
                 </div>
