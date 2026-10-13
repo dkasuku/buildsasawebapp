@@ -64,7 +64,7 @@ export function ClientFolder({ projectId, canInvite }: { projectId: string; canI
       const u = await clientApi.postUpdate(projectId, { ...f, media });
       setUpdates((x) => [u, ...(x || [])]);
       setF((x) => ({ ...x, title: "", body: "" })); setMedia([]);
-      toast.success(clients?.length ? "Shared with your client." : "Saved. Invite the client so they can see it.");
+      toast.success(clients?.some((c) => c.joined) ? "Shared with your client." : "Shared. Your client sees it as soon as they create their account.");
     } catch (e: any) { toast.error(e?.message || "Couldn't share the update."); }
     finally { setPosting(false); }
   };
@@ -108,6 +108,15 @@ export function ClientFolder({ projectId, canInvite }: { projectId: string; canI
         <div className="mt-3 text-[11px] text-[#5B6675] flex items-start gap-1.5"><Eye className="w-3.5 h-3.5 mt-0.5 shrink-0" />Daily logs are shared by default (photos, videos, weather and headcount; your notes stay internal), and you can switch any log off. Inspections are shared one by one with the "Share with client" button on each inspection.</div>
       </section>
 
+      {clients !== null && clients.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-[#2C3744] bg-[#11161D] p-6 text-center">
+          <div className="text-[13.5px] text-white">No client on this project yet</div>
+          <p className="text-[12px] text-[#8A95A5] mt-1 max-w-md mx-auto">Invite the project owner above first. Then you can share progress updates, reports and documents, and chat with them. Nothing is shared until someone is invited.</p>
+        </div>
+      ) : (<>
+      {clients?.length ? (
+        <p className="text-[11.5px] text-[#8A95A5]">Sharing with {clients.map((c) => c.name || c.email).join(", ")}{clients.some((c) => !c.joined) ? " (invited clients see everything once they create their account)" : ""}.</p>
+      ) : null}
       <div className="flex gap-1.5">
         <button onClick={() => setTab("updates")} className={`h-9 px-3 rounded-lg text-[12.5px] border ${tab === "updates" ? "bg-[#FF6B1A] border-[#FF6B1A] text-white" : "border-[#222A35] text-[#C2CAD6]"}`}>Progress updates{updates?.length ? ` · ${updates.length}` : ""}</button>
         <button onClick={() => setTab("chat")} className={`h-9 px-3 rounded-lg text-[12.5px] border inline-flex items-center gap-1.5 ${tab === "chat" ? "bg-[#FF6B1A] border-[#FF6B1A] text-white" : "border-[#222A35] text-[#C2CAD6]"}`}><MessageCircle className="w-4 h-4" /> Chat with client</button>
@@ -159,6 +168,7 @@ export function ClientFolder({ projectId, canInvite }: { projectId: string; canI
           </div>
         )
       )}
+      </>)}
     </div>
   );
 }

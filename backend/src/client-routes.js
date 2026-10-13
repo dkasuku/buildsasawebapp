@@ -521,6 +521,10 @@ module.exports = function clientRoutes(app, d) {
     const p = await prisma.project.findUnique({ where: { id: projectId } });
     return p && p.workspaceId === currentWs() ? p : null;
   }
+  // Sharing needs someone to share with: an invited client (joined or not yet).
+  // Without one, updates and messages would be saved for nobody.
+  const NO_CLIENT = 'Invite the client to this project first (Client access, above). Then updates and messages reach them.';
+  const hasClient = async (projectId) => !!(await prismaBase.projectClient.findFirst({ where: { projectId }, select: { id: true } }));
 
   app.get('/api/projects/:projectId/clients', auth, async (req, res) => {
     try {
@@ -591,6 +595,7 @@ module.exports = function clientRoutes(app, d) {
     try {
       const p = await ownProject(req.params.projectId);
       if (!p) return res.status(404).json({ error: 'Project not found' });
+      if (!(await hasClient(p.id))) return res.status(409).json({ error: NO_CLIENT });
       const b = req.body || {};
       const title = text(b.title, 200);
       if (!title) return res.status(400).json({ error: 'Give the update a short title, e.g. "Fence posts set on the north side".' });
@@ -631,6 +636,7 @@ module.exports = function clientRoutes(app, d) {
     try {
       const p = await ownProject(req.params.projectId);
       if (!p) return res.status(404).json({ error: 'Project not found' });
+      if (!(await hasClient(p.id))) return res.status(409).json({ error: NO_CLIENT });
       const body = text(req.body?.body, 4000); const media = cleanMedia(req.body?.media);
       if (!body && !media) return res.status(400).json({ error: 'Write a message or attach a photo.' });
       const row = await prismaBase.clientMessage.create({ data: { workspaceId: p.workspaceId, projectId: p.id, threadUserId: req.body?.private ? req.user.sub : null, senderType: 'team', senderId: req.user.sub, senderName: req.user.name || 'Site team', body, media } });
