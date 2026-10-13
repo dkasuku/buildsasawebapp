@@ -15,7 +15,7 @@ const day = (d?: string | null) => {
   try { return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); } catch { return d; }
 };
 
-export function PublicQuoteView({ token }: { token: string }) {
+export function PublicQuoteView({ token, embedded = false }: { token: string; /** Inside the client account: no page chrome. */ embedded?: boolean }) {
   const [quote, setQuote] = useState<PublicQuoteDto | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
@@ -45,7 +45,9 @@ export function PublicQuoteView({ token }: { token: string }) {
     }
   };
 
-  const Shell = (children: React.ReactNode) => (
+  const Shell = (children: React.ReactNode) => embedded ? (
+    <div className="rounded-xl p-3 sm:p-4" style={{ background: "#F4F6FA", color: "#1B1F24", fontFamily: "Inter, system-ui, sans-serif" }}>{children}</div>
+  ) : (
     <div style={{ minHeight: "100vh", background: "#F4F6FA", color: "#1B1F24", fontFamily: "Inter, system-ui, sans-serif" }}>
       <div style={{ background: "#0B2A4A" }}>
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center gap-2.5">

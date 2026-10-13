@@ -21,6 +21,8 @@ import { companyLogoData, drawLetterhead } from "../../services/brandPdf";
 import { useCurrency } from "./CurrencyContext";
 import { formatCurrency } from "./currency";
 import { jsPDF, lastTableEnd } from "../../services/pdf";
+import { CommentThread } from "./client/ClientParts";
+import { clientApi, type ClientComment } from "./client/clientData";
 
 export const QUOTE_STATUS_COLOR: Record<QuoteStatus, string> = {
   draft: "#8A95A5",
@@ -560,6 +562,8 @@ export default function Quotes({ role = "Contractor" }: { role?: Role }) {
                 <a href={`mailto:${sharing.clientEmail || ""}?subject=${encodeURIComponent(`Quote ${sharing.quoteNumber}: ${sharing.title}`)}&body=${encodeURIComponent(shareMessage(sharing))}`} className="h-10 rounded-md border border-[#222A35] text-white text-[12px] flex items-center justify-center gap-1.5"><Mail className="w-4 h-4" />Email</a>
               </div>
               <button onClick={() => downloadPdf(sharing)} className="w-full h-9 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white text-[12px] flex items-center justify-center gap-1.5"><Download className="w-3.5 h-3.5" />Download PDF to attach</button>
+              {sharing.clientEmail && <p className="text-[11px] text-[#5B6675]">If {sharing.clientEmail} has a Buildsasa client account, this quote also appears in their Quotes & proposals, where they can comment and ask for changes.</p>}
+              <QuoteClientComments quoteId={sharing.id} />
             </div>
           </div>
         </div>
@@ -584,6 +588,14 @@ export default function Quotes({ role = "Contractor" }: { role?: Role }) {
       )}
     </div>
   );
+}
+
+/** The client's questions and change requests on a quote, and the team's replies. */
+function QuoteClientComments({ quoteId }: { quoteId: string }) {
+  const [rows, setRows] = useState<ClientComment[]>([]);
+  useEffect(() => { clientApi.quoteComments(quoteId).then(setRows).catch(() => {}); }, [quoteId]);
+  return <CommentThread mineType="team" comments={rows} prompt="e.g. Yes, ceramic tiles bring the total down to KES 410,000. I'll send a revised quote."
+    onSend={async (b, m) => { const c = await clientApi.replyQuoteComment(quoteId, b, m); setRows((x) => [...x, c]); }} />;
 }
 
 /** How the company appears at the top of the quote, and the way to change it. */

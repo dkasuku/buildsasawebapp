@@ -36,10 +36,14 @@ export const UPDATE_KINDS: { key: string; label: string }[] = [
   { key: "inspection", label: "Inspection" },
   { key: "milestone", label: "Milestone reached" },
   { key: "issue", label: "Issue or delay" },
+  { key: "report", label: "Site report (weekly / monthly)" },
+  { key: "document", label: "Document, drawing or proposal" },
 ];
 
-export type Media = { url: string; type: "image" | "video" };
+export type Media = { url: string; type: "image" | "video" | "file"; name?: string };
 export type ClientUpdate = { id: string; stage: string; kind: string; title: string; body?: string | null; media: Media[]; authorName?: string | null; authorRole?: string | null; createdAt: string };
+export type ClientComment = { id: string; targetType: string; targetId: string; authorType: "client" | "team"; authorName: string; body?: string | null; media: Media[]; createdAt: string };
+export type ClientQuote = { id: string; token: string; quoteNumber: string; title: string; total: number; status: string; validUntil?: string | null; sentAt?: string | null; company: string; comments: ClientComment[] };
 export type ClientMessage = { id: string; senderType: "client" | "team" | "buildsasa"; senderName: string; body?: string | null; media: Media[]; createdAt: string };
 export type Trust = { score: number | null; parts: { logs: number | null; handover: number | null; rating: number | null }; basis: string[]; ratingAvg: number | null; ratingCount: number; handedOver: number; logDays30: number };
 export type Company = { id: string; name: string; logoUrl?: string | null; phone?: string | null; email?: string | null; address?: string | null; services: string[]; about?: string | null; projects: number; trust: Trust; myRating: number | null };
@@ -57,15 +61,21 @@ export type ClientHome = {
 };
 export type ClientSite = any; // portal payload + updates, dailyLogs, inspections (see /api/client/projects/:id)
 
-export const toMedia = (urls: string[]): Media[] => urls.map((url) => ({ url, type: /\.(mp4|mov|webm|m4v|3gp)(\?|$)/i.test(url) ? "video" : "image" }));
+const isDoc = (u: string) => /\.(pdf|docx?|xlsx?|pptx?|csv|txt|dwg|dxf|zip)(\?|$)/i.test(u);
+export const toMedia = (urls: string[], names?: string[]): Media[] => urls.map((url, i) => ({ url, name: names?.[i], type: /\.(mp4|mov|webm|m4v|3gp)(\?|$)/i.test(url) ? "video" : isDoc(url) ? "file" : "image" }));
 
 const j = (body: unknown) => ({ method: "POST", body: JSON.stringify(body) });
 export const clientApi = {
   home: () => http<ClientHome>("/api/client/home"),
   updateMe: (p: { name?: string; phone?: string; country?: string }) => http("/api/client/me", { method: "PUT", body: JSON.stringify(p) }),
   site: (id: string) => http<ClientSite>(`/api/client/projects/${id}`),
-  siteMessages: (id: string) => http<ClientMessage[]>(`/api/client/projects/${id}/messages`),
-  sendSiteMessage: (id: string, body: string, media: Media[]) => http<ClientMessage>(`/api/client/projects/${id}/messages`, j({ body, media })),
+  siteMessages: (id: string, thread?: string) => http<ClientMessage[]>(`/api/client/projects/${id}/messages${thread ? `?thread=${encodeURIComponent(thread)}` : ""}`),
+  sendSiteMessage: (id: string, body: string, media: Media[], threadUserId?: string) => http<ClientMessage>(`/api/client/projects/${id}/messages`, j({ body, media, threadUserId })),
+  siteThreads: (id: string) => http<{ userId: string; name: string; role?: string | null }[]>(`/api/client/projects/${id}/threads`),
+  siteComments: (id: string) => http<ClientComment[]>(`/api/client/projects/${id}/comments`),
+  commentOnSite: (id: string, targetType: string, targetId: string, body: string, media: Media[]) => http<ClientComment>(`/api/client/projects/${id}/comments`, j({ targetType, targetId, body, media })),
+  quotes: () => http<ClientQuote[]>("/api/client/quotes"),
+  commentOnQuote: (id: string, body: string, media: Media[]) => http<ClientComment>(`/api/client/quotes/${id}/comments`, j({ body, media })),
   companies: () => http<Company[]>("/api/client/companies"),
   postJob: (p: Record<string, unknown>) => http("/api/client/jobs", j(p)),
   jobBids: (id: string) => http<any[]>(`/api/client/jobs/${id}/bids`),
@@ -78,13 +88,17 @@ export const clientApi = {
 
   // Contractor side
   projectClients: (pid: string) => http<{ id: string; email: string; name?: string | null; joined: boolean }[]>(`/api/projects/${pid}/clients`),
-  inviteClient: (pid: string, email: string, name?: string) => http<{ id: string; email: string; name?: string | null; joined: boolean }>(`/api/projects/${pid}/clients`, j({ email, name })),
+  inviteClient: (pid: string, email: string, name?: string, convert?: boolean) => http<{ id: string; email: string; name?: string | null; joined: boolean }>(`/api/projects/${pid}/clients`, j({ email, name, convert })),
+  projectComments: (pid: string) => http<ClientComment[]>(`/api/projects/${pid}/client-comments`),
+  replyComment: (pid: string, targetType: string, targetId: string, body: string, media: Media[]) => http<ClientComment>(`/api/projects/${pid}/client-comments`, j({ targetType, targetId, body, media })),
+  quoteComments: (qid: string) => http<ClientComment[]>(`/api/quotes/${qid}/client-comments`),
+  replyQuoteComment: (qid: string, body: string, media: Media[]) => http<ClientComment>(`/api/quotes/${qid}/client-comments`, j({ body, media })),
   removeClient: (pid: string, id: string) => http(`/api/projects/${pid}/clients/${id}`, { method: "DELETE" }),
   projectUpdates: (pid: string) => http<ClientUpdate[]>(`/api/projects/${pid}/client-updates`),
   postUpdate: (pid: string, p: { stage: string; kind: string; title: string; body?: string; media: Media[] }) => http<ClientUpdate>(`/api/projects/${pid}/client-updates`, j(p)),
   deleteUpdate: (pid: string, id: string) => http(`/api/projects/${pid}/client-updates/${id}`, { method: "DELETE" }),
-  projectMessages: (pid: string) => http<ClientMessage[]>(`/api/projects/${pid}/client-messages`),
-  sendProjectMessage: (pid: string, body: string, media: Media[]) => http<ClientMessage>(`/api/projects/${pid}/client-messages`, j({ body, media })),
+  projectMessages: (pid: string, priv?: boolean) => http<ClientMessage[]>(`/api/projects/${pid}/client-messages${priv ? "?thread=private" : ""}`),
+  sendProjectMessage: (pid: string, body: string, media: Media[], priv?: boolean) => http<ClientMessage>(`/api/projects/${pid}/client-messages`, j({ body, media, private: !!priv })),
   shareInspection: (id: string, visible: boolean) => http(`/api/inspections/${id}/client-visible`, j({ visible })),
 };
 

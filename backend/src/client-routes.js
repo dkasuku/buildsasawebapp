@@ -14,7 +14,8 @@ const STAGES = [
   'land_purchase', 'survey', 'clearing', 'fencing', 'gate', 'water', 'foundation', 'walling', 'roofing',
   'services', 'finishes', 'solar', 'cctv', 'landscaping', 'garbage', 'handover', 'other',
 ];
-const UPDATE_KINDS = ['progress', 'inspection', 'milestone', 'issue'];
+const UPDATE_KINDS = ['progress', 'inspection', 'milestone', 'issue', 'report', 'document'];
+const COMMENT_TARGETS = ['update', 'inspection', 'dailylog', 'quote', 'changeorder', 'selection', 'invoice'];
 const REPORTING_FEE_PERCENT = 10;
 
 module.exports = function clientRoutes(app, d) {
@@ -29,7 +30,7 @@ module.exports = function clientRoutes(app, d) {
     const out = arr.map((m) => (typeof m === 'string' ? { url: m } : m))
       .filter((m) => m && typeof m.url === 'string' && /^https?:\/\//i.test(m.url))
       .slice(0, 30)
-      .map((m) => ({ url: m.url, type: m.type === 'video' || /\.(mp4|mov|webm|m4v|3gp)(\?|$)/i.test(m.url) ? 'video' : 'image' }));
+      .map((m) => ({ url: m.url, name: m.name ? String(m.name).slice(0, 160) : undefined, type: m.type === 'video' || /\.(mp4|mov|webm|m4v|3gp)(\?|$)/i.test(m.url) ? 'video' : m.type === 'file' || /\.(pdf|docx?|xlsx?|pptx?|csv|txt|dwg|dxf|zip)(\?|$)/i.test(m.url) ? 'file' : 'image' }));
     return out.length ? JSON.stringify(out) : null;
   };
   const updateDto = (u) => ({ ...u, media: parse(u.media) });
@@ -139,6 +140,12 @@ module.exports = function clientRoutes(app, d) {
     try {
       const u = await me(req);
       await claimInvites(u);
+      if (u.workspaceId) {
+        const assigned = await prismaBase.assignment.findMany({ where: { userId: u.id }, select: { projectId: true } });
+        for (const a of assigned) {
+          await prismaBase.projectClient.upsert({ where: { projectId_email: { projectId: a.projectId, email: u.email.toLowerCase() } }, create: { workspaceId: u.workspaceId, projectId: a.projectId, email: u.email.toLowerCase(), name: u.name, userId: u.id, invitedBy: 'Team' }, update: { userId: u.id } }).catch(() => {});
+        }
+      }
       const links = await prismaBase.projectClient.findMany({ where: { OR: [{ userId: u.id }, { email: u.email.toLowerCase() }] } });
       const ids = [...new Set(links.map((l) => l.projectId))];
       const [projects, reporting, jobs] = await Promise.all([
@@ -229,7 +236,8 @@ module.exports = function clientRoutes(app, d) {
     try {
       const hit = await linkedProject(req, req.params.id);
       if (!hit) return res.status(404).json({ error: 'This site isn\'t linked to your account.' });
-      const rows = await prismaBase.clientMessage.findMany({ where: { projectId: hit.p.id }, orderBy: { createdAt: 'asc' }, take: 500 });
+      const thread = req.query.thread && req.query.thread !== 'group' ? String(req.query.thread) : null;
+      const rows = await prismaBase.clientMessage.findMany({ where: { projectId: hit.p.id, threadUserId: thread }, orderBy: { createdAt: 'asc' }, take: 500 });
       res.json(rows.map(msgDto));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -240,8 +248,73 @@ module.exports = function clientRoutes(app, d) {
       if (!hit) return res.status(404).json({ error: 'This site isn\'t linked to your account.' });
       const body = text(req.body?.body, 4000); const media = cleanMedia(req.body?.media);
       if (!body && !media) return res.status(400).json({ error: 'Write a message or attach a photo.' });
-      const row = await prismaBase.clientMessage.create({ data: { workspaceId: hit.p.workspaceId, projectId: hit.p.id, senderType: 'client', senderId: hit.u.id, senderName: hit.u.name, body, media } });
-      emailTeam(hit.p.workspaceId, `New message from your client on ${hit.p.name}`, `<b>${hit.u.name}</b> wrote: “${(body || 'sent photos').slice(0, 300)}”. Reply from the project's Client tab.`);
+      // A private reply is only allowed into a thread a team member opened.
+      let thread = req.body?.threadUserId ? String(req.body.threadUserId) : null;
+      if (thread && !(await prismaBase.clientMessage.findFirst({ where: { projectId: hit.p.id, threadUserId: thread } }))) thread = null;
+      const row = await prismaBase.clientMessage.create({ data: { workspaceId: hit.p.workspaceId, projectId: hit.p.id, threadUserId: thread, senderType: 'client', senderId: hit.u.id, senderName: hit.u.name, body, media } });
+      if (thread) {
+        const t = await prismaBase.user.findUnique({ where: { id: thread }, select: { email: true } });
+        if (t) notify(t.email, `Private message from your client on ${hit.p.name}`, p14(`<b>${hit.u.name}</b> wrote: “${(body || 'sent photos').slice(0, 300)}”. Reply in the project's Client tab, Private chat.`) + button(APP_URL, 'Open Buildsasa'));
+      } else emailTeam(hit.p.workspaceId, `New message from your client on ${hit.p.name}`, `<b>${hit.u.name}</b> wrote: “${(body || 'sent photos').slice(0, 300)}”. Reply from the project's Client tab.`);
+      res.json(msgDto(row));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Private chats a team member has opened with this client on a site.
+  app.get('/api/client/projects/:id/threads', auth, requireClient, async (req, res) => {
+    try {
+      const hit = await linkedProject(req, req.params.id);
+      if (!hit) return res.status(404).json({ error: 'This site isn\'t linked to your account.' });
+      const rows = await prismaBase.clientMessage.findMany({ where: { projectId: hit.p.id, threadUserId: { not: null } }, select: { threadUserId: true, createdAt: true }, orderBy: { createdAt: 'desc' } });
+      const ids = [...new Set(rows.map((r) => r.threadUserId))];
+      const users = await prismaBase.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, role: true } });
+      res.json(ids.map((id) => { const u = users.find((x) => x.id === id); return { userId: id, name: u ? u.name : 'Team member', role: u ? u.role : null }; }));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Comments on shared items, all of a site's at once (the client app groups them).
+  app.get('/api/client/projects/:id/comments', auth, requireClient, async (req, res) => {
+    try {
+      const hit = await linkedProject(req, req.params.id);
+      if (!hit) return res.status(404).json({ error: 'This site isn\'t linked to your account.' });
+      res.json((await prismaBase.clientComment.findMany({ where: { projectId: hit.p.id }, orderBy: { createdAt: 'asc' }, take: 1000 })).map(msgDto));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/client/projects/:id/comments', auth, requireClient, async (req, res) => {
+    try {
+      const hit = await linkedProject(req, req.params.id);
+      if (!hit) return res.status(404).json({ error: 'This site isn\'t linked to your account.' });
+      const b = req.body || {};
+      if (!COMMENT_TARGETS.includes(b.targetType) || !b.targetId) return res.status(400).json({ error: 'What are you commenting on?' });
+      const body = text(b.body, 3000); const media = cleanMedia(b.media);
+      if (!body && !media) return res.status(400).json({ error: 'Write a comment or attach a photo.' });
+      const row = await prismaBase.clientComment.create({ data: { workspaceId: hit.p.workspaceId, projectId: hit.p.id, targetType: b.targetType, targetId: String(b.targetId), authorType: 'client', authorId: hit.u.id, authorName: hit.u.name, body, media } });
+      emailTeam(hit.p.workspaceId, `Your client commented on ${hit.p.name}`, `<b>${hit.u.name}</b> commented on a shared ${b.targetType === 'dailylog' ? 'daily log' : b.targetType === 'changeorder' ? 'change order' : b.targetType}: “${(body || 'sent photos').slice(0, 300)}”. Reply from the project's Client tab, Client feedback.`);
+      res.json(msgDto(row));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Quotes and proposals sent to this client's email, from any company.
+  app.get('/api/client/quotes', auth, requireClient, async (req, res) => {
+    try {
+      const u = await me(req);
+      const qs = await prismaBase.quote.findMany({ where: { clientEmail: { equals: u.email, mode: 'insensitive' }, publicToken: { not: null }, status: { in: ['sent', 'accepted', 'declined'] } }, orderBy: { createdAt: 'desc' } });
+      const ws = await prismaBase.workspace.findMany({ where: { id: { in: qs.map((q) => q.workspaceId).filter(Boolean) } }, select: { id: true, name: true } });
+      const comments = await prismaBase.clientComment.findMany({ where: { targetType: 'quote', targetId: { in: qs.map((q) => q.id) } }, orderBy: { createdAt: 'asc' } });
+      res.json(qs.map((q) => ({ id: q.id, token: q.publicToken, quoteNumber: q.quoteNumber, title: q.title, total: q.total, status: q.status, validUntil: q.validUntil, sentAt: q.sentAt, company: (ws.find((w) => w.id === q.workspaceId) || {}).name || 'Your contractor', comments: comments.filter((c) => c.targetId === q.id).map(msgDto) })));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/client/quotes/:id/comments', auth, requireClient, async (req, res) => {
+    try {
+      const u = await me(req);
+      const q = await prismaBase.quote.findUnique({ where: { id: req.params.id } });
+      if (!q || !q.clientEmail || q.clientEmail.toLowerCase() !== u.email.toLowerCase() || !q.publicToken) return res.status(404).json({ error: 'Quote not found.' });
+      const body = text(req.body?.body, 3000); const media = cleanMedia(req.body?.media);
+      if (!body && !media) return res.status(400).json({ error: 'Write a comment or attach a photo.' });
+      const row = await prismaBase.clientComment.create({ data: { workspaceId: q.workspaceId, projectId: q.projectId || null, targetType: 'quote', targetId: q.id, authorType: 'client', authorId: u.id, authorName: u.name, body, media } });
+      emailTeam(q.workspaceId, `${u.name} commented on quote ${q.quoteNumber}`, `“${(body || 'sent photos').slice(0, 300)}” on <b>${q.title}</b>. Open Quotes in Buildsasa to reply or revise it.`);
       res.json(msgDto(row));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -459,12 +532,23 @@ module.exports = function clientRoutes(app, d) {
       const email = String(req.body?.email || '').trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Enter the client\'s email address.' });
       const existingUser = await prismaBase.user.findUnique({ where: { email } });
-      if (existingUser && existingUser.role !== 'Client') return res.status(409).json({ error: 'That email belongs to a company account, not a client. Ask the client for a personal email.' });
+      if (existingUser && existingUser.role !== 'Client') {
+        // Someone the contractor added to its own team (often as a viewer) can be
+        // moved to a client account, keeping their login, so they get the client panel.
+        const sameTeam = existingUser.workspaceId === p.workspaceId;
+        const owner = ['Contractor', 'Owner', 'Executive'].includes(existingUser.role);
+        if (sameTeam && !owner && req.body?.convert === true) {
+          await prismaBase.user.update({ where: { id: existingUser.id }, data: { role: 'Client' } });
+          existingUser.role = 'Client';
+        } else if (sameTeam && !owner) {
+          return res.status(409).json({ code: 'team_member', error: `${existingUser.name} is on your team as ${existingUser.role}. Move them to a client account so they get the client panel? They keep the same login.` });
+        } else return res.status(409).json({ error: 'That email belongs to a company account, not a client. Ask the client for a personal email.' });
+      }
       const name = text(req.body?.name, 120);
       const row = await prismaBase.projectClient.upsert({
         where: { projectId_email: { projectId: p.id, email } },
         create: { workspaceId: p.workspaceId, projectId: p.id, email, name, userId: existingUser ? existingUser.id : null, invitedBy: req.user.name || null },
-        update: { name: name || undefined },
+        update: { name: name || undefined, ...(existingUser ? { userId: existingUser.id } : {}) },
       });
       const company = await prismaBase.workspace.findUnique({ where: { id: p.workspaceId } });
       const link = `${APP_URL}/?as=client&email=${encodeURIComponent(email)}`;
@@ -530,7 +614,9 @@ module.exports = function clientRoutes(app, d) {
     try {
       const p = await ownProject(req.params.projectId);
       if (!p) return res.status(404).json({ error: 'Project not found' });
-      res.json((await prismaBase.clientMessage.findMany({ where: { projectId: p.id }, orderBy: { createdAt: 'asc' }, take: 500 })).map(msgDto));
+      // The team chat is visible to everyone on the team; a private chat only to its owner.
+      const thread = req.query.thread === 'private' ? req.user.sub : null;
+      res.json((await prismaBase.clientMessage.findMany({ where: { projectId: p.id, threadUserId: thread }, orderBy: { createdAt: 'asc' }, take: 500 })).map(msgDto));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -540,8 +626,51 @@ module.exports = function clientRoutes(app, d) {
       if (!p) return res.status(404).json({ error: 'Project not found' });
       const body = text(req.body?.body, 4000); const media = cleanMedia(req.body?.media);
       if (!body && !media) return res.status(400).json({ error: 'Write a message or attach a photo.' });
-      const row = await prismaBase.clientMessage.create({ data: { workspaceId: p.workspaceId, projectId: p.id, senderType: 'team', senderId: req.user.sub, senderName: req.user.name || 'Site team', body, media } });
+      const row = await prismaBase.clientMessage.create({ data: { workspaceId: p.workspaceId, projectId: p.id, threadUserId: req.body?.private ? req.user.sub : null, senderType: 'team', senderId: req.user.sub, senderName: req.user.name || 'Site team', body, media } });
       emailClients(p.id, `New message about ${p.name}`, `<b>${req.user.name || 'Your contractor'}</b>: “${(body || 'sent photos').slice(0, 300)}”`);
+      res.json(msgDto(row));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/projects/:projectId/client-comments', auth, async (req, res) => {
+    try {
+      const p = await ownProject(req.params.projectId);
+      if (!p) return res.status(404).json({ error: 'Project not found' });
+      res.json((await prismaBase.clientComment.findMany({ where: { projectId: p.id }, orderBy: { createdAt: 'asc' }, take: 1000 })).map(msgDto));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/projects/:projectId/client-comments', auth, async (req, res) => {
+    try {
+      const p = await ownProject(req.params.projectId);
+      if (!p) return res.status(404).json({ error: 'Project not found' });
+      const b = req.body || {};
+      if (!COMMENT_TARGETS.includes(b.targetType) || !b.targetId) return res.status(400).json({ error: 'What are you replying to?' });
+      const body = text(b.body, 3000); const media = cleanMedia(b.media);
+      if (!body && !media) return res.status(400).json({ error: 'Write a reply or attach a photo.' });
+      const row = await prismaBase.clientComment.create({ data: { workspaceId: p.workspaceId, projectId: p.id, targetType: b.targetType, targetId: String(b.targetId), authorType: 'team', authorId: req.user.sub, authorName: req.user.name || 'Site team', body, media } });
+      emailClients(p.id, `${req.user.name || 'Your contractor'} replied on ${p.name}`, `“${(body || 'sent photos').slice(0, 300)}”`);
+      res.json(msgDto(row));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Client comments on a quote, and the team's reply (Quotes page).
+  app.get('/api/quotes/:id/client-comments', auth, async (req, res) => {
+    try {
+      const q = await prisma.quote.findUnique({ where: { id: req.params.id } });
+      if (!q || q.workspaceId !== currentWs()) return res.status(404).json({ error: 'Quote not found' });
+      res.json((await prismaBase.clientComment.findMany({ where: { targetType: 'quote', targetId: q.id }, orderBy: { createdAt: 'asc' } })).map(msgDto));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/quotes/:id/client-comments', auth, async (req, res) => {
+    try {
+      const q = await prisma.quote.findUnique({ where: { id: req.params.id } });
+      if (!q || q.workspaceId !== currentWs()) return res.status(404).json({ error: 'Quote not found' });
+      const body = text(req.body?.body, 3000); const media = cleanMedia(req.body?.media);
+      if (!body && !media) return res.status(400).json({ error: 'Write a reply or attach a photo.' });
+      const row = await prismaBase.clientComment.create({ data: { workspaceId: q.workspaceId, projectId: q.projectId || null, targetType: 'quote', targetId: q.id, authorType: 'team', authorId: req.user.sub, authorName: req.user.name || 'Your contractor', body, media } });
+      if (q.clientEmail) notify(q.clientEmail, `Reply about quote ${q.quoteNumber}`, p14(`“${(body || 'sent photos').slice(0, 300)}”`) + button(`${APP_URL}/?as=client`, 'Open Buildsasa'));
       res.json(msgDto(row));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });

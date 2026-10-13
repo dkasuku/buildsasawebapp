@@ -5,18 +5,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Bell, Briefcase, Building2, CalendarDays, Camera, ChevronRight, ClipboardCheck, Eye, Home, Loader2,
+  ArrowLeft, Bell, Briefcase, FileSignature, Building2, CalendarDays, Camera, ChevronRight, ClipboardCheck, Eye, Home, Loader2,
   LogOut, MapPin, MessageCircle, Moon, Phone, Search, ShieldCheck, Sun, User, Users, Wallet,
 } from "lucide-react";
-import { ChatThread, Chip, MediaGrid, MediaPicker, UpdateFeed } from "./ClientParts";
+import { ChatThread, Chip, CommentThread, MediaGrid, MediaPicker, UpdateFeed } from "./ClientParts";
+import { PublicQuoteView } from "../PublicQuoteView";
 import { PublicPortalView } from "../PublicPortalView";
 import { RateDialog, Stars, TrustBadge } from "./Trust";
 import { MapPicker } from "../MapPicker";
 import { useWelcome, WelcomeModal } from "../Welcome";
-import { clientApi, kes, SERVICES, STAGES, stageLabel, toMedia, when, type ClientHome, type Company, type Media, type Reporting } from "./clientData";
+import { clientApi, kes, SERVICES, STAGES, stageLabel, toMedia, when, type ClientComment, type ClientHome, type ClientQuote, type Company, type Media, type Reporting } from "./clientData";
 
 type View = { name: "home" } | { name: "sites" } | { name: "site"; id: string; tab?: string } | { name: "messages" } | { name: "companies" }
-  | { name: "jobs"; company?: Company } | { name: "reporting" } | { name: "report"; id: string } | { name: "account" };
+  | { name: "jobs"; company?: Company } | { name: "reporting" } | { name: "report"; id: string } | { name: "account" } | { name: "quotes" };
 
 const input = "w-full h-10 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]/60";
 const area = "w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]/60";
@@ -50,6 +51,7 @@ export function ClientApp({ theme, setTheme, onSignOut }: { theme: "dark" | "lig
     { key: "home", label: "Home", icon: Home, badge: home?.todo.length || 0 },
     { key: "sites", label: "My sites", icon: Building2 },
     { key: "messages", label: "Messages", icon: MessageCircle },
+    { key: "quotes", label: "Quotes & proposals", icon: FileSignature },
     { key: "reporting", label: "Site reporting", icon: ShieldCheck },
     { key: "companies", label: "Companies", icon: Users },
     { key: "jobs", label: "Post a job", icon: Briefcase },
@@ -100,6 +102,7 @@ export function ClientApp({ theme, setTheme, onSignOut }: { theme: "dark" | "lig
               {view.name === "reporting" && <ReportingView home={home} go={go} reload={reload} />}
               {view.name === "report" && <ReportView id={view.id} go={go} reload={reload} />}
               {view.name === "account" && <AccountView home={home} reload={reload} onSignOut={onSignOut} />}
+              {view.name === "quotes" && <QuotesView />}
             </>
           )}
         </main>
@@ -250,6 +253,17 @@ function SiteView({ id, initialTab, go }: { id: string; initialTab?: string; go:
   const [err, setErr] = useState("");
   const [tab, setTab] = useState(initialTab || "progress");
   const [rating, setRating] = useState(false);
+  const [comments, setComments] = useState<ClientComment[]>([]);
+  const [threads, setThreads] = useState<{ userId: string; name: string; role?: string | null }[]>([]);
+  const [thread, setThread] = useState<string>("group");
+  useEffect(() => {
+    clientApi.siteComments(id).then(setComments).catch(() => {});
+    clientApi.siteThreads(id).then(setThreads).catch(() => {});
+  }, [id]);
+  const thr = (type: string, tid: string) => (
+    <CommentThread mineType="client" comments={comments.filter((c) => c.targetType === type && c.targetId === tid)}
+      onSend={async (b, m) => { const c = await clientApi.commentOnSite(id, type, tid, b, m); setComments((x) => [...x, c]); }} />
+  );
   useEffect(() => { clientApi.site(id).then(setD).catch((e) => setErr(e?.message || "Couldn't open this site.")); }, [id]);
   if (err) return <div><Title title="Site" back={() => go({ name: "sites" })} /><div className={`${card} p-6 text-[13px] text-[#8A95A5]`}>{err}</div></div>;
   if (!d) return <div className="py-20 text-center text-[13px] text-[#8A95A5]"><Loader2 className="w-5 h-5 animate-spin inline mr-2" />Opening site…</div>;
@@ -282,7 +296,7 @@ function SiteView({ id, initialTab, go }: { id: string; initialTab?: string; go:
       {tab === "progress" && (
         <>
           <StageStrip updates={d.updates} />
-          <UpdateFeed updates={d.updates} empty="Your contractor hasn't shared progress updates yet. Photos and videos of each stage will appear here. You can ask for them in the Chat tab." />
+          <UpdateFeed updates={d.updates} renderComments={(u) => thr("update", u.id)} empty="Your contractor hasn't shared progress updates yet. Photos and videos of each stage will appear here. You can ask for them in the Chat tab." />
           {d.photos?.length > 0 && <div className="mt-5"><div className="text-[13px] font-medium mb-2">Site photos from daily logs</div><MediaGrid media={d.photos.flatMap((l: any) => [...toMedia(l.photos), ...l.videos.map((u: string) => ({ url: u, type: "video" as const }))])} max={16} /></div>}
         </>
       )}
@@ -296,6 +310,7 @@ function SiteView({ id, initialTab, go }: { id: string; initialTab?: string; go:
               {l.location && <span className="text-[#8A95A5] inline-flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{l.location}</span>}
             </div>
             {(l.photos.length > 0 || l.videos.length > 0) && <div className="mt-3"><MediaGrid media={[...toMedia(l.photos), ...l.videos.map((u: string) => ({ url: u, type: "video" as const }))]} /></div>}
+            {thr("dailylog", l.id)}
           </div>
         ))}</div>
       ))}
@@ -311,12 +326,40 @@ function SiteView({ id, initialTab, go }: { id: string; initialTab?: string; go:
               <ul className="mt-2 space-y-1">{i.checklist.slice(0, 20).map((c: any, k: number) => <li key={k} className="text-[12px] text-[#C2CAD6] flex gap-2"><span className={c.checked || c.done || c.passed ? "text-[#22C55E]" : "text-[#5B6675]"}>{c.checked || c.done || c.passed ? "✓" : "•"}</span>{c.label || c.item || c.text || String(c)}</li>)}</ul>
             )}
             {(i.photos.length > 0 || i.videos.length > 0) && <div className="mt-3"><MediaGrid media={[...toMedia(i.photos), ...i.videos.map((u: string) => ({ url: u, type: "video" as const }))]} /></div>}
+            {thr("inspection", i.id)}
           </div>
         ))}</div>
       ))}
-      {tab === "approvals" && <PublicPortalView token={d.portalToken} embedded />}
+      {tab === "approvals" && (
+        <>
+          <PublicPortalView token={d.portalToken} embedded />
+          {/* Change orders, selections and invoices can be discussed here too, with photos. */}
+          {[...(d.changeOrders || []).map((c: any) => ({ type: "changeorder", id: c.id, label: `Change order ${c.number || ""}: ${c.title}` })),
+            ...(d.selections || []).map((s: any) => ({ type: "selection", id: s.id, label: `Selection: ${s.name}${s.room ? ` (${s.room})` : ""}` }))].length > 0 && (
+            <section className={`${card} p-4 mt-4`}>
+              <div className="text-[13px]">Ask for a change or improvement</div>
+              <p className="text-[11.5px] text-[#8A95A5]">Comment on any change order or finish, with photos, and your contractor replies here.</p>
+              {[...(d.changeOrders || []).map((c: any) => ({ type: "changeorder", id: c.id, label: `Change order ${c.number || ""}: ${c.title}` })),
+                ...(d.selections || []).map((s: any) => ({ type: "selection", id: s.id, label: `Selection: ${s.name}${s.room ? ` (${s.room})` : ""}` }))].map((t) => (
+                <div key={t.type + t.id} className="mt-3"><div className="text-[12.5px] text-white">{t.label}</div>{thr(t.type, t.id)}</div>
+              ))}
+            </section>
+          )}
+        </>
+      )}
       {rating && company && <RateDialog companyId={d.companyId} companyName={company.name} onClose={() => setRating(false)} />}
-      {tab === "chat" && <ChatThread load={() => clientApi.siteMessages(id)} send={(b, m) => clientApi.sendSiteMessage(id, b, m)} mine={(m) => m.senderType === "client"} placeholder={`Message ${company?.name || "your contractor"}…`} />}
+      {tab === "chat" && (
+        <>
+          {threads.length > 0 && (
+            <div className="flex gap-1.5 overflow-x-auto pb-2">
+              <Chip on={thread === "group"} onClick={() => setThread("group")}>Whole team</Chip>
+              {threads.map((t) => <Chip key={t.userId} on={thread === t.userId} onClick={() => setThread(t.userId)}>Private · {t.name}</Chip>)}
+            </div>
+          )}
+          <p className="text-[11.5px] text-[#8A95A5] mb-2">{thread === "group" ? `Everyone on ${company?.name || "your contractor"}'s project team can read this chat.` : "A private chat: only you and this person can read it."}</p>
+          <ChatThread key={thread} load={() => clientApi.siteMessages(id, thread === "group" ? undefined : thread)} send={(b, m) => clientApi.sendSiteMessage(id, b, m, thread === "group" ? undefined : thread)} mine={(m) => m.senderType === "client"} placeholder={`Message ${company?.name || "your contractor"}…`} />
+        </>
+      )}
     </div>
   );
 }
@@ -599,6 +642,42 @@ function ReportView({ id, go, reload }: { id: string; go: (v: View) => void; rel
   );
 }
 
+// ───────────── Quotes & proposals ─────────────
+function QuotesView() {
+  const [rows, setRows] = useState<ClientQuote[] | null>(null);
+  const [open, setOpen] = useState<ClientQuote | null>(null);
+  const load = () => clientApi.quotes().then(setRows).catch(() => setRows([]));
+  useEffect(() => { load(); }, []);
+  if (open) {
+    return (
+      <div>
+        <Title title={`${open.quoteNumber}: ${open.title}`} sub={`From ${open.company}`} back={() => { setOpen(null); load(); }} />
+        <PublicQuoteView token={open.token} embedded />
+        <section className={`${card} p-4 mt-4`}>
+          <div className="text-[13px]">Questions or changes?</div>
+          <p className="text-[11.5px] text-[#8A95A5]">Ask {open.company} to change anything before you accept, with photos if it helps. They reply here.</p>
+          <CommentThread mineType="client" comments={open.comments} prompt="e.g. Can you price ceramic tiles instead of porcelain in the bathrooms?"
+            onSend={async (b, m) => { const c = await clientApi.commentOnQuote(open.id, b, m); setOpen({ ...open, comments: [...open.comments, c] }); }} />
+        </section>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <Title title="Quotes & proposals" sub="Quotes companies have sent to your email. Read, ask for changes, then accept or decline." />
+      {rows === null ? <div className="py-12 text-center text-[13px] text-[#8A95A5]"><Loader2 className="w-4 h-4 animate-spin inline mr-1" /> Loading…</div>
+        : rows.length === 0 ? <Empty text="No quotes yet. When a contractor sends a quote to your email address, it appears here." />
+        : <div className="space-y-2">{rows.map((q) => (
+          <button key={q.id} onClick={() => setOpen(q)} className={`${card} w-full p-3 flex items-center gap-3 text-left hover:border-[#FF6B1A]/50`}>
+            <FileSignature className="w-5 h-5 text-[#FF6B1A] shrink-0" />
+            <div className="min-w-0 flex-1"><div className="text-[13px] truncate">{q.quoteNumber} · {q.title}</div><div className="text-[11.5px] text-[#8A95A5] truncate">{q.company} · {kes(q.total)}{q.validUntil ? ` · valid until ${q.validUntil}` : ""}{q.comments.length ? ` · ${q.comments.length} comment${q.comments.length > 1 ? "s" : ""}` : ""}</div></div>
+            <Badge s={q.status === "accepted" ? "active" : q.status === "declined" ? "declined" : "requested"} label={q.status === "sent" ? "Waiting for you" : q.status} />
+          </button>
+        ))}</div>}
+    </div>
+  );
+}
+
 // ───────────── Account ─────────────
 function AccountView({ home, reload, onSignOut }: { home: ClientHome; reload: () => void; onSignOut: () => void }) {
   const [f, setF] = useState({ name: home.user.name, phone: home.user.phone || "", country: home.user.country || "" });
@@ -620,6 +699,7 @@ function AccountView({ home, reload, onSignOut }: { home: ClientHome; reload: ()
         {/* Phone users reach the rest of the menu from here. */}
         <a href="#companies" onClick={(e) => { e.preventDefault(); document.dispatchEvent(new CustomEvent("client-go", { detail: "companies" })); }} className={ghost}><Users className="w-4 h-4" /> Companies</a>
         <a href="#jobs" onClick={(e) => { e.preventDefault(); document.dispatchEvent(new CustomEvent("client-go", { detail: "jobs" })); }} className={ghost}><Briefcase className="w-4 h-4" /> Post a job</a>
+        <a href="#quotes" onClick={(e) => { e.preventDefault(); document.dispatchEvent(new CustomEvent("client-go", { detail: "quotes" })); }} className={`${ghost} col-span-2`}><FileSignature className="w-4 h-4" /> Quotes & proposals</a>
       </div>
       <button onClick={onSignOut} className={ghost}><LogOut className="w-4 h-4" /> Sign out</button>
     </div>

@@ -1586,6 +1586,9 @@ model ClientMessage {
   projectId   String?
   reportingId String?
   senderType  String   // client | team | buildsasa
+  // Null = the project's team chat (everyone on the contractor's team sees it).
+  // Set = a private chat between the client and this one team member.
+  threadUserId String?
   senderId    String?
   senderName  String
   body        String?
@@ -1656,4 +1659,24 @@ model ContractorRating {
 
   @@unique([workspaceId, clientUserId])
   @@index([workspaceId])
+}
+
+// A comment on anything shared with a client: a progress update, inspection,
+// daily log, quote, change order, selection or invoice. Clients use it to ask
+// for a change or an improvement, with photos; the team replies in the thread.
+model ClientComment {
+  id          String   @id @default(cuid())
+  workspaceId String
+  projectId   String?
+  targetType  String   // update | inspection | dailylog | quote | changeorder | selection | invoice
+  targetId    String
+  authorType  String   // client | team
+  authorId    String?
+  authorName  String
+  body        String?
+  media       String?
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId, targetType, targetId])
+  @@index([projectId, createdAt])
 }
