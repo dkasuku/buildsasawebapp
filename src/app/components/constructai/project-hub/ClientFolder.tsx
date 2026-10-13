@@ -11,7 +11,7 @@ import { clientApi, STAGES, UPDATE_KINDS, when, type ClientComment, type ClientU
 const input = "w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-[12.5px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]/60";
 const card = "rounded-xl border border-[#222A35] bg-[#11161D]";
 
-export function ClientFolder({ projectId, canInvite }: { projectId: string; canInvite: boolean }) {
+export function ClientFolder({ projectId, canInvite, onOpenPortal }: { projectId: string; canInvite: boolean; /** The older view-only link, for clients who won't create an account. */ onOpenPortal?: () => void }) {
   const [clients, setClients] = useState<{ id: string; email: string; name?: string | null; joined: boolean }[] | null>(null);
   const [updates, setUpdates] = useState<ClientUpdate[] | null>(null);
   const [tab, setTab] = useState<"updates" | "chat" | "feedback">("updates");
@@ -103,6 +103,7 @@ export function ClientFolder({ projectId, canInvite }: { projectId: string; canI
             <button onClick={() => copyLink(inv.email.trim())} className="inline-flex items-center gap-1 text-[#8A95A5] hover:text-white"><Copy className="w-3.5 h-3.5" /> Copy invite link</button>
             <a href={`https://wa.me/?text=${encodeURIComponent(`Follow our project on Buildsasa: photos and videos of every stage, approvals and chat. Create your free client account here: ${link(inv.email.trim())}`)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#25D366]"><MessageCircle className="w-3.5 h-3.5" /> Send invite on WhatsApp</a>
             <span className="text-[#5B6675]">The client must sign up with the email you invite, then the project appears for them.</span>
+            {onOpenPortal && <button onClick={onOpenPortal} className="text-[#8A95A5] hover:text-white underline">Client won't sign up? Share a view-only link instead</button>}
           </div>
         )}
         <div className="mt-3 text-[11px] text-[#5B6675] flex items-start gap-1.5"><Eye className="w-3.5 h-3.5 mt-0.5 shrink-0" />Daily logs are shared by default (photos, videos, weather and headcount; your notes stay internal), and you can switch any log off. Inspections are shared one by one with the "Share with client" button on each inspection.</div>

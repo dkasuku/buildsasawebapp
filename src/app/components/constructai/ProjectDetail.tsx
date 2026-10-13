@@ -161,8 +161,8 @@ export function ProjectDetail({
         <div className="flex items-center gap-2">
           <button onClick={refresh} title="Refresh" className="h-9 w-9 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center">{refreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}</button>
           {canSharePortal && (
-            <button onClick={() => setPortalOpen(true)} title="Share a private progress link with your client" className="h-9 px-3 rounded-md border border-[#222A35] text-[12px] text-[#C2CAD6] hover:text-white flex items-center gap-1.5">
-              <Share2 className="w-3.5 h-3.5" /> Client portal{project.portalToken && <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]" title="On" />}
+            <button onClick={() => setFolder("client")} title="Invite the project owner to follow progress in their free client account" className="h-9 px-3 rounded-md border border-[#222A35] text-[12px] text-[#C2CAD6] hover:text-white flex items-center gap-1.5">
+              <UserCheck className="w-3.5 h-3.5" /> Invite client
             </button>
           )}
           {onEdit && <button onClick={onEdit} className={btnPrimary}><Pencil className="w-3.5 h-3.5" /> Edit project</button>}
@@ -259,7 +259,7 @@ export function ProjectDetail({
           {folder === "site" && <SiteFolder projectId={projectId} site={data.site} progress={progress} schedule={data.schedule} docs={data.documents} canEdit={perms.completeTasks || canEditDocs} onChanged={refresh} />}
           {folder === "costs" && showFin && <CostControlFolder costs={costs} setView={setView} onSetContractSum={() => setContractModal(true)} />}
           {folder === "report" && perms.viewReports && <ReportFolder data={data} setView={setView} />}
-          {folder === "client" && <ClientFolder projectId={projectId} canInvite={canSharePortal} />}
+          {folder === "client" && <ClientFolder projectId={projectId} canInvite={canSharePortal} onOpenPortal={canSharePortal ? () => setPortalOpen(true) : undefined} />}
           {folder === "closeout" && <ProjectCloseout projectId={projectId} canEdit={canManageBids(role)} />}
         </div>
       </div>

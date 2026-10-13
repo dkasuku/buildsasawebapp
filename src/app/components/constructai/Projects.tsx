@@ -18,6 +18,7 @@ import type { Checklist } from "./ChecklistBuilder";
 import { useCurrency } from "./CurrencyContext";
 import { formatCompactCurrency, formatCurrency, USD_TO_KES } from "./currency";
 import { warnSaveFailed } from "./saveFeedback";
+import { clientApi } from "./client/clientData";
 
 const $toKES = (dollars: number) => Math.round(dollars * 130);
 
@@ -269,6 +270,8 @@ export function Projects({
   const team = useTeam();
   const [projects, setProjects] = useState<Project[]>([]);
   const [showNew, setShowNew] = useState(false);
+  // The project owner can be invited as part of creating the project.
+  const [newClient, setNewClient] = useState({ name: "", email: "" });
   const [codeTouched, setCodeTouched] = useState(false);
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
   const autoCode = (name: string) => name.trim() ? name.split(" ").filter(Boolean).map((w) => w[0]).join("").toUpperCase().slice(0, 4) + "-" + String(projects.length + 1).padStart(2, "0") : "";
@@ -496,6 +499,14 @@ export function Projects({
       // failure must not read as "the project wasn't created" — but it must not be
       // silent either, which is what Promise.allSettled did here.
       await saveTeam(pid, form, "created");
+      if (newClient.email.trim()) {
+        // The project exists either way; a failed invite is reported, not fatal.
+        try {
+          const c = await clientApi.inviteClient(pid, newClient.email.trim(), newClient.name.trim() || undefined);
+          toast.success(c.joined ? `${newClient.name.trim() || newClient.email.trim()} can now follow this project in their client account.` : `Invitation emailed to ${newClient.email.trim()}. The project appears once they create their free client account.`);
+        } catch (e: any) { toast.error(`Project created, but the client invite failed: ${e?.message || "unknown error"}. Try again from the project's Client tab.`, { duration: 9000 }); }
+        setNewClient({ name: "", email: "" });
+      }
       if (pendingFileCount(newFiles)) {
         const r = await commitProjectFiles(pid, newFiles);
         if (r.saved) toast.success(`${r.saved} file${r.saved === 1 ? "" : "s"} filed on the project`);
@@ -1246,6 +1257,15 @@ export function Projects({
                     ))}
                   </div>
                 )}
+              </div>
+
+              <div className="rounded-lg border border-[#222A35] bg-[#0A0E14] p-3">
+                <label className="text-[11px] text-[#8A95A5] block">Client (optional): the person you're building for</label>
+                <p className="text-[11px] text-[#5B6675] mt-0.5 mb-2">They get a free client account to follow progress, approve changes and chat with you. You can also invite them later from the project's Client tab.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input value={newClient.name} onChange={(e) => setNewClient({ ...newClient, name: e.target.value })} placeholder="Client's name, e.g. Mary Wanjiru" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[12px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]/50" />
+                  <input type="email" value={newClient.email} onChange={(e) => setNewClient({ ...newClient, email: e.target.value })} placeholder="Client's email, e.g. mary@gmail.com" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[12px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]/50" />
+                </div>
               </div>
 
               <div>
