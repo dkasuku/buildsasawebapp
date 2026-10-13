@@ -557,7 +557,7 @@ function ReportingView({ home, go, reload }: { home: ClientHome; go: (v: View) =
         <div className="grid sm:grid-cols-3 gap-3 text-[12.5px]">
           <div><Eye className="w-5 h-5 text-[#FF6B1A]" /><div className="mt-1.5 text-white">Independent eyes on site</div><div className="text-[#8A95A5]">Our reporters work for you, not the contractor. No bias, no cover-ups.</div></div>
           <div><Camera className="w-5 h-5 text-[#FF6B1A]" /><div className="mt-1.5 text-white">Photos and videos of every stage</div><div className="text-[#8A95A5]">From beaconing and fencing to roofing, landscaping and handover, all in your account.</div></div>
-          <div><Wallet className="w-5 h-5 text-[#FF6B1A]" /><div className="mt-1.5 text-white">10% of the project cost, paid monthly</div><div className="text-[#8A95A5]">Spread over the months we report and paid directly to Buildsasa after we call you (M-Pesa, bank or international transfer). Transport and lunch for each visit are paid separately.</div></div>
+          <div><Wallet className="w-5 h-5 text-[#FF6B1A]" /><div className="mt-1.5 text-white">10% of what your building work costs, paid monthly</div><div className="text-[#8A95A5]">Spread over the months we report and paid directly to Buildsasa after we call you (M-Pesa, bank or international transfer). Transport and lunch for each visit are paid separately.</div></div>
         </div>
       </section>
 
@@ -571,7 +571,7 @@ function ReportingView({ home, go, reload }: { home: ClientHome; go: (v: View) =
             <div className="block sm:col-span-2"><span className="text-[11.5px] text-[#8A95A5]">Where is it? * Search, use your location, or pin the plot on the map</span>
               <MapPicker value={f.location} latLng={pin} onChange={(location) => setF((x) => ({ ...x, location }))} onLatLngChange={setPin} placeholder="e.g. Juja Farm, Kiambu" />
             </div>
-            <label className="block"><span className="text-[11.5px] text-[#8A95A5]">Total project cost in KES *</span><input type="number" value={f.projectCostKES} onChange={set("projectCostKES")} placeholder="e.g. 4500000" className={input} /></label>
+            <label className="block"><span className="text-[11.5px] text-[#8A95A5]">What will the whole construction cost? (KES) *</span><span className="block text-[10.5px] text-[#5B6675]">The total you expect to pay your contractor for the work, e.g. building the house. This is not what you pay Buildsasa; our fee is 10% of this.</span><input type="number" value={f.projectCostKES} onChange={set("projectCostKES")} placeholder="e.g. 4500000" className={input} /></label>
             <label className="block"><span className="text-[11.5px] text-[#8A95A5]">How many months should we report? *</span><input type="number" min={1} max={60} value={f.months} onChange={set("months")} placeholder="e.g. 6" className={input} /></label>
             {home.projects.length > 0 && (
               <label className="block"><span className="text-[11.5px] text-[#8A95A5]">Is it one of your shared sites?</span>
@@ -587,14 +587,14 @@ function ReportingView({ home, go, reload }: { home: ClientHome; go: (v: View) =
           <label className="block"><span className="text-[11.5px] text-[#8A95A5]">Anything we should know?</span><textarea rows={3} value={f.notes} onChange={set("notes")} placeholder="e.g. The contractor says the foundation is done but I haven't seen photos. Please check the beacons too." className={area} /></label>
           {cost > 0 && (
             <div className="rounded-lg border border-[#FF6B1A]/30 bg-[#FF6B1A]/5 p-3 text-[12.5px]">
-              <div className="flex justify-between"><span className="text-[#8A95A5]">Reporting fee (10% of {kes(cost)})</span><span>{kes(fee)}</span></div>
-              <div className="flex justify-between mt-1"><span className="text-[#8A95A5]">Paid monthly over {months} month{months > 1 ? "s" : ""}</span><span className="text-[#FF6B1A] font-medium">{kes(monthly)} / month</span></div>
+              <div className="flex justify-between"><span className="text-[#8A95A5]">Buildsasa reporting fee (10% of your {kes(cost)} construction cost)</span><span>{kes(fee)}</span></div>
+              <div className="flex justify-between mt-1"><span className="text-[#8A95A5]">You pay Buildsasa monthly over {months} month{months > 1 ? "s" : ""}</span><span className="text-[#FF6B1A] font-medium">{kes(monthly)} / month</span></div>
               <div className="text-[11px] text-[#8A95A5] mt-2">Plus transport and lunch for the reporter on each visit day, agreed with our team before the first visit. Nothing is paid in the app: our team calls you first and agrees how you'll pay.</div>
             </div>
           )}
           <label className="flex items-start gap-2.5 cursor-pointer rounded-lg border border-[#222A35] p-3">
             <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#FF6B1A]" />
-            <span className="text-[12.5px] text-[#C2CAD6]">I want the Buildsasa team to visit and share my site's progress with me, and I agree to pay <b className="text-white">10% of the total project cost</b>{cost > 0 ? <> ({kes(fee)}, about <b className="text-white">{kes(monthly)} a month</b>)</> : null}, paid monthly, plus transport and lunch for each visit.</span>
+            <span className="text-[12.5px] text-[#C2CAD6]">I want the Buildsasa team to visit and share my site's progress with me, and I agree to pay Buildsasa a fee of <b className="text-white">10% of my total construction cost</b>{cost > 0 ? <> ({kes(fee)}, about <b className="text-white">{kes(monthly)} a month</b>)</> : null}, paid monthly, plus transport and lunch for each visit.</span>
           </label>
           <p className="text-[11.5px] text-[#8A95A5]">Not now? That's fine. You can keep following your site through your contractor's Buildsasa account at no cost to you: progress updates, daily logs, inspections and chat all stay in <b>My sites</b>.</p>
           <div className="flex gap-2"><button onClick={submit} disabled={busy || !agree} className={primary}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}Send request</button>{home.reporting.length > 0 && <button onClick={() => setOpen(false)} className={ghost}>Cancel</button>}</div>
