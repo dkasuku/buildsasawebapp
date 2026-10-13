@@ -790,7 +790,10 @@ app.post('/api/users/invite', auth, async (req, res) => {
     const em = String(email).toLowerCase();
     // prismaBase: the scoped client only sees this company, so an email used in
     // another company passed this check and then failed at the database.
-    const existing = await prismaBase.user.findUnique({ where: { email: em }, select: { workspaceId: true } });
+    const existing = await prismaBase.user.findUnique({ where: { email: em }, select: { workspaceId: true, role: true } });
+    // A client account is not a company account. Clients follow projects from the
+    // client panel, so point the owner to the project's Client tab instead.
+    if (existing && existing.role === 'Client') return res.status(409).json({ error: "This person has a Buildsasa client account. To share a project with them, open the project and invite this email from its Client tab. They'll see it in their client panel straight away." });
     if (existing) return res.status(409).json({ error: existing.workspaceId && existing.workspaceId === req.user?.ws
       ? 'This person is already on your team.'
       : 'This email already has a Buildsasa account with another company. Ask them for a different email address, or contact support to move their account to your company.' });
