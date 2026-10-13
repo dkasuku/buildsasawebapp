@@ -4,8 +4,7 @@
 
 import { MapPicker } from "./MapPicker";
 import { useEffect, useRef, useState } from "react";
-import { SERVICES, clientApi } from "./client/clientData";
-import { Stars, TrustBadge } from "./client/Trust";
+import { SERVICES } from "./client/clientData";
 import { toast } from "sonner";
 import { Loader2, ImagePlus, Check } from "lucide-react";
 import api, { absoluteFileUrl, type CompanyDto } from "../../services/api";
@@ -25,8 +24,6 @@ export function CompanySettings() {
   const [f, setF] = useState<Form>({ name: "", logoUrl: "", phone: "", email: "", address: "", kraPin: "", paymentDetails: "", quoteTerms: "", about: "" });
   // What the company offers, shown to clients browsing companies on Buildsasa.
   const [services, setServices] = useState<string[]>([]);
-  const [trust, setTrust] = useState<Awaited<ReturnType<typeof clientApi.companyTrust>> | null>(null);
-  useEffect(() => { clientApi.companyTrust().then(setTrust).catch(() => {}); }, []);
   const uploader = useFileUpload();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -108,14 +105,6 @@ export function CompanySettings() {
         <textarea value={f.quoteTerms} onChange={set("quoteTerms")} disabled={!canEdit} rows={3} placeholder="e.g. Prices are in KES. Work starts on receipt of the deposit." className={area} />
       </div>
 
-      {trust && (
-        <div className="rounded-lg border border-[#222A35] bg-[#0A0E14] p-3">
-          <span className={lbl}>Your trust score on Buildsasa</span>
-          <div className="mt-1"><TrustBadge t={trust} detail /></div>
-          <p className="text-[11.5px] text-[#8A95A5] mt-2">Clients see this when choosing a company, highest first. Raise it by logging site work every day, handing projects over on time and keeping clients happy. Low client ratings bring it down.{!trust.listed ? " Your company appears to clients while your subscription is active." : ""}</p>
-          {trust.reviews.length > 0 && <div className="mt-2 space-y-1.5">{trust.reviews.slice(0, 5).map((r, i) => <div key={i} className="text-[11.5px] text-[#C2CAD6]"><Stars value={r.stars} size={3} /> <b>{r.clientName}</b>{r.comment ? `: ${r.comment}` : ""}</div>)}</div>}
-        </div>
-      )}
       <div>
         <span className={lbl}>Services you offer (clients use these to find you)</span>
         <div className="flex flex-wrap gap-1.5 mt-1">

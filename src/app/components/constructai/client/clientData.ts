@@ -71,7 +71,6 @@ export const clientApi = {
   jobBids: (id: string) => http<any[]>(`/api/client/jobs/${id}/bids`),
   awardBid: (jobId: string, bidId: string) => http(`/api/client/jobs/${jobId}/bids/${bidId}/award`, j({})),
   rateCompany: (id: string, stars: number, comment?: string) => http(`/api/client/companies/${id}/rating`, j({ stars, comment })),
-  companyTrust: () => http<Trust & { reviews: { clientName: string; stars: number; comment?: string | null; updatedAt: string }[]; listed: boolean }>("/api/company/trust"),
   requestReporting: (p: Record<string, unknown>) => http<Reporting>("/api/client/reporting", j(p)),
   reporting: (id: string) => http<Reporting & { updates: ClientUpdate[]; payments: any[] }>(`/api/client/reporting/${id}`),
   reportingMessages: (id: string) => http<ClientMessage[]>(`/api/client/reporting/${id}/messages`),

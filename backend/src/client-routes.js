@@ -302,7 +302,7 @@ module.exports = function clientRoutes(app, d) {
         create: { workspaceId: req.params.id, clientUserId: u.id, clientName: u.name, stars, comment },
         update: { stars, comment, clientName: u.name },
       });
-      if (stars <= 2) emailTeam(req.params.id, `A client rated your company ${stars}/5`, `<b>${u.name}</b> gave your company ${stars} star${stars > 1 ? 's' : ''}${comment ? `: “${comment.slice(0, 300)}”` : '.'} Low ratings lower your trust score on Buildsasa. Reach out to the client to put things right.`);
+      if (stars <= 2) emailTeam(req.params.id, `A client rated your company ${stars}/5`, `<b>${u.name}</b> gave your company ${stars} star${stars > 1 ? 's' : ''}${comment ? `: “${comment.slice(0, 300)}”` : '.'} Reach out to the client to put things right.`);
       res.json(row);
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -454,17 +454,6 @@ module.exports = function clientRoutes(app, d) {
 
   // ───────────────────────── Contractor side ─────────────────────────
 
-  app.get('/api/company/trust', auth, async (req, res) => {
-    try {
-      const ws = currentWs();
-      if (!ws) return res.status(404).json({ error: 'No company for this account' });
-      const t = (await trustScores([ws]))[ws];
-      const reviews = await prismaBase.contractorRating.findMany({ where: { workspaceId: ws }, orderBy: { updatedAt: 'desc' }, take: 20, select: { clientName: true, stars: true, comment: true, updatedAt: true } });
-      res.json({ ...t, reviews, listed: (await activeWorkspaceIds()).includes(ws) });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-  });
-  // Every route below runs as a workspace user; `prisma` is tenant-scoped, and
-  // the new tables are checked against currentWs() by hand.
 
   async function ownProject(projectId) {
     const p = await prisma.project.findUnique({ where: { id: projectId } });
