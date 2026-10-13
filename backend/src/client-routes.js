@@ -75,6 +75,62 @@ module.exports = function clientRoutes(app, d) {
     for (const t of team) notify(t.email, subject, p14(line) + button(APP_URL, 'Open Buildsasa'));
   }
 
+  // ── Trust score ──
+  // How far a client can trust a company, as a percentage, from three things:
+  //  * Daily logs: days with a log in the last 30 days on its active projects
+  //    (a site that is reported on every working day scores 100).
+  //  * Handovers: projects handed over vs. projects past their target date and
+  //    still not handed over.
+  //  * Client ratings: the average of 1-5 stars. A bad rating pulls the score
+  //    down hard, because it carries the most weight.
+  // A part with no data yet is left out and the others are re-weighted, so a
+  // new company isn't punished for having no history; `basis` says what counted.
+  const TRUST_WEIGHTS = { logs: 0.3, handover: 0.25, rating: 0.45 };
+  async function trustScores(wsIds) {
+    if (!wsIds.length) return {};
+    const since = new Date(Date.now() - 30 * 864e5);
+    const [projects, logs, ratings] = await Promise.all([
+      prismaBase.project.findMany({ where: { workspaceId: { in: wsIds } }, select: { id: true, workspaceId: true, status: true, targetEndDate: true, practicalCompletionAt: true } }),
+      prismaBase.dailyLog.findMany({ where: { workspaceId: { in: wsIds }, date: { gte: since } }, select: { workspaceId: true, projectId: true, date: true } }),
+      prismaBase.contractorRating.findMany({ where: { workspaceId: { in: wsIds } }, select: { workspaceId: true, stars: true } }),
+    ]);
+    const out = {};
+    const now = Date.now();
+    for (const ws of wsIds) {
+      const ps = projects.filter((p) => p.workspaceId === ws);
+      const handed = ps.filter((p) => p.practicalCompletionAt || /complete|handed|closed/i.test(p.status || '')).length;
+      const overdue = ps.filter((p) => !p.practicalCompletionAt && !/complete|handed|closed|archiv/i.test(p.status || '') && p.targetEndDate && new Date(p.targetEndDate).getTime() < now).length;
+      const active = ps.filter((p) => !p.practicalCompletionAt && !/complete|handed|closed|archiv|hold/i.test(p.status || '')).length;
+      // Distinct project-days with a log, against 22 working days per active project.
+      const days = new Set(logs.filter((l) => l.workspaceId === ws).map((l) => `${l.projectId}:${new Date(l.date).toISOString().slice(0, 10)}`)).size;
+      const rs = ratings.filter((r) => r.workspaceId === ws);
+      const parts = {
+        logs: active ? Math.min(100, Math.round((days / (active * 22)) * 100)) : null,
+        handover: handed + overdue ? Math.round((handed / (handed + overdue)) * 100) : null,
+        rating: rs.length ? Math.round(((rs.reduce((s, r) => s + r.stars, 0) / rs.length - 1) / 4) * 100) : null,
+      };
+      const used = Object.keys(parts).filter((k) => parts[k] !== null);
+      const wsum = used.reduce((s, k) => s + TRUST_WEIGHTS[k], 0);
+      out[ws] = {
+        score: used.length ? Math.round(used.reduce((s, k) => s + parts[k] * TRUST_WEIGHTS[k], 0) / wsum) : null,
+        parts, basis: used,
+        ratingAvg: rs.length ? Math.round((rs.reduce((s, r) => s + r.stars, 0) / rs.length) * 10) / 10 : null,
+        ratingCount: rs.length, handedOver: handed, logDays30: days,
+      };
+    }
+    return out;
+  }
+  d.trustScores = trustScores;
+
+  // Can this client rate this company? Only after working with it: a project the
+  // company shared with them, or a job of theirs the company was awarded.
+  async function canRate(u, ws) {
+    const link = await prismaBase.projectClient.findFirst({ where: { workspaceId: ws, OR: [{ userId: u.id }, { email: u.email.toLowerCase() }] } });
+    if (link) return true;
+    const jobs = await prismaBase.job.findMany({ where: { clientUserId: u.id }, select: { id: true } });
+    return !!(jobs.length && await prismaBase.jobBid.findFirst({ where: { jobId: { in: jobs.map((j) => j.id) }, workspaceId: ws, status: 'awarded' } }));
+  }
+
   // ───────────────────────── Client side ─────────────────────────
 
   // Everything the client home needs: their sites, things waiting on them, and
@@ -152,7 +208,7 @@ module.exports = function clientRoutes(app, d) {
       ]);
       const urls = (raw) => parse(raw).filter((x) => typeof x === 'string' && /^https?:\/\//i.test(x));
       res.json({
-        id: p.id, portalToken: token, ...portal,
+        id: p.id, companyId: p.workspaceId, portalToken: token, ...portal,
         updates: updates.map(updateDto),
         // Daily logs ARE shared (a client abroad wants to know the site was worked
         // on, by how many people, in what weather) but the free-text notes are
@@ -198,7 +254,14 @@ module.exports = function clientRoutes(app, d) {
       const rows = await prismaBase.workspace.findMany({ where: { id: { in: ids } }, orderBy: { name: 'asc' } });
       const counts = await prismaBase.project.groupBy({ by: ['workspaceId'], where: { workspaceId: { in: ids } }, _count: { _all: true } }).catch(() => []);
       const n = Object.fromEntries(counts.map((c) => [c.workspaceId, c._count._all]));
-      res.json(rows.map((w) => ({ id: w.id, ...companyPublic(w), services: parse(w.services), about: w.about || null, projects: n[w.id] || 0 })));
+      const trust = await trustScores(rows.map((w) => w.id));
+      const u = await me(req);
+      const mine = await prismaBase.contractorRating.findMany({ where: { clientUserId: u.id } });
+      const myStars = Object.fromEntries(mine.map((r) => [r.workspaceId, r.stars]));
+      const list = rows.map((w) => ({ id: w.id, ...companyPublic(w), kraPin: undefined, paymentDetails: undefined, services: parse(w.services), about: w.about || null, projects: n[w.id] || 0, trust: trust[w.id], myRating: myStars[w.id] || null }));
+      // Highest trust first; companies with no history yet go last, by name.
+      list.sort((a, b) => (b.trust.score ?? -1) - (a.trust.score ?? -1) || a.name.localeCompare(b.name));
+      res.json(list);
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -227,12 +290,52 @@ module.exports = function clientRoutes(app, d) {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
+  app.post('/api/client/companies/:id/rating', auth, requireClient, async (req, res) => {
+    try {
+      const u = await me(req);
+      const stars = parseInt(req.body?.stars, 10);
+      if (!(stars >= 1 && stars <= 5)) return res.status(400).json({ error: 'Choose between 1 and 5 stars.' });
+      if (!(await canRate(u, req.params.id))) return res.status(403).json({ error: 'You can rate a company once it has shared a project with you or you have awarded it a job.' });
+      const comment = text(req.body?.comment, 1000);
+      const row = await prismaBase.contractorRating.upsert({
+        where: { workspaceId_clientUserId: { workspaceId: req.params.id, clientUserId: u.id } },
+        create: { workspaceId: req.params.id, clientUserId: u.id, clientName: u.name, stars, comment },
+        update: { stars, comment, clientName: u.name },
+      });
+      if (stars <= 2) emailTeam(req.params.id, `A client rated your company ${stars}/5`, `<b>${u.name}</b> gave your company ${stars} star${stars > 1 ? 's' : ''}${comment ? `: “${comment.slice(0, 300)}”` : '.'} Low ratings lower your trust score on Buildsasa. Reach out to the client to put things right.`);
+      res.json(row);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // The client awards a bid on a job they posted, to a company that is still
+  // subscribed. The company gets the client's contact details by email.
+  app.post('/api/client/jobs/:id/bids/:bidId/award', auth, requireClient, async (req, res) => {
+    try {
+      const u = await me(req);
+      const job = await prismaBase.job.findUnique({ where: { id: req.params.id } });
+      if (!job || job.clientUserId !== u.id) return res.status(404).json({ error: 'Job not found.' });
+      if (job.approval !== 'approved') return res.status(409).json({ error: 'Buildsasa is still reviewing this job.' });
+      if (job.status === 'awarded') return res.status(409).json({ error: 'This job has already been awarded.' });
+      const bid = await prismaBase.jobBid.findUnique({ where: { id: req.params.bidId } });
+      if (!bid || bid.jobId !== job.id) return res.status(404).json({ error: 'Bid not found.' });
+      if (!(await activeWorkspaceIds()).includes(bid.workspaceId)) return res.status(409).json({ error: `${bid.companyName}'s Buildsasa subscription isn't active, so the job can't be awarded to them right now. Choose another bid, or ask them to renew.` });
+      await prismaBase.jobBid.update({ where: { id: bid.id }, data: { status: 'awarded' } });
+      await prismaBase.jobBid.updateMany({ where: { jobId: job.id, id: { not: bid.id }, status: { in: ['submitted', 'shortlisted'] } }, data: { status: 'rejected' } });
+      await prismaBase.job.update({ where: { id: job.id }, data: { status: 'awarded' } });
+      if (bid.email) notify(bid.email, `You won the job: ${job.title}`, p14(`<b>${u.name}</b> awarded <b>${bid.companyName}</b> the job “${job.title}” for KES ${Math.round(bid.amountKES).toLocaleString('en-KE')}. Contact them: ${u.email}${job.clientPhone ? `, ${job.clientPhone}` : ''}. Tip: create the project in Buildsasa and invite ${u.email} from its Client tab so they can follow the work.`));
+      if (process.env.LEADS_NOTIFY_EMAIL) notify(process.env.LEADS_NOTIFY_EMAIL, `Client awarded a job: ${job.title}`, p14(`${u.name} awarded “${job.title}” to ${bid.companyName} (KES ${Math.round(bid.amountKES).toLocaleString('en-KE')}).`));
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   app.get('/api/client/jobs/:id/bids', auth, requireClient, async (req, res) => {
     try {
       const job = await prismaBase.job.findUnique({ where: { id: req.params.id } });
       if (!job || job.clientUserId !== req.user.sub) return res.status(404).json({ error: 'Job not found.' });
       const bids = await prismaBase.jobBid.findMany({ where: { jobId: job.id }, orderBy: { amountKES: 'asc' } });
-      res.json(bids.map((b) => ({ id: b.id, companyName: b.companyName, contactName: b.contactName, phone: b.phone, email: b.email, amountKES: b.amountKES, timelineDays: b.timelineDays, message: b.message, status: b.status, createdAt: b.createdAt })));
+      const active = new Set(await activeWorkspaceIds());
+      const trust = await trustScores([...new Set(bids.map((b) => b.workspaceId))]);
+      res.json(bids.map((b) => ({ id: b.id, workspaceId: b.workspaceId, companyName: b.companyName, contactName: b.contactName, phone: b.phone, email: b.email, amountKES: b.amountKES, timelineDays: b.timelineDays, message: b.message, status: b.status, createdAt: b.createdAt, canAward: active.has(b.workspaceId), trust: trust[b.workspaceId] })));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -247,13 +350,14 @@ module.exports = function clientRoutes(app, d) {
       if (!siteName || !location) return res.status(400).json({ error: 'Tell us the site name and where it is.' });
       if (!cost || cost < 10000) return res.status(400).json({ error: 'Enter the total project cost in KES (what the work is expected to cost).' });
       if (!months) return res.status(400).json({ error: 'How many months should we report for?' });
+      if (req.body?.agreeFee !== true) return res.status(400).json({ error: 'Please confirm that you agree to pay 10% of the project cost, monthly, plus transport and lunch for each visit.' });
       let projectId = null;
       if (b.projectId) { const hit = await linkedProject(req, b.projectId); if (hit) projectId = hit.p.id; }
       const row = await prismaBase.siteReporting.create({ data: {
         clientUserId: u.id, clientName: u.name, clientEmail: u.email, clientPhone: text(b.phone, 40) || u.phone || null,
         projectId, siteName, location, lat: Number.isFinite(Number(b.lat)) && b.lat !== null && b.lat !== '' ? Number(b.lat) : null, lng: Number.isFinite(Number(b.lng)) && b.lng !== null && b.lng !== '' ? Number(b.lng) : null,
         stages: JSON.stringify((Array.isArray(b.stages) ? b.stages : []).filter((s) => STAGES.includes(s))), notes: text(b.notes, 4000),
-        projectCostKES: cost, months, feePercent: REPORTING_FEE_PERCENT,
+        projectCostKES: cost, months, feePercent: REPORTING_FEE_PERCENT, feeAgreedAt: new Date(),
         monthlyFeeKES: Math.round((cost * REPORTING_FEE_PERCENT) / 100 / months),
       } });
       if (process.env.LEADS_NOTIFY_EMAIL) notify(process.env.LEADS_NOTIFY_EMAIL, `Site reporting request: ${siteName}`, p14(`<b>${u.name}</b> (${u.email}${row.clientPhone ? `, ${row.clientPhone}` : ''}) wants Buildsasa to report on <b>${siteName}</b>, ${location}. Project cost ${kes(cost)} over ${months} months: ${kes(row.monthlyFeeKES)} a month. Review it in the admin panel under Site reporting.`));
@@ -349,6 +453,16 @@ module.exports = function clientRoutes(app, d) {
   });
 
   // ───────────────────────── Contractor side ─────────────────────────
+
+  app.get('/api/company/trust', auth, async (req, res) => {
+    try {
+      const ws = currentWs();
+      if (!ws) return res.status(404).json({ error: 'No company for this account' });
+      const t = (await trustScores([ws]))[ws];
+      const reviews = await prismaBase.contractorRating.findMany({ where: { workspaceId: ws }, orderBy: { updatedAt: 'desc' }, take: 20, select: { clientName: true, stars: true, comment: true, updatedAt: true } });
+      res.json({ ...t, reviews, listed: (await activeWorkspaceIds()).includes(ws) });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
   // Every route below runs as a workspace user; `prisma` is tenant-scoped, and
   // the new tables are checked against currentWs() by hand.
 

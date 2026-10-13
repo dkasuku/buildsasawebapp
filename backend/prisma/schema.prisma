@@ -1615,6 +1615,7 @@ model SiteReporting {
   projectCostKES Float
   months         Int
   feePercent     Float     @default(10)
+  feeAgreedAt    DateTime? // when the client ticked "I agree to pay 10% of the project cost"
   monthlyFeeKES  Float
   status         String    @default("requested") // requested | approved | active | paused | ended | declined
   inspectorName  String?
@@ -1638,4 +1639,21 @@ model SiteReportingPayment {
   createdAt   DateTime @default(now())
 
   @@index([reportingId])
+}
+
+// A client's rating of a company they worked with (a shared project or a job
+// they awarded). One per client per company; it can be updated. Feeds the
+// company's trust score shown to clients.
+model ContractorRating {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  clientUserId String
+  clientName   String
+  stars        Int      // 1-5
+  comment      String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([workspaceId, clientUserId])
+  @@index([workspaceId])
 }

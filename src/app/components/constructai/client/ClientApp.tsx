@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { ChatThread, Chip, MediaGrid, MediaPicker, UpdateFeed } from "./ClientParts";
 import { PublicPortalView } from "../PublicPortalView";
+import { RateDialog, Stars, TrustBadge } from "./Trust";
 import { clientApi, kes, SERVICES, STAGES, stageLabel, toMedia, when, type ClientHome, type Company, type Media, type Reporting } from "./clientData";
 
 type View = { name: "home" } | { name: "sites" } | { name: "site"; id: string; tab?: string } | { name: "messages" } | { name: "companies" }
@@ -254,6 +255,7 @@ function SiteView({ id, initialTab, go }: { id: string; initialTab?: string; go:
   const [d, setD] = useState<any>(null);
   const [err, setErr] = useState("");
   const [tab, setTab] = useState(initialTab || "progress");
+  const [rating, setRating] = useState(false);
   useEffect(() => { clientApi.site(id).then(setD).catch((e) => setErr(e?.message || "Couldn't open this site.")); }, [id]);
   if (err) return <div><Title title="Site" back={() => go({ name: "sites" })} /><div className={`${card} p-6 text-[13px] text-[#8A95A5]`}>{err}</div></div>;
   if (!d) return <div className="py-20 text-center text-[13px] text-[#8A95A5]"><Loader2 className="w-5 h-5 animate-spin inline mr-2" />Opening site…</div>;
@@ -272,6 +274,7 @@ function SiteView({ id, initialTab, go }: { id: string; initialTab?: string; go:
       {company && (company.phone || company.email) && (
         <div className="flex flex-wrap gap-2 mb-4">
           {company.phone && <a href={`tel:${company.phone}`} className={ghost}><Phone className="w-4 h-4" /> Call {company.name}</a>}
+          <button onClick={() => setRating(true)} className={ghost}>★ Rate {company.name}</button>
           {company.phone && <a href={`https://wa.me/${String(company.phone).replace(/\D/g, "").replace(/^0/, "254")}`} target="_blank" rel="noreferrer" className={ghost}><MessageCircle className="w-4 h-4" /> WhatsApp</a>}
         </div>
       )}
@@ -318,6 +321,7 @@ function SiteView({ id, initialTab, go }: { id: string; initialTab?: string; go:
         ))}</div>
       ))}
       {tab === "approvals" && <PublicPortalView token={d.portalToken} embedded />}
+      {rating && company && <RateDialog companyId={d.companyId} companyName={company.name} onClose={() => setRating(false)} />}
       {tab === "chat" && <ChatThread load={() => clientApi.siteMessages(id)} send={(b, m) => clientApi.sendSiteMessage(id, b, m)} mine={(m) => m.senderType === "client"} placeholder={`Message ${company?.name || "your contractor"}…`} />}
     </div>
   );
@@ -371,7 +375,7 @@ function CompaniesView({ go }: { go: (v: View) => void }) {
   const used = useMemo(() => SERVICES.filter((s) => (rows || []).some((c) => c.services.includes(s))), [rows]);
   return (
     <div>
-      <Title title="Companies on Buildsasa" sub="Contractors and service providers with an active Buildsasa subscription. Pick one and send them your job." />
+      <Title title="Companies on Buildsasa" sub="Contractors and service providers with an active Buildsasa subscription, most trusted first. Trust comes from how often they log site work, the projects they've handed over, and ratings from their clients." />
       <div className="relative mb-3"><Search className="w-4 h-4 text-[#5B6675] absolute left-3 top-1/2 -translate-y-1/2" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name, place or service, e.g. fencing Kitengela" className={`${input} pl-9`} /></div>
       {used.length > 0 && <div className="flex gap-1.5 overflow-x-auto pb-2 mb-2"><Chip on={svc === "All"} onClick={() => setSvc("All")}>All</Chip>{used.map((s) => <Chip key={s} on={svc === s} onClick={() => setSvc(s)}>{s}</Chip>)}</div>}
       {rows === null ? <div className="py-12 text-center text-[13px] text-[#8A95A5]"><Loader2 className="w-4 h-4 animate-spin inline mr-1" /> Loading companies…</div>
@@ -383,6 +387,7 @@ function CompaniesView({ go }: { go: (v: View) => void }) {
                 <div className="w-11 h-11 rounded-lg bg-white flex items-center justify-center overflow-hidden shrink-0">{c.logoUrl ? <img src={c.logoUrl} alt="" className="max-w-full max-h-full object-contain" /> : <Building2 className="w-5 h-5 text-[#8A95A5]" />}</div>
                 <div className="min-w-0"><div className="text-[14px] truncate">{c.name}</div><div className="text-[11.5px] text-[#8A95A5] truncate">{c.address || "Kenya"}{c.projects ? ` · ${c.projects} project${c.projects > 1 ? "s" : ""} on Buildsasa` : ""}</div></div>
               </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2"><TrustBadge t={c.trust} detail />{c.trust?.ratingAvg != null && <span className="inline-flex items-center gap-1 text-[11px] text-[#8A95A5]"><Stars value={Math.round(c.trust.ratingAvg)} size={3} /> {c.trust.ratingAvg} ({c.trust.ratingCount})</span>}</div>
               {c.about && <p className="text-[12px] text-[#C2CAD6] mt-2 line-clamp-3">{c.about}</p>}
               {c.services.length > 0 && <div className="flex flex-wrap gap-1 mt-2">{c.services.slice(0, 6).map((s) => <span key={s} className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#161C24] text-[#C2CAD6]">{s}</span>)}</div>}
               <div className="flex gap-2 mt-auto pt-3">
@@ -404,6 +409,12 @@ function JobsView({ home, company, reload }: { home: ClientHome; company?: Compa
   const [media, setMedia] = useState<Media[]>([]);
   const [busy, setBusy] = useState(false);
   const [bids, setBids] = useState<{ jobId: string; rows: any[] } | null>(null);
+  const [rate, setRate] = useState<{ id: string; name: string } | null>(null);
+  const award = async (jobId: string, b: any) => {
+    if (!window.confirm(`Award this job to ${b.companyName} for ${kes(b.amountKES)}? Other bids will be declined and ${b.companyName} gets your contact details.`)) return;
+    try { await clientApi.awardBid(jobId, b.id); toast.success(`Awarded to ${b.companyName}. They'll contact you.`); reload(); setBids({ jobId, rows: await clientApi.jobBids(jobId) }); }
+    catch (e: any) { toast.error(e?.message || "Couldn't award the job."); }
+  };
   useEffect(() => { clientApi.companies().then(setCompanies).catch(() => {}); }, []);
   const set = (k: keyof typeof blank) => (e: any) => setF((x) => ({ ...x, [k]: e.target.value }));
   const submit = async () => {
@@ -439,6 +450,7 @@ function JobsView({ home, company, reload }: { home: ClientHome; company?: Compa
         <button onClick={submit} disabled={busy} className={primary}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}Send job for approval</button>
       </section>
 
+      {rate && <RateDialog companyId={rate.id} companyName={rate.name} onClose={() => setRate(null)} />}
       <section>
         <div className="text-[13px] font-medium mb-2">Your jobs</div>
         {home.jobs.length === 0 ? <Empty text="Jobs you post appear here with their approval status and the bids contractors send." /> : (
@@ -454,9 +466,17 @@ function JobsView({ home, company, reload }: { home: ClientHome; company?: Compa
                   <div key={b.id} className="py-2.5 text-[12.5px]">
                     <div className="flex justify-between gap-2"><span className="text-white">{b.companyName}</span><span className="text-[#FF6B1A]">{kes(b.amountKES)}</span></div>
                     <div className="text-[11.5px] text-[#8A95A5]">{b.timelineDays ? `${b.timelineDays} days · ` : ""}{b.contactName}{b.phone ? ` · ${b.phone}` : ""}</div>
+                    <div className="mt-1"><TrustBadge t={b.trust} /></div>
                     {b.message && <p className="text-[12px] text-[#C2CAD6] mt-1">{b.message}</p>}
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                      {b.status === "awarded" ? <><Badge s="active" label="Awarded" /><button onClick={() => setRate({ id: b.workspaceId, name: b.companyName })} className="text-[12px] text-[#FF6B1A]">★ Rate {b.companyName}</button></>
+                        : b.status === "rejected" ? <Badge s="closed" label="Declined" />
+                        : j.status !== "awarded" && (b.canAward
+                          ? <button onClick={() => award(j.id, b)} className="h-8 px-3 rounded-md bg-[#FF6B1A] text-white text-[12px]">Award job</button>
+                          : <span className="text-[11px] text-[#F59E0B]">Subscription not active, can't be awarded</span>)}
+                    </div>
                   </div>
-                ))}<p className="text-[11px] text-[#5B6675] pt-2">To award a bid, message Buildsasa or call the company directly. We can also report on the work for you.</p></div>
+                ))}<p className="text-[11px] text-[#5B6675] pt-2">You can award a job to any bidder whose Buildsasa subscription is active. Want independent eyes on the work? Ask Buildsasa for site reporting.</p></div>
               )}
             </div>
           ))}</div>
@@ -473,13 +493,15 @@ function ReportingView({ home, go, reload }: { home: ClientHome; go: (v: View) =
   const [f, setF] = useState(blank);
   const [stages, setStages] = useState<string[]>(["clearing", "fencing", "foundation", "walling", "roofing"]);
   const [busy, setBusy] = useState(false);
+  const [agree, setAgree] = useState(false);
   const cost = Number(f.projectCostKES) || 0; const months = Math.max(1, parseInt(f.months, 10) || 1);
   const fee = cost * 0.1; const monthly = Math.round(fee / months);
   const set = (k: keyof typeof blank) => (e: any) => setF((x) => ({ ...x, [k]: e.target.value }));
   const submit = async () => {
     setBusy(true);
     try {
-      const r = await clientApi.requestReporting({ ...f, projectCostKES: cost, months, stages });
+      if (!agree) { setBusy(false); return toast.error("Please tick the box to agree to the 10% reporting fee."); }
+      const r = await clientApi.requestReporting({ ...f, projectCostKES: cost, months, stages, agreeFee: true });
       toast.success("Request sent. Our team will call you within one working day.");
       setF(blank); setOpen(false); reload(); go({ name: "report", id: r.id });
     } catch (e: any) { toast.error(e?.message || "Couldn't send the request."); }
@@ -525,7 +547,12 @@ function ReportingView({ home, go, reload }: { home: ClientHome; go: (v: View) =
               <div className="text-[11px] text-[#8A95A5] mt-2">Plus transport and lunch for the reporter on each visit day, agreed with our team before the first visit. You pay nothing until we approve your request.</div>
             </div>
           )}
-          <div className="flex gap-2"><button onClick={submit} disabled={busy} className={primary}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}Send request</button>{home.reporting.length > 0 && <button onClick={() => setOpen(false)} className={ghost}>Cancel</button>}</div>
+          <label className="flex items-start gap-2.5 cursor-pointer rounded-lg border border-[#222A35] p-3">
+            <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#FF6B1A]" />
+            <span className="text-[12.5px] text-[#C2CAD6]">I want the Buildsasa team to visit and share my site's progress with me, and I agree to pay <b className="text-white">10% of the total project cost</b>{cost > 0 ? <> ({kes(fee)}, about <b className="text-white">{kes(monthly)} a month</b>)</> : null}, paid monthly, plus transport and lunch for each visit.</span>
+          </label>
+          <p className="text-[11.5px] text-[#8A95A5]">Not now? That's fine. You can keep following your site through your contractor's Buildsasa account at no cost to you: progress updates, daily logs, inspections and chat all stay in <b>My sites</b>.</p>
+          <div className="flex gap-2"><button onClick={submit} disabled={busy || !agree} className={primary}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}Send request</button>{home.reporting.length > 0 && <button onClick={() => setOpen(false)} className={ghost}>Cancel</button>}</div>
         </section>
       )}
     </div>
