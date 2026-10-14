@@ -625,6 +625,9 @@ export type JobDto = {
   /** Shared from another site: apply there, not by bidding here. */
   externalUrl?: string | null;
   externalSource?: string | null;
+  /** False for companies without an active plan: they browse, subscribers apply. */
+  canApply?: boolean;
+  isExternal?: boolean;
 };
 
 export type QuoteLine = { section?: string; description: string; unit: string; quantity: number; rate: number };

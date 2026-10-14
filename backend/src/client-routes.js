@@ -125,6 +125,7 @@ module.exports = function clientRoutes(app, d) {
     return out;
   }
   d.trustScores = trustScores;
+  d.activeWorkspaceIds = activeWorkspaceIds;
 
   // Can this client rate this company? Only after working with it: a project the
   // company shared with them, or a job of theirs the company was awarded.

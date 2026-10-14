@@ -3268,15 +3268,25 @@ app.patch('/api/admin/job-bids/:id', auth, requireAdmin, async (req, res) => {
 
 // --- Subscribers (console) ---
 // Open jobs, plus any job this company has bid on (so it can follow the outcome).
+// Companies without an active plan can BROWSE the Jobs Board (it's what brings
+// them in from the website), but the details that let them apply — the original
+// post's link and the documents — and bidding itself are for subscribers.
+const wsSubscribed = async (ws) => !!ws && !!clientRouteDeps.activeWorkspaceIds && (await clientRouteDeps.activeWorkspaceIds()).includes(ws);
+
 app.get('/api/jobs', auth, async (req, res) => {
   try {
     const ws = currentWs();
+    const subscribed = await wsSubscribed(ws) || hasFreeAccess(req.user && req.user.email);
     const myBids = ws ? await prismaBase.jobBid.findMany({ where: { workspaceId: ws } }) : [];
     const mine = new Set(myBids.map((b) => b.jobId));
     const jobs = await prismaBase.job.findMany({ where: { OR: [{ status: 'open', approval: 'approved', OR: [{ targetWorkspaceId: null }, { targetWorkspaceId: ws || '-' }] }, { id: { in: [...mine] } }] }, orderBy: { createdAt: 'desc' } });
     const byJob = Object.fromEntries(myBids.map((b) => [b.jobId, { ...b, attachments: parseFiles(b.attachments) }]));
     // The client's own contact details stay with Buildsasa until a bid is awarded.
-    res.json(jobs.map((j) => ({ ...jobDto(j), createdBy: undefined, clientEmail: undefined, clientPhone: undefined, clientUserId: undefined, forYou: !!j.targetWorkspaceId, myBid: byJob[j.id] || null })));
+    res.json(jobs.map((j) => {
+      const dto = { ...jobDto(j), createdBy: undefined, clientEmail: undefined, clientPhone: undefined, clientUserId: undefined, forYou: !!j.targetWorkspaceId, myBid: byJob[j.id] || null, canApply: subscribed, isExternal: !!j.externalUrl };
+      if (!subscribed) { dto.externalUrl = null; dto.attachments = []; }
+      return dto;
+    }));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3288,6 +3298,7 @@ app.post('/api/jobs/:id/bid', auth, async (req, res) => {
     if (!job) return res.status(404).json({ error: 'This job is no longer available.' });
     if (job.approval !== 'approved' || (job.targetWorkspaceId && job.targetWorkspaceId !== ws)) return res.status(404).json({ error: 'This job is no longer available.' });
     if (job.externalUrl) return res.status(409).json({ error: 'This job is taken on another site. Use "Apply on the original site" to apply there.' });
+    if (!(await wsSubscribed(ws)) && !hasFreeAccess(req.user && req.user.email)) return res.status(402).json({ error: 'Subscribe to Buildsasa to apply for jobs. You can browse every job for free.' });
     if (jobClosed(job)) return res.status(409).json({ error: job.status === 'awarded' ? 'This job has already been awarded.' : 'Bids for this job have closed.' });
     const b = req.body || {};
     const amount = Number(b.amountKES);
@@ -3330,6 +3341,32 @@ app.delete('/api/jobs/:id/bid', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+
+// ===== PUBLIC JOBS TEASER (website /jobs) =====
+// Two open jobs, picked at random, show their full card; every other job sends
+// only what a blurred card needs (type of work, area, closing date). Titles,
+// descriptions, budgets and links of locked jobs never leave the server, so the
+// blur can't be undone by reading the page source. Every card leads to sign-up.
+app.get('/api/public/jobs', async (_req, res) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const jobs = await prismaBase.job.findMany({
+      where: { status: 'open', approval: 'approved', targetWorkspaceId: null, OR: [{ deadline: null }, { deadline: { gte: today } }] },
+      orderBy: { createdAt: 'desc' }, take: 60,
+    });
+    // Two open cards picked at random, plus up to four locked ones: a taste, not the list.
+    const shuffled = [...jobs].sort(() => Math.random() - 0.5);
+    const open = new Set(shuffled.slice(0, 2).map((j) => j.id));
+    const shown = [...shuffled.slice(0, 2), ...shuffled.slice(2).slice(0, 4)];
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      total: jobs.length,
+      jobs: shown.map((j) => open.has(j.id)
+        ? { id: j.id, open: true, title: j.title, category: j.category, location: j.location, budgetKES: j.budgetKES, deadline: j.deadline, summary: String(j.description || '').slice(0, 220), external: !!j.externalUrl, createdAt: j.createdAt }
+        : { id: j.id, open: false, category: j.category, location: j.location ? String(j.location).split(/[,(]/)[0].trim() : null, deadline: j.deadline, external: !!j.externalUrl, createdAt: j.createdAt }),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ===== PROJECT REQUESTS (website "Request a project") =====
 // Anyone can ask for construction work on buildsasa.com. The request lands in

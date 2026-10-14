@@ -409,7 +409,7 @@ export default function App() {
   if (view === "login" || !authed || (wantsClient && !signedInAsClient)) {
     return (
       <div className={`h-screen w-full ${theme === "light" ? "theme-light" : ""}`}>
-        <Login onContinue={(user) => { if (user && user.role && ROLES[user.role as Role]) setRole(user.role as Role); setView(sessionStorage.getItem("pending-drawing") ? "plans" : "dashboard"); }} theme={theme} setTheme={setTheme} />
+        <Login onContinue={(user) => { if (user && user.role && ROLES[user.role as Role]) setRole(user.role as Role); let next: string | null = null; try { next = sessionStorage.getItem("pending-next"); sessionStorage.removeItem("pending-next"); } catch { /* noop */ } setView(next === "jobs" ? "jobs" : sessionStorage.getItem("pending-drawing") ? "plans" : "dashboard"); }} theme={theme} setTheme={setTheme} />
         <Toaster theme={theme} position="top-right" />
       </div>
     );
@@ -516,7 +516,7 @@ export default function App() {
                     {gate.overdue
                       ? "You have an overdue invoice. Pay it to continue using your workspace."
                       : gate.isBillingOwner
-                        ? "Choose a plan to unlock Buildsasa for your company. You can manage or cancel anytime from Billing."
+                        ? (effectiveView === "jobs" ? "Choose a plan to see every job and tender on the Jobs Board, apply for them, and run your projects, clients and team in one place." : "Choose a plan to unlock Buildsasa for your company. You can manage or cancel anytime from Billing.")
                         : "Your company's Buildsasa plan is not active. Ask whoever manages your account to activate it — you will get straight in once they do."}
                   </p>
                   <div className="flex gap-2 justify-center mt-5">

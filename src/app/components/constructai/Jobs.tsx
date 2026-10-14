@@ -174,6 +174,14 @@ function JobDetail({ job, onClose, onChanged }: { job: JobDto; onClose: () => vo
             </div>
           )}
 
+          {job.canApply === false && (
+            <div className="rounded-lg border border-[#FF6B1A]/40 bg-[#FF6B1A]/10 p-4 space-y-2">
+              <div className="text-[13px] text-white">Subscribe to apply</div>
+              <p className="text-[12px] text-[#C2CAD6]">You can browse every job for free. With a Buildsasa plan you {job.isExternal ? "get the link to apply on the original site" : "can send your bid"}, see the documents, and run your projects, clients and team in one place.</p>
+              <button onClick={() => window.dispatchEvent(new CustomEvent("buildsasa:navigate", { detail: { view: "billing" } }))} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[12px]">See plans</button>
+            </div>
+          )}
+
           {job.externalUrl && (
             <div className="rounded-lg border border-[#3B82F6]/40 bg-[#3B82F6]/10 p-4 space-y-2">
               <div className="text-[12.5px] text-white">Apply on the original site</div>
@@ -190,7 +198,7 @@ function JobDetail({ job, onClose, onChanged }: { job: JobDto; onClose: () => vo
             </div>
           )}
 
-          {!job.externalUrl && editable && (bidding || !bid) && (
+          {!job.externalUrl && job.canApply !== false && editable && (bidding || !bid) && (
             <div className="rounded-lg border border-[#222A35] bg-[#0A0E14] p-4 space-y-3">
               <div className="text-[12.5px] text-white">{bid ? "Edit your bid" : "Place your bid"}</div>
               <div className="grid grid-cols-2 gap-3">

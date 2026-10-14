@@ -258,6 +258,7 @@ export function Sidebar({
               <span className="flex-1 text-left">Billing &amp; Plan</span>
             </button>
           )}
+
           <div className={locked ? "blur-sm select-none pointer-events-none opacity-70" : ""} aria-hidden={locked || undefined}>
           {NAV_GROUPS.map((group) => {
             const visibleItems = group.items.filter((n) => allowed(n.key));

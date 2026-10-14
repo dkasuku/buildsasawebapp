@@ -7,7 +7,7 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
   const params = (() => { try { return new URLSearchParams(window.location.search); } catch { return new URLSearchParams(); } })();
   const [accountType, setAccountType] = useState<"client" | "contractor" | null>(() => (params.get("as") === "client" ? "client" : params.get("as") === "contractor" ? "contractor" : null));
   // Invite links say whether the person still needs an account (signup=1).
-  const [mode, setMode] = useState<"login" | "signup" | "forgot">(() => (params.get("as") === "client" && params.get("signup") === "1" ? "signup" : "login"));
+  const [mode, setMode] = useState<"login" | "signup" | "forgot">(() => (params.get("signup") === "1" ? "signup" : "login"));
   const [phone, setPhone] = useState("");
   const [country, setCountry] = useState("");
   const isClient = accountType === "client";
@@ -84,6 +84,8 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
       if (res.refreshToken) localStorage.setItem("constructai-refresh", res.refreshToken);
       try { localStorage.setItem("constructai-user", JSON.stringify(res.user)); } catch { /* noop */ }
       // A client link (?as=client) must not keep a company account on this page.
+      // Where the link wanted to go (e.g. next=jobs from the website) survives the URL cleanup.
+      try { const nx = params.get("next"); if (nx) sessionStorage.setItem("pending-next", nx); } catch { /* noop */ }
       if (res.user?.role !== "Client") { try { window.history.replaceState({}, "", window.location.pathname); } catch { /* noop */ } }
       onContinue(res.user);
     } catch (e: any) {
