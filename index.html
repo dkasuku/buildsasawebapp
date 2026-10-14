@@ -14,7 +14,8 @@
         (function() {
           try {
             var t = localStorage.getItem("constructai-theme");
-            if (t === "light") document.documentElement.classList.add("theme-light");
+            // Light by default (before React loads, so there is no dark flash); only an explicit "dark" stays dark.
+            if (t !== "dark") document.documentElement.classList.add("theme-light");
           } catch(e) {}
         })();
       </script>

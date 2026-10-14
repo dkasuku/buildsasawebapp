@@ -150,7 +150,8 @@ export default function App() {
       const saved = localStorage.getItem("constructai-theme");
       if (saved === "light" || saved === "dark") return saved;
     } catch { /* noop */ }
-    return "dark";
+    // Light by default; anyone who picked dark keeps it.
+    return "light";
   });
   // First-run guided setup — shown once to workspace owners / managers.
   const [onboarded, setOnboarded] = useState<boolean>(() => {
