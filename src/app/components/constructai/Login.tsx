@@ -53,7 +53,7 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
       if (!name.trim() || !email.trim()) return setError("Please fill in your name and email.");
       if (password.length < 6) return setError("Password must be at least 6 characters.");
       if (password !== confirmPassword) return setError("Passwords do not match.");
-      if (!agreedTerms) return setError("Please accept the Terms & Conditions and Privacy Policy to continue.");
+      if (!agreedTerms) return setError("Please accept the Terms & Conditions and Privacy Policy, and confirm your email works, to continue.");
     } else if (mode === "signup") {
       if (!company.trim() || !name.trim() || !email.trim()) return setError("Please fill in your company, name and email.");
       if (password.length < 6) return setError("Password must be at least 6 characters.");
@@ -255,7 +255,8 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
                     I agree to the{" "}
                     <a href="https://buildsasa.com/terms" target="_blank" rel="noopener noreferrer" className="text-[#FF6B1A] hover:underline">Terms &amp; Conditions</a>
                     {" "}and{" "}
-                    <a href="https://buildsasa.com/privacy" target="_blank" rel="noopener noreferrer" className="text-[#FF6B1A] hover:underline">Privacy Policy</a>.
+                    <a href="https://buildsasa.com/privacy" target="_blank" rel="noopener noreferrer" className="text-[#FF6B1A] hover:underline">Privacy Policy</a>,
+                    and confirm the email above is a working address I check. Buildsasa sends account verification, invitations and project updates there.
                   </span>
                 </label>
               )}
@@ -307,6 +308,9 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
                     </svg>
                     Continue with Google
                   </button>
+                  <p className="text-[10.5px] text-[#5B6675] text-center leading-relaxed">
+                    By continuing with Google you agree to the <a href="https://buildsasa.com/terms" target="_blank" rel="noopener noreferrer" className="text-[#FF6B1A] hover:underline">Terms &amp; Conditions</a> and <a href="https://buildsasa.com/privacy" target="_blank" rel="noopener noreferrer" className="text-[#FF6B1A] hover:underline">Privacy Policy</a>.
+                  </p>
                 </>
               )}
             </div>
