@@ -52,12 +52,18 @@ export type Reporting = {
   projectCostKES: number; months: number; feePercent: number; monthlyFeeKES: number; status: string;
   inspectorName?: string | null; adminNote?: string | null; paidMonths: number; createdAt: string;
 };
+export type ClientJob = {
+  id: string; title: string; category: string; location?: string | null; description?: string; budgetKES?: number | null; deadline?: string | null;
+  targetWorkspaceId?: string | null; status: string; approval: string; bidCount: number; createdAt: string;
+  awardedBid: { id: string; workspaceId: string; companyName: string; contactName: string; phone?: string | null; email?: string | null; amountKES: number; timelineDays?: number | null } | null;
+  sharedProjectId: string | null;
+};
 export type ClientHome = {
   user: { name: string; email: string; phone?: string | null; country?: string | null };
   projects: { id: string; name: string; city: string; status: string; progress: number; startDate?: string | null; targetEndDate?: string | null; cover?: string | null; companyActive?: boolean; company: { name: string; logoUrl?: string | null; phone?: string | null; email?: string | null } | null; lastUpdate: { title: string; stage: string; createdAt: string } | null }[];
   todo: { kind: string; projectId?: string; reportingId?: string; label: string }[];
   reporting: Reporting[];
-  jobs: { id: string; title: string; category: string; location?: string | null; status: string; approval: string; bidCount: number; createdAt: string }[];
+  jobs: ClientJob[];
 };
 export type ClientSite = any; // portal payload + updates, dailyLogs, inspections (see /api/client/projects/:id)
 
@@ -80,6 +86,10 @@ export const clientApi = {
   postJob: (p: Record<string, unknown>) => http("/api/client/jobs", j(p)),
   jobBids: (id: string) => http<any[]>(`/api/client/jobs/${id}/bids`),
   awardBid: (jobId: string, bidId: string) => http(`/api/client/jobs/${jobId}/bids/${bidId}/award`, j({})),
+  declineBid: (jobId: string, bidId: string) => http(`/api/client/jobs/${jobId}/bids/${bidId}/decline`, j({})),
+  updateJob: (id: string, p: Record<string, unknown>) => http(`/api/client/jobs/${id}`, { method: "PUT", body: JSON.stringify(p) }),
+  deleteJob: (id: string) => http(`/api/client/jobs/${id}`, { method: "DELETE" }),
+  leaveProject: (id: string) => http(`/api/client/projects/${id}`, { method: "DELETE" }),
   rateCompany: (id: string, stars: number, comment?: string) => http(`/api/client/companies/${id}/rating`, j({ stars, comment })),
   requestReporting: (p: Record<string, unknown>) => http<Reporting>("/api/client/reporting", j(p)),
   reporting: (id: string) => http<Reporting & { updates: ClientUpdate[]; payments: any[] }>(`/api/client/reporting/${id}`),

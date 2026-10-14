@@ -14,7 +14,7 @@ import { PublicPortalView } from "../PublicPortalView";
 import { RateDialog, Stars, TrustBadge } from "./Trust";
 import { MapPicker } from "../MapPicker";
 import { useWelcome, WelcomeModal } from "../Welcome";
-import { clientApi, kes, SERVICES, STAGES, stageLabel, toMedia, when, type ClientComment, type ClientHome, type ClientQuote, type Company, type Media, type Reporting } from "./clientData";
+import { clientApi, kes, SERVICES, STAGES, stageLabel, toMedia, when, type ClientComment, type ClientHome, type ClientJob, type ClientQuote, type Company, type Media, type Reporting } from "./clientData";
 
 type View = { name: "home" } | { name: "sites" } | { name: "site"; id: string; tab?: string } | { name: "messages" } | { name: "companies" }
   | { name: "jobs"; company?: Company } | { name: "reporting" } | { name: "report"; id: string } | { name: "account" } | { name: "quotes" };
@@ -104,11 +104,11 @@ export function ClientApp({ theme, setTheme, onSignOut }: { theme: "dark" | "lig
           {!home ? <div className="py-20 text-center text-[13px] text-[#8A95A5]"><Loader2 className="w-5 h-5 animate-spin inline mr-2" />Loading your account…</div> : (
             <>
               {view.name === "home" && <HomeView home={home} go={go} />}
-              {view.name === "sites" && <SitesView home={home} go={go} />}
+              {view.name === "sites" && <SitesView home={home} go={go} reload={reload} />}
               {view.name === "site" && <SiteView id={view.id} initialTab={view.tab} go={go} />}
               {view.name === "messages" && <MessagesView home={home} go={go} />}
               {view.name === "companies" && <CompaniesView go={go} />}
-              {view.name === "jobs" && <JobsView home={home} company={view.company} reload={reload} />}
+              {view.name === "jobs" && <JobsView home={home} company={view.company} reload={reload} go={go} />}
               {view.name === "reporting" && <ReportingView home={home} go={go} reload={reload} />}
               {view.name === "report" && <ReportView id={view.id} go={go} reload={reload} />}
               {view.name === "account" && <AccountView home={home} reload={reload} onSignOut={onSignOut} />}
@@ -242,18 +242,82 @@ function ReportingRow({ r, onClick }: { r: Reporting; onClick: () => void }) {
 }
 
 // ───────────── Sites ─────────────
-function SitesView({ home, go }: { home: ClientHome; go: (v: View) => void }) {
-  return (
-    <div>
-      <Title title="My sites" sub="Projects your contractors have shared with you." />
-      {home.projects.length === 0 ? (
+const waLink = (phone?: string | null) => (phone ? `https://wa.me/${String(phone).replace(/\D/g, "").replace(/^0/, "254")}` : null);
+
+function SitesView({ home, go, reload }: { home: ClientHome; go: (v: View) => void; reload: () => void }) {
+  const hired = home.jobs.filter((j) => j.awardedBid);
+  const [rate, setRate] = useState<{ id: string; name: string } | null>(null);
+  const leave = async (id: string, name: string) => {
+    if (!window.confirm(`Stop following ${name}? It disappears from your account. The contractor can invite you again any time.`)) return;
+    try { await clientApi.leaveProject(id); toast.success("Removed from your sites."); reload(); } catch (e: any) { toast.error(e?.message || "Couldn't remove it."); }
+  };
+  if (!home.projects.length && !hired.length) {
+    return (
+      <div>
+        <Title title="My sites" sub="Projects contractors share with you, and the work you've hired companies for." />
         <div className={`${card} p-6 text-center`}>
           <Building2 className="w-8 h-8 text-[#2C3744] mx-auto" />
-          <div className="text-[14px] mt-2">No sites shared with you yet</div>
-          <p className="text-[12.5px] text-[#8A95A5] mt-1 max-w-md mx-auto">Ask your contractor to invite <b className="text-white">{home.user.email}</b> from their Buildsasa project. Not working with one yet? Find a company, or ask Buildsasa to report on your site.</p>
-          <div className="flex flex-wrap justify-center gap-2 mt-4"><button className={primary} onClick={() => go({ name: "companies" })}>Find a company</button><button className={ghost} onClick={() => go({ name: "reporting" })}>Buildsasa site reporting</button></div>
+          <div className="text-[14px] mt-2">Nothing here yet</div>
+          <p className="text-[12.5px] text-[#8A95A5] mt-1 max-w-md mx-auto">Ask your contractor to invite <b className="text-white">{home.user.email}</b> from their Buildsasa project, or post a job and award it to a company.</p>
+          <div className="flex flex-wrap justify-center gap-2 mt-4">
+            <button className={primary} onClick={() => go({ name: "jobs" })}><Briefcase className="w-4 h-4" /> Post a job</button>
+            <button className={ghost} onClick={() => go({ name: "companies" })}>Find a company</button>
+            <button className={ghost} onClick={() => go({ name: "reporting" })}>Buildsasa site reporting</button>
+          </div>
         </div>
-      ) : <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">{home.projects.map((p) => <SiteCard key={p.id} p={p} onClick={() => go({ name: "site", id: p.id })} />)}</div>}
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-6">
+      <Title title="My sites" sub="Projects contractors share with you, and the work you've hired companies for." />
+      {rate && <RateDialog companyId={rate.id} companyName={rate.name} onClose={() => setRate(null)} />}
+
+      <section>
+        <div className="text-[13px] font-medium mb-2">Projects shared with you{home.projects.length ? ` · ${home.projects.length}` : ""}</div>
+        {home.projects.length === 0 ? <Empty text={`No projects shared yet. Ask your contractor to invite ${home.user.email} from their project's Client tab.`} /> : (
+          <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">{home.projects.map((p) => (
+            <div key={p.id} className="flex flex-col">
+              <SiteCard p={p} onClick={() => go({ name: "site", id: p.id })} />
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                <button onClick={() => go({ name: "site", id: p.id })} className={`${primary} h-9 px-3 text-[12px] flex-1`}>Open</button>
+                <button onClick={() => go({ name: "site", id: p.id, tab: "chat" })} className={`${ghost} h-9 px-3 text-[12px]`} title="Chat with the team"><MessageCircle className="w-4 h-4" /></button>
+                {p.company?.phone && <a href={`tel:${p.company.phone}`} className={`${ghost} h-9 px-3 text-[12px]`} title={`Call ${p.company.name}`}><Phone className="w-4 h-4" /></a>}
+                <button onClick={() => leave(p.id, p.name)} className={`${ghost} h-9 px-3 text-[12px] hover:text-[#EF4444]`} title="Stop following this project">Remove</button>
+              </div>
+            </div>
+          ))}</div>
+        )}
+      </section>
+
+      <section>
+        <div className="text-[13px] font-medium mb-2">Jobs you've awarded{hired.length ? ` · ${hired.length}` : ""}</div>
+        {hired.length === 0 ? <Empty text="When you award a job to a company, it shows here with their contacts." /> : (
+          <div className="space-y-2">{hired.map((j) => {
+            const w = j.awardedBid!;
+            return (
+              <div key={j.id} className={`${card} p-4`}>
+                <div className="flex flex-wrap items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[14px]">{j.title}</div>
+                    <div className="text-[12px] text-[#8A95A5]">Awarded to <span className="text-white">{w.companyName}</span> · {kes(w.amountKES)}{w.timelineDays ? ` · ${w.timelineDays} days` : ""}{j.location ? ` · ${j.location}` : ""}</div>
+                  </div>
+                  <Badge s="awarded" label="Awarded" />
+                </div>
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {j.sharedProjectId
+                    ? <button onClick={() => go({ name: "site", id: j.sharedProjectId! })} className={`${primary} h-9 px-3 text-[12px]`}>Follow the work</button>
+                    : <span className="text-[11.5px] text-[#8A95A5] self-center mr-1">Ask {w.companyName} to invite you to the project to follow progress here.</span>}
+                  {w.phone && <a href={`tel:${w.phone}`} className={`${ghost} h-9 px-3 text-[12px]`}><Phone className="w-4 h-4" /> Call</a>}
+                  {waLink(w.phone) && <a href={waLink(w.phone)!} target="_blank" rel="noreferrer" className={`${ghost} h-9 px-3 text-[12px]`}><MessageCircle className="w-4 h-4" /> WhatsApp</a>}
+                  {w.email && <a href={`mailto:${w.email}`} className={`${ghost} h-9 px-3 text-[12px]`}>Email</a>}
+                  <button onClick={() => setRate({ id: w.workspaceId, name: w.companyName })} className={`${ghost} h-9 px-3 text-[12px]`}>★ Rate</button>
+                </div>
+              </div>
+            );
+          })}</div>
+        )}
+      </section>
     </div>
   );
 }
@@ -454,7 +518,7 @@ function CompaniesView({ go }: { go: (v: View) => void }) {
 }
 
 // ───────────── Jobs ─────────────
-function JobsView({ home, company, reload }: { home: ClientHome; company?: Company; reload: () => void }) {
+function JobsView({ home, company, reload, go }: { home: ClientHome; company?: Company; reload: () => void; go: (v: View) => void }) {
   const [companies, setCompanies] = useState<Company[]>([]);
   const blank = { title: "", category: SERVICES[0], location: "", budgetKES: "", deadline: "", description: "", phone: home.user.phone || "", targetWorkspaceId: company?.id || "" };
   const [f, setF] = useState(blank);
@@ -469,6 +533,21 @@ function JobsView({ home, company, reload }: { home: ClientHome; company?: Compa
     if (bids?.jobId === jobId) return setBids(null);
     try { setBids({ jobId, rows: await clientApi.jobBids(jobId) }); } catch (e: any) { toast.error(e?.message || "Couldn't load the bids."); }
   };
+  const [editing, setEditing] = useState<string | null>(null);
+  const decline = async (jobId: string, b: any) => {
+    if (!window.confirm(`Decline ${b.companyName}'s bid of ${kes(b.amountKES)}? They'll be told politely.`)) return;
+    try { await clientApi.declineBid(jobId, b.id); toast.success("Bid declined."); setBids({ jobId, rows: await clientApi.jobBids(jobId) }); }
+    catch (e: any) { toast.error(e?.message || "Couldn't decline the bid."); }
+  };
+  const startEdit = (j: ClientJob) => {
+    setEditing(j.id);
+    setF({ ...blank, title: j.title, category: j.category, location: j.location || "", budgetKES: j.budgetKES ? String(j.budgetKES) : "", deadline: j.deadline || "", description: j.description || "", targetWorkspaceId: j.targetWorkspaceId || "" });
+    setTab("post");
+  };
+  const removeJob = async (j: ClientJob) => {
+    if (!window.confirm(`Delete "${j.title}"?${j.bidCount ? ` The ${j.bidCount} compan${j.bidCount > 1 ? "ies" : "y"} that bid will be told it's withdrawn.` : ""}`)) return;
+    try { await clientApi.deleteJob(j.id); toast.success("Job deleted."); reload(); } catch (e: any) { toast.error(e?.message || "Couldn't delete the job."); }
+  };
   const award = async (jobId: string, b: any) => {
     if (!window.confirm(`Award this job to ${b.companyName} for ${kes(b.amountKES)}? Other bids will be declined and ${b.companyName} gets your contact details.`)) return;
     try { await clientApi.awardBid(jobId, b.id); toast.success(`Awarded to ${b.companyName}. They'll contact you.`); reload(); setBids({ jobId, rows: await clientApi.jobBids(jobId) }); }
@@ -482,8 +561,14 @@ function JobsView({ home, company, reload }: { home: ClientHome; company?: Compa
     try {
       // The pin travels with the place name so contractors can find the plot.
       const location = jobPin && f.location && !/-?\d+\.\d+, ?-?\d+\.\d+/.test(f.location) ? `${f.location} (${jobPin.lat.toFixed(5)}, ${jobPin.lng.toFixed(5)})` : f.location;
-      await clientApi.postJob({ ...f, location, budgetKES: Number(f.budgetKES) || null, media });
-      toast.success("Job sent. Buildsasa will review it, usually within one working day, then contractors can bid.");
+      if (editing) {
+        await clientApi.updateJob(editing, { ...f, location, budgetKES: Number(f.budgetKES) || null });
+        toast.success("Job updated. If it was live, Buildsasa gives the changes a quick check first.");
+        setEditing(null);
+      } else {
+        await clientApi.postJob({ ...f, location, budgetKES: Number(f.budgetKES) || null, media });
+        toast.success("Job sent. Buildsasa will review it, usually within one working day, then contractors can bid.");
+      }
       setF({ ...blank, targetWorkspaceId: "" }); setMedia([]); setJobPin(null); reload(); setTab("mine");
     } catch (e: any) { toast.error(e?.message || "Couldn't post the job."); }
     finally { setBusy(false); }
@@ -495,12 +580,12 @@ function JobsView({ home, company, reload }: { home: ClientHome; company?: Compa
         <button onClick={() => setTab("mine")} className={`h-10 px-4 rounded-lg text-[13px] border inline-flex items-center gap-1.5 ${tab === "mine" ? "bg-[#FF6B1A] border-[#FF6B1A] text-white" : "border-[#222A35] bg-[#11161D] text-[#C2CAD6]"}`}>
           My jobs &amp; bids{home.jobs.length ? <span className={`text-[10.5px] px-1.5 rounded-full ${tab === "mine" ? "bg-white/25" : "bg-[#222A35]"}`}>{home.jobs.length}</span> : null}
         </button>
-        <button onClick={() => setTab("post")} className={`h-10 px-4 rounded-lg text-[13px] border ${tab === "post" ? "bg-[#FF6B1A] border-[#FF6B1A] text-white" : "border-[#222A35] bg-[#11161D] text-[#C2CAD6]"}`}>+ Post a new job</button>
+        <button onClick={() => { if (editing) { setEditing(null); setF({ ...blank, targetWorkspaceId: "" }); } setTab("post"); }} className={`h-10 px-4 rounded-lg text-[13px] border ${tab === "post" ? "bg-[#FF6B1A] border-[#FF6B1A] text-white" : "border-[#222A35] bg-[#11161D] text-[#C2CAD6]"}`}>{editing ? "Editing job" : "+ Post a new job"}</button>
       </div>
 
       {tab === "post" && (
         <>
-          <p className="text-[12px] text-[#8A95A5]">Buildsasa checks every job, usually within one working day, before contractors see it. Your phone number and email are never shown to them.</p>
+          <p className="text-[12px] text-[#8A95A5]">{editing ? "Change what you need and save. Edits to a live job get a quick check from Buildsasa before contractors see them." : "Buildsasa checks every job, usually within one working day, before contractors see it. Your phone number and email are never shown to them."}</p>
       <section className={`${card} p-4 space-y-3`}>
         <div className="grid sm:grid-cols-2 gap-3">
           <label className="block sm:col-span-2"><span className="text-[11.5px] text-[#8A95A5]">What do you need done? *</span><input value={f.title} onChange={set("title")} placeholder="e.g. Chain-link fence and gate for a 1/4 acre plot" className={input} /></label>
@@ -520,7 +605,8 @@ function JobsView({ home, company, reload }: { home: ClientHome; company?: Compa
           <label className="block"><span className="text-[11.5px] text-[#8A95A5]">Your phone (only Buildsasa sees it)</span><input value={f.phone} onChange={set("phone")} placeholder="e.g. +44 7700 900123 or 0712 345 678" className={input} /></label>
         </div>
         <div><div className="text-[11.5px] text-[#8A95A5] mb-1">Photos or short videos of the site (optional)</div><MediaPicker value={media} onChange={setMedia} /></div>
-        <button onClick={submit} disabled={busy} className={primary}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}Send job for approval</button>
+        <button onClick={submit} disabled={busy} className={primary}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}{editing ? "Save changes" : "Send job for approval"}</button>
+        {editing && <button onClick={() => { setEditing(null); setF({ ...blank, targetWorkspaceId: "" }); setTab("mine"); }} className={`${ghost} ml-2`}>Cancel</button>}
       </section>
         </>
       )}
@@ -557,6 +643,13 @@ function JobsView({ home, company, reload }: { home: ClientHome; company?: Compa
                     ))}
                   </div>
                 )}
+                {step !== 2 && (
+                  <div className="flex gap-1.5 mt-2">
+                    <button onClick={() => startEdit(j)} className="h-8 px-3 rounded-md border border-[#222A35] text-[12px] text-[#C2CAD6] hover:text-white">Edit</button>
+                    <button onClick={() => removeJob(j)} className="h-8 px-3 rounded-md border border-[#222A35] text-[12px] text-[#C2CAD6] hover:text-[#EF4444]">Delete</button>
+                  </div>
+                )}
+                {step === 2 && j.awardedBid && <button onClick={() => go({ name: "sites" })} className="mt-2 text-[12px] text-[#FF6B1A]">Contact details for {j.awardedBid.companyName} are in My sites →</button>}
                 {step === 0 && <p className="text-[12px] text-[#8A95A5] mt-2">Buildsasa is checking your job. Contractors see it once it's approved, usually within one working day.</p>}
                 {step === -1 && <p className="text-[12px] text-[#8A95A5] mt-2">Our team will contact you to adjust the job before it goes live.</p>}
                 {step >= 1 && (
@@ -578,8 +671,8 @@ function JobsView({ home, company, reload }: { home: ClientHome; company?: Compa
                       {b.status === "awarded" ? <><Badge s="active" label="Awarded" /><button onClick={() => setRate({ id: b.workspaceId, name: b.companyName })} className="text-[12px] text-[#FF6B1A]">★ Rate {b.companyName}</button></>
                         : b.status === "rejected" ? <Badge s="closed" label="Declined" />
                         : j.status !== "awarded" && (b.canAward
-                          ? <button onClick={() => award(j.id, b)} className="h-8 px-3 rounded-md bg-[#FF6B1A] text-white text-[12px]">Award job</button>
-                          : <span className="text-[11px] text-[#F59E0B]">Subscription not active, can't be awarded</span>)}
+                          ? <><button onClick={() => award(j.id, b)} className="h-8 px-3 rounded-md bg-[#FF6B1A] text-white text-[12px]">Award job</button><button onClick={() => decline(j.id, b)} className="h-8 px-3 rounded-md border border-[#222A35] text-[#C2CAD6] hover:text-[#EF4444] text-[12px]">Decline</button></>
+                          : <><span className="text-[11px] text-[#F59E0B]">Subscription not active, can't be awarded</span><button onClick={() => decline(j.id, b)} className="h-8 px-3 rounded-md border border-[#222A35] text-[#C2CAD6] hover:text-[#EF4444] text-[12px]">Decline</button></>)}
                     </div>
                   </div>
                 ))}<p className="text-[11px] text-[#5B6675] pt-2">You can award a job to any bidder whose Buildsasa subscription is active. Want independent eyes on the work? Ask Buildsasa for site reporting.</p></div>

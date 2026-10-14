@@ -156,6 +156,7 @@ module.exports = function clientRoutes(app, d) {
         prismaBase.siteReporting.findMany({ where: { clientUserId: u.id }, orderBy: { createdAt: 'desc' } }),
         prismaBase.job.findMany({ where: { clientUserId: u.id }, orderBy: { createdAt: 'desc' }, include: { _count: { select: { bids: true } } } }),
       ]);
+      const awarded = jobs.length ? await prismaBase.jobBid.findMany({ where: { jobId: { in: jobs.map((j) => j.id) }, status: 'awarded' } }) : [];
       const wsIds = [...new Set(projects.map((p) => p.workspaceId).filter(Boolean))];
       const companies = await prismaBase.workspace.findMany({ where: { id: { in: wsIds } } });
       const activeWs = new Set(await activeWorkspaceIds());
@@ -180,7 +181,15 @@ module.exports = function clientRoutes(app, d) {
         })),
         todo,
         reporting,
-        jobs: jobs.map((j) => ({ id: j.id, title: j.title, category: j.category, location: j.location, status: j.status, approval: j.approval, bidCount: j._count.bids, createdAt: j.createdAt })),
+        jobs: jobs.map((j) => {
+          const w = awarded.find((b) => b.jobId === j.id);
+          return {
+            id: j.id, title: j.title, category: j.category, location: j.location, description: j.description, budgetKES: j.budgetKES, deadline: j.deadline,
+            targetWorkspaceId: j.targetWorkspaceId, status: j.status, approval: j.approval, bidCount: j._count.bids, createdAt: j.createdAt,
+            awardedBid: w ? { id: w.id, workspaceId: w.workspaceId, companyName: w.companyName, contactName: w.contactName, phone: w.phone, email: w.email, amountKES: w.amountKES, timelineDays: w.timelineDays } : null,
+            sharedProjectId: w ? (projects.find((p) => p.workspaceId === w.workspaceId) || {}).id || null : null,
+          };
+        }),
       });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -403,6 +412,72 @@ module.exports = function clientRoutes(app, d) {
       await prismaBase.job.update({ where: { id: job.id }, data: { status: 'awarded' } });
       if (bid.email) notify(bid.email, `You won the job: ${job.title}`, p14(`<b>${u.name}</b> awarded <b>${bid.companyName}</b> the job “${job.title}” for KES ${Math.round(bid.amountKES).toLocaleString('en-KE')}. Contact them: ${u.email}${job.clientPhone ? `, ${job.clientPhone}` : ''}. Tip: create the project in Buildsasa and invite ${u.email} from its Client tab so they can follow the work.`));
       if (process.env.LEADS_NOTIFY_EMAIL) notify(process.env.LEADS_NOTIFY_EMAIL, `Client awarded a job: ${job.title}`, p14(`${u.name} awarded “${job.title}” to ${bid.companyName} (KES ${Math.round(bid.amountKES).toLocaleString('en-KE')}).`));
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  async function ownJob(req) {
+    const job = await prismaBase.job.findUnique({ where: { id: req.params.id } });
+    return job && job.clientUserId === req.user.sub ? job : null;
+  }
+
+  // Decline one bid on your own job. The company is told politely.
+  app.post('/api/client/jobs/:id/bids/:bidId/decline', auth, requireClient, async (req, res) => {
+    try {
+      const job = await ownJob(req);
+      if (!job) return res.status(404).json({ error: 'Job not found.' });
+      const bid = await prismaBase.jobBid.findUnique({ where: { id: req.params.bidId } });
+      if (!bid || bid.jobId !== job.id) return res.status(404).json({ error: 'Bid not found.' });
+      if (bid.status === 'awarded') return res.status(409).json({ error: 'This bid was awarded and can\'t be declined here. Message Buildsasa if plans changed.' });
+      await prismaBase.jobBid.update({ where: { id: bid.id }, data: { status: 'rejected' } });
+      if (bid.email) notify(bid.email, `Update on your bid: ${job.title}`, p14(`Thank you for bidding on “${job.title}”. The client has chosen not to go ahead with your bid this time. Keep logging your site work and keeping clients happy on Buildsasa; it helps you win the next one.`));
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Edit your own job before it's awarded. Changes go back to Buildsasa for a quick check.
+  app.put('/api/client/jobs/:id', auth, requireClient, async (req, res) => {
+    try {
+      const job = await ownJob(req);
+      if (!job) return res.status(404).json({ error: 'Job not found.' });
+      if (job.status === 'awarded') return res.status(409).json({ error: 'This job has been awarded, so it can\'t be edited.' });
+      const b = req.body || {};
+      const data = {};
+      for (const k of ['title', 'category', 'location']) if (b[k] !== undefined) data[k] = text(b[k], k === 'location' ? 300 : 200);
+      if (b.description !== undefined) data.description = text(b.description, 8000);
+      if (data.title === null || data.description === null || data.category === null) return res.status(400).json({ error: 'A job needs a title, a type of work and a description.' });
+      if (b.budgetKES !== undefined) data.budgetKES = Number(b.budgetKES) > 0 ? Number(b.budgetKES) : null;
+      if (b.deadline !== undefined) data.deadline = /^\d{4}-\d{2}-\d{2}$/.test(String(b.deadline || '')) ? b.deadline : null;
+      if (b.targetWorkspaceId !== undefined) {
+        if (b.targetWorkspaceId && !(await activeWorkspaceIds()).includes(b.targetWorkspaceId)) return res.status(400).json({ error: 'That company isn\'t available right now.' });
+        data.targetWorkspaceId = b.targetWorkspaceId || null;
+      }
+      // Approved jobs that change go back for a quick check, so contractors never see unchecked text.
+      if (job.approval === 'approved' && (data.title || data.description)) data.approval = 'pending';
+      const row = await prismaBase.job.update({ where: { id: job.id }, data });
+      if (data.approval === 'pending' && process.env.LEADS_NOTIFY_EMAIL) notify(process.env.LEADS_NOTIFY_EMAIL, `Client edited a job: ${row.title}`, p14('Re-approve it in the admin panel under Jobs.'));
+      res.json(row);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Delete your own job (not once it's awarded: that's a commitment to a company).
+  app.delete('/api/client/jobs/:id', auth, requireClient, async (req, res) => {
+    try {
+      const job = await ownJob(req);
+      if (!job) return res.status(404).json({ error: 'Job not found.' });
+      if (job.status === 'awarded') return res.status(409).json({ error: 'This job has been awarded, so it can\'t be deleted. Message Buildsasa if plans changed.' });
+      const bids = await prismaBase.jobBid.findMany({ where: { jobId: job.id }, select: { email: true } });
+      await prismaBase.job.delete({ where: { id: job.id } });
+      for (const bd of bids) if (bd.email) notify(bd.email, `Job withdrawn: ${job.title}`, p14(`The client has withdrawn “${job.title}”, so your bid is closed. Thank you for bidding.`));
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Stop following a project someone shared with you.
+  app.delete('/api/client/projects/:id', auth, requireClient, async (req, res) => {
+    try {
+      const u = await me(req);
+      await prismaBase.projectClient.deleteMany({ where: { projectId: req.params.id, OR: [{ userId: u.id }, { email: u.email.toLowerCase() }] } });
       res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
