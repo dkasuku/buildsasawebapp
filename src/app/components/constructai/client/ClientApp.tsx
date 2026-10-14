@@ -688,8 +688,25 @@ function JobsView({ home, company, reload, go }: { home: ClientHome; company?: C
 }
 
 // ───────────── Site reporting ─────────────
+// Module scope on purpose: a component declared inside another is a new type on
+// every render, so React remounts it and the input being typed in loses focus.
+const Step = ({ n, title, hint, children }: { n: number; title: string; hint?: string; children: React.ReactNode }) => (
+  <section className={`${card} p-4`}>
+    <div className="flex items-start gap-3">
+      <span className="w-7 h-7 rounded-full bg-[#FF6B1A] text-white text-[12.5px] font-semibold flex items-center justify-center shrink-0">{n}</span>
+      <div className="min-w-0 flex-1">
+        <div className="text-[14px] text-white">{title}</div>
+        {hint && <div className="text-[11.5px] text-[#8A95A5] mt-0.5">{hint}</div>}
+        <div className="mt-3 space-y-3">{children}</div>
+      </div>
+    </div>
+  </section>
+);
+
+// Site reporting in three tabs: the services you have, a request in four short
+// steps, and how the service and the fee work.
 function ReportingView({ home, go, reload }: { home: ClientHome; go: (v: View) => void; reload: () => void }) {
-  const [open, setOpen] = useState(!home.reporting.length);
+  const [tab, setTab] = useState<"mine" | "request" | "how">(home.reporting.length ? "mine" : "how");
   const blank = { siteName: "", location: "", projectCostKES: "", months: "6", projectId: "", notes: "", phone: home.user.phone || "" };
   const [f, setF] = useState(blank);
   const [stages, setStages] = useState<string[]>(["clearing", "fencing", "foundation", "walling", "roofing"]);
@@ -699,65 +716,143 @@ function ReportingView({ home, go, reload }: { home: ClientHome; go: (v: View) =
   const cost = Number(f.projectCostKES) || 0; const months = Math.max(1, parseInt(f.months, 10) || 1);
   const fee = cost * 0.1; const monthly = Math.round(fee / months);
   const set = (k: keyof typeof blank) => (e: any) => setF((x) => ({ ...x, [k]: e.target.value }));
+  // Picking one of your shared sites fills in its name and place.
+  const pickProject = (id: string) => {
+    const p = home.projects.find((x) => x.id === id);
+    setF((x) => ({ ...x, projectId: id, ...(p ? { siteName: x.siteName || p.name, location: x.location || (p.city !== "—" ? p.city : "") } : {}) }));
+  };
+  const ready = f.siteName.trim() && f.location.trim() && cost >= 10000 && agree;
   const submit = async () => {
+    if (!f.siteName.trim() || !f.location.trim()) return toast.error("Add the site's name and where it is (step 1).");
+    if (cost < 10000) return toast.error("Enter what the whole construction will cost (step 3).");
+    if (!agree) return toast.error("Tick the box to agree to the 10% reporting fee (step 4).");
     setBusy(true);
     try {
-      if (!agree) { setBusy(false); return toast.error("Please tick the box to agree to the 10% reporting fee."); }
       const r = await clientApi.requestReporting({ ...f, projectCostKES: cost, months, stages, agreeFee: true, lat: pin?.lat ?? null, lng: pin?.lng ?? null });
       toast.success("Request sent. Our team will call you within one working day.");
-      setF(blank); setPin(null); setOpen(false); reload(); go({ name: "report", id: r.id });
+      setF(blank); setPin(null); setAgree(false); reload(); go({ name: "report", id: r.id });
     } catch (e: any) { toast.error(e?.message || "Couldn't send the request."); }
     finally { setBusy(false); }
   };
+  const tabBtn = (k: typeof tab, label: string, n?: number) => (
+    <button onClick={() => setTab(k)} className={`shrink-0 h-10 px-4 rounded-lg text-[13px] border inline-flex items-center gap-1.5 ${tab === k ? "bg-[#FF6B1A] border-[#FF6B1A] text-white" : "border-[#222A35] bg-[#11161D] text-[#C2CAD6]"}`}>
+      {label}{n ? <span className={`text-[10.5px] px-1.5 rounded-full ${tab === k ? "bg-white/25" : "bg-[#222A35]"}`}>{n}</span> : null}
+    </button>
+  );
   return (
-    <div className="space-y-5">
-      <Title title="Buildsasa neutral site reporting" sub="Building from abroad, or far from your site? Buildsasa visits for you and reports honestly on every stage, whoever the contractor is." />
-      <section className={`${card} p-4`}>
-        <div className="grid sm:grid-cols-3 gap-3 text-[12.5px]">
-          <div><Eye className="w-5 h-5 text-[#FF6B1A]" /><div className="mt-1.5 text-white">Independent eyes on site</div><div className="text-[#8A95A5]">Our reporters work for you, not the contractor. No bias, no cover-ups.</div></div>
-          <div><Camera className="w-5 h-5 text-[#FF6B1A]" /><div className="mt-1.5 text-white">Photos and videos of every stage</div><div className="text-[#8A95A5]">From beaconing and fencing to roofing, landscaping and handover, all in your account.</div></div>
-          <div><Wallet className="w-5 h-5 text-[#FF6B1A]" /><div className="mt-1.5 text-white">10% of what your building work costs, paid monthly</div><div className="text-[#8A95A5]">Spread over the months we report and paid directly to Buildsasa after we call you (M-Pesa, bank or international transfer). Transport and lunch for each visit are paid separately.</div></div>
+    <div className="space-y-4">
+      <Title title="Site reporting" sub="Buildsasa's own reporters visit your site and report honestly on every stage, whoever the contractor is." />
+      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+        {tabBtn("mine", "My services", home.reporting.length)}
+        {tabBtn("request", "+ Request")}
+        {tabBtn("how", "How it works")}
+      </div>
+
+      {tab === "mine" && (home.reporting.length === 0 ? (
+        <div className={`${card} p-6 text-center`}>
+          <ShieldCheck className="w-8 h-8 text-[#2C3744] mx-auto" />
+          <div className="text-[14px] mt-2">No site reporting yet</div>
+          <p className="text-[12.5px] text-[#8A95A5] mt-1 max-w-md mx-auto">Ask Buildsasa to visit your site and send you honest photo and video reports of every stage.</p>
+          <div className="flex justify-center gap-2 mt-4"><button onClick={() => setTab("request")} className={primary}>Request reporting</button><button onClick={() => setTab("how")} className={ghost}>How it works</button></div>
         </div>
-      </section>
-
-      {home.reporting.length > 0 && <section className="space-y-2">{home.reporting.map((r) => <ReportingRow key={r.id} r={r} onClick={() => go({ name: "report", id: r.id })} />)}</section>}
-
-      {!open ? <button onClick={() => setOpen(true)} className={primary}><ShieldCheck className="w-4 h-4" /> Request reporting for another site</button> : (
-        <section className={`${card} p-4 space-y-3`}>
-          <div className="text-[14px] font-display">Request site reporting</div>
-          <div className="grid sm:grid-cols-2 gap-3">
-            <label className="block"><span className="text-[11.5px] text-[#8A95A5]">Name of the site *</span><input value={f.siteName} onChange={set("siteName")} placeholder="e.g. My plot in Juja Farm" className={input} /></label>
-            <div className="block sm:col-span-2"><span className="text-[11.5px] text-[#8A95A5]">Where is it? * Search, use your location, or pin the plot on the map</span>
-              <MapPicker value={f.location} latLng={pin} onChange={(location) => setF((x) => ({ ...x, location }))} onLatLngChange={setPin} placeholder="e.g. Juja Farm, Kiambu" />
+      ) : (
+        <div className="space-y-3">{home.reporting.map((r) => {
+          const next = r.status === "requested" ? "Our team will call you to confirm the site, visits and how you'll pay."
+            : r.status === "approved" ? "Approved. Visits start once your first month's payment is received."
+            : r.status === "active" ? `Visits under way. ${r.months - r.paidMonths > 0 ? `${r.months - r.paidMonths} month${r.months - r.paidMonths > 1 ? "s" : ""} left to pay.` : "All months paid."}`
+            : r.status === "paused" ? "Paused. Message the team to restart visits." : r.status === "declined" ? "Not taken on. The team has left you a note." : "Service finished.";
+          return (
+            <div key={r.id} className={`${card} p-4`}>
+              <div className="flex flex-wrap items-start gap-2">
+                <ShieldCheck className="w-5 h-5 text-[#FF6B1A] shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px]">{r.siteName}</div>
+                  <div className="text-[11.5px] text-[#8A95A5]">{r.location} · {kes(r.monthlyFeeKES)} a month · {r.months} month{r.months > 1 ? "s" : ""}</div>
+                </div>
+                <Badge s={r.status} />
+              </div>
+              <div className="mt-3">
+                <div className="flex justify-between text-[11px] text-[#8A95A5] mb-1"><span>Months paid</span><span>{r.paidMonths} of {r.months}</span></div>
+                <div className="h-1.5 rounded-full bg-[#222A35]"><div className="h-full rounded-full bg-[#22C55E]" style={{ width: `${Math.min(100, (r.paidMonths / Math.max(1, r.months)) * 100)}%` }} /></div>
+              </div>
+              <p className="text-[12px] text-[#C2CAD6] mt-2">{next}</p>
+              <div className="flex flex-wrap gap-1.5 mt-3">
+                <button onClick={() => go({ name: "report", id: r.id })} className={`${primary} h-9 px-3 text-[12px]`}>Open reports</button>
+                <button onClick={() => go({ name: "report", id: r.id })} className={`${ghost} h-9 px-3 text-[12px]`}><MessageCircle className="w-4 h-4" /> Message Buildsasa</button>
+              </div>
             </div>
-            <label className="block"><span className="text-[11.5px] text-[#8A95A5]">What will the whole construction cost? (KES) *</span><span className="block text-[10.5px] text-[#5B6675]">The total you expect to pay your contractor for the work, e.g. building the house. This is not what you pay Buildsasa; our fee is 10% of this.</span><input type="number" value={f.projectCostKES} onChange={set("projectCostKES")} placeholder="e.g. 4500000" className={input} /></label>
-            <label className="block"><span className="text-[11.5px] text-[#8A95A5]">How many months should we report? *</span><input type="number" min={1} max={60} value={f.months} onChange={set("months")} placeholder="e.g. 6" className={input} /></label>
+          );
+        })}
+        <button onClick={() => setTab("request")} className={ghost}>+ Request reporting for another site</button>
+        </div>
+      ))}
+
+      {tab === "request" && (
+        <div className="space-y-3">
+          <Step n={1} title="Your site" hint="Which plot or building should we visit?">
             {home.projects.length > 0 && (
               <label className="block"><span className="text-[11.5px] text-[#8A95A5]">Is it one of your shared sites?</span>
-                <select value={f.projectId} onChange={set("projectId")} className={input}><option value="">No, a different site</option>{home.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+                <select value={f.projectId} onChange={(e) => pickProject(e.target.value)} className={input}><option value="">No, a different site</option>{home.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
               </label>
             )}
-            <label className="block"><span className="text-[11.5px] text-[#8A95A5]">Phone or WhatsApp</span><input value={f.phone} onChange={set("phone")} placeholder="e.g. +1 202 555 0143" className={input} /></label>
-          </div>
-          <div>
-            <div className="text-[11.5px] text-[#8A95A5] mb-1.5">Which stages should we watch?</div>
-            <div className="flex flex-wrap gap-1.5">{STAGES.filter((s) => s.key !== "other").map((s) => <Chip key={s.key} on={stages.includes(s.key)} onClick={() => setStages((x) => x.includes(s.key) ? x.filter((k) => k !== s.key) : [...x, s.key])}>{s.label}</Chip>)}</div>
-          </div>
-          <label className="block"><span className="text-[11.5px] text-[#8A95A5]">Anything we should know?</span><textarea rows={3} value={f.notes} onChange={set("notes")} placeholder="e.g. The contractor says the foundation is done but I haven't seen photos. Please check the beacons too." className={area} /></label>
-          {cost > 0 && (
-            <div className="rounded-lg border border-[#FF6B1A]/30 bg-[#FF6B1A]/5 p-3 text-[12.5px]">
-              <div className="flex justify-between"><span className="text-[#8A95A5]">Buildsasa reporting fee (10% of your {kes(cost)} construction cost)</span><span>{kes(fee)}</span></div>
-              <div className="flex justify-between mt-1"><span className="text-[#8A95A5]">You pay Buildsasa monthly over {months} month{months > 1 ? "s" : ""}</span><span className="text-[#FF6B1A] font-medium">{kes(monthly)} / month</span></div>
-              <div className="text-[11px] text-[#8A95A5] mt-2">Plus transport and lunch for the reporter on each visit day, agreed with our team before the first visit. Nothing is paid in the app: our team calls you first and agrees how you'll pay.</div>
+            <label className="block"><span className="text-[11.5px] text-[#8A95A5]">Name of the site *</span><input value={f.siteName} onChange={set("siteName")} placeholder="e.g. My plot in Juja Farm" className={input} /></label>
+            <div><span className="text-[11.5px] text-[#8A95A5]">Where is it? * Search, use your location, or pin the plot on the map</span>
+              <MapPicker value={f.location} latLng={pin} onChange={(location) => setF((x) => ({ ...x, location }))} onLatLngChange={setPin} placeholder="e.g. Juja Farm, Kiambu" />
             </div>
-          )}
-          <label className="flex items-start gap-2.5 cursor-pointer rounded-lg border border-[#222A35] p-3">
-            <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#FF6B1A]" />
-            <span className="text-[12.5px] text-[#C2CAD6]">I want the Buildsasa team to visit and share my site's progress with me, and I agree to pay Buildsasa a fee of <b className="text-white">10% of my total construction cost</b>{cost > 0 ? <> ({kes(fee)}, about <b className="text-white">{kes(monthly)} a month</b>)</> : null}, paid monthly, plus transport and lunch for each visit.</span>
-          </label>
-          <p className="text-[11.5px] text-[#8A95A5]">Not now? That's fine. You can keep following your site through your contractor's Buildsasa account at no cost to you: progress updates, daily logs, inspections and chat all stay in <b>My sites</b>.</p>
-          <div className="flex gap-2"><button onClick={submit} disabled={busy || !agree} className={primary}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}Send request</button>{home.reporting.length > 0 && <button onClick={() => setOpen(false)} className={ghost}>Cancel</button>}</div>
-        </section>
+            <label className="block"><span className="text-[11.5px] text-[#8A95A5]">Your phone or WhatsApp, so we can call you</span><input value={f.phone} onChange={set("phone")} placeholder="e.g. +1 202 555 0143" className={input} /></label>
+          </Step>
+
+          <Step n={2} title="What should we watch?" hint="Tap the stages you want reports on. You can change this with our team later.">
+            <div className="flex flex-wrap gap-1.5">{STAGES.filter((st) => st.key !== "other").map((st) => <Chip key={st.key} on={stages.includes(st.key)} onClick={() => setStages((x) => x.includes(st.key) ? x.filter((k) => k !== st.key) : [...x, st.key])}>{st.label}</Chip>)}</div>
+            <label className="block"><span className="text-[11.5px] text-[#8A95A5]">Anything we should know? (optional)</span><textarea rows={3} value={f.notes} onChange={set("notes")} placeholder="e.g. The contractor says the foundation is done but I haven't seen photos. Please check the beacons too." className={area} /></label>
+          </Step>
+
+          <Step n={3} title="The construction cost" hint="Our fee is 10% of what the building work costs, spread over the months we report.">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <label className="block"><span className="text-[11.5px] text-[#8A95A5]">What will the whole construction cost? (KES) *</span><input type="number" value={f.projectCostKES} onChange={set("projectCostKES")} placeholder="e.g. 4500000" className={input} /><span className="block text-[10.5px] text-[#5B6675] mt-1">What you'll pay your contractor for the work, not what you pay Buildsasa.</span></label>
+              <label className="block"><span className="text-[11.5px] text-[#8A95A5]">How many months should we report? *</span><input type="number" min={1} max={60} value={f.months} onChange={set("months")} placeholder="e.g. 6" className={input} /></label>
+            </div>
+            <div className="rounded-lg border border-[#FF6B1A]/30 bg-[#FF6B1A]/5 p-3 text-[12.5px] space-y-1">
+              <div className="flex justify-between gap-3"><span className="text-[#8A95A5]">Construction cost</span><span>{cost ? kes(cost) : "—"}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-[#8A95A5]">Buildsasa reporting fee (10%)</span><span>{cost ? kes(fee) : "—"}</span></div>
+              <div className="flex justify-between gap-3 pt-1 border-t border-[#FF6B1A]/20"><span className="text-white">You pay Buildsasa, over {months} month{months > 1 ? "s" : ""}</span><span className="text-[#FF6B1A] font-semibold">{cost ? `${kes(monthly)} / month` : "—"}</span></div>
+              <div className="text-[11px] text-[#8A95A5] pt-1">Plus the reporter's transport and lunch on each visit day, agreed with our team first. Nothing is paid in the app.</div>
+            </div>
+          </Step>
+
+          <Step n={4} title="Agree and send">
+            <label className="flex items-start gap-2.5 cursor-pointer rounded-lg border border-[#222A35] p-3">
+              <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#FF6B1A]" />
+              <span className="text-[12.5px] text-[#C2CAD6]">I want the Buildsasa team to visit and share my site's progress with me, and I agree to pay Buildsasa a fee of <b className="text-white">10% of my total construction cost</b>{cost > 0 ? <> ({kes(fee)}, about <b className="text-white">{kes(monthly)} a month</b>)</> : null}, plus transport and lunch for each visit.</span>
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={submit} disabled={busy} className={`${primary} ${ready ? "" : "opacity-70"}`}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}Send request</button>
+              <span className="text-[11.5px] text-[#8A95A5]">You pay nothing until our team has called you and approved the request.</span>
+            </div>
+            <p className="text-[11.5px] text-[#5B6675]">Not now? You can keep following your site through your contractor's Buildsasa account at no cost: everything they share stays in <b>My sites</b>.</p>
+          </Step>
+        </div>
+      )}
+
+      {tab === "how" && (
+        <div className="space-y-3">
+          <section className={`${card} p-4`}>
+            <div className="grid sm:grid-cols-3 gap-4 text-[12.5px]">
+              <div><Eye className="w-5 h-5 text-[#FF6B1A]" /><div className="mt-1.5 text-white">Independent eyes on site</div><div className="text-[#8A95A5]">Our reporters work for you, not the contractor. No bias, no cover-ups.</div></div>
+              <div><Camera className="w-5 h-5 text-[#FF6B1A]" /><div className="mt-1.5 text-white">Photos and videos of every stage</div><div className="text-[#8A95A5]">From beaconing and fencing to roofing, landscaping and handover, in your account.</div></div>
+              <div><Wallet className="w-5 h-5 text-[#FF6B1A]" /><div className="mt-1.5 text-white">10% of the construction cost</div><div className="text-[#8A95A5]">Spread monthly, paid to Buildsasa after we call you (M-Pesa, bank or international transfer), plus transport and lunch per visit.</div></div>
+            </div>
+          </section>
+          <section className={`${card} p-4`}>
+            <div className="text-[13.5px] text-white mb-2">How it works</div>
+            <ol className="space-y-2 text-[12.5px] text-[#C2CAD6]">
+              {["You send a request with your site and the stages to watch.", "Our team calls you within one working day to agree visits, transport and how you'll pay.", "You pay the first month directly to Buildsasa; visits start.", "After each visit, the report with photos and videos appears here, and you can message the team any time."].map((t, i) => (
+                <li key={i} className="flex gap-2.5"><span className="w-5 h-5 rounded-full bg-[#161C24] text-[#FF6B1A] text-[11px] flex items-center justify-center shrink-0">{i + 1}</span>{t}</li>
+              ))}
+            </ol>
+            <button onClick={() => setTab("request")} className={`${primary} mt-4`}>Request reporting</button>
+          </section>
+        </div>
       )}
     </div>
   );
@@ -786,7 +881,7 @@ function ReportView({ id, go, reload }: { id: string; go: (v: View) => void; rel
         <div className="text-[11px] text-[#5B6675] mt-2">Transport and lunch for each visit are paid separately, as agreed with our team.</div>
       </section>
       <div className="flex gap-1.5 mb-4">
-        <Chip on={tab === "reports"} onClick={() => setTab("reports")}>Reports · {r.updates.length}</Chip>
+        <Chip on={tab === "reports"} onClick={() => setTab("reports")}>Site reports · {r.updates.length}</Chip>
         <Chip on={tab === "chat"} onClick={() => setTab("chat")}>Chat with Buildsasa</Chip>
         <Chip on={tab === "payments"} onClick={() => setTab("payments")}>Payments · {r.payments.length}</Chip>
       </div>
