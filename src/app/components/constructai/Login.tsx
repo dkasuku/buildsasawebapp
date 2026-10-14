@@ -21,6 +21,9 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [devLink, setDevLink] = useState("");
+  // Which panel the account really belongs to, when it differs from the choice made.
+  const [mismatch, setMismatch] = useState<"client" | "contractor" | null>(null);
+  useEffect(() => { setMismatch(null); }, [accountType, email]);
   // Show a message when the backend bounced us back (e.g. Google sign-in blocked
   // because access is invite-only).
   useEffect(() => {
@@ -66,6 +69,17 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
         : mode === "signup"
         ? await api.signup(name.trim(), email.trim(), password, company.trim())
         : await api.login(email.trim(), password);
+      // The choice on the first screen has to match the account. Without this, a
+      // client signing in under "contractor" (or the reverse) was let in anyway,
+      // which made the choice look meaningless. Nothing is stored on a mismatch.
+      const accountIsClient = res.user?.role === "Client";
+      if (mode === "login" && accountType && (accountType === "client") !== accountIsClient) {
+        setMismatch(accountIsClient ? "client" : "contractor");
+        setError(accountIsClient
+          ? "This is a client account, not a company account. Switch to \"I'm a client\" to sign in."
+          : "This is a company account, not a client account. Switch to \"I'm a contractor\" to sign in.");
+        return;
+      }
       localStorage.setItem("constructai-token", res.token);
       if (res.refreshToken) localStorage.setItem("constructai-refresh", res.refreshToken);
       try { localStorage.setItem("constructai-user", JSON.stringify(res.user)); } catch { /* noop */ }
@@ -245,7 +259,16 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
                   </span>
                 </label>
               )}
-              {error && <div className="text-[12px] text-[#EF4444] bg-[#EF4444]/10 border border-[#EF4444]/30 rounded-md px-3 py-2">{error}</div>}
+              {error && (
+                <div className="text-[12px] text-[#EF4444] bg-[#EF4444]/10 border border-[#EF4444]/30 rounded-md px-3 py-2">
+                  {error}
+                  {mismatch && (
+                    <button type="button" onClick={() => { setAccountType(mismatch); setMismatch(null); setError(""); }} className="block mt-2 h-8 px-3 rounded-md bg-[#FF6B1A] text-white text-[12px]">
+                      {mismatch === "client" ? "Switch to client sign-in" : "Switch to contractor sign-in"}
+                    </button>
+                  )}
+                </div>
+              )}
               {info && <div className="text-[12px] text-[#22C55E] bg-[#22C55E]/10 border border-[#22C55E]/30 rounded-md px-3 py-2">{info}</div>}
               {devLink && (
                 <div className="text-[11px] text-[#8A95A5] bg-[#11161D] border border-[#222A35] rounded-md px-3 py-2 break-all">
