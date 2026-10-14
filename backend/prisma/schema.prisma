@@ -1436,6 +1436,10 @@ model Job {
   deadline    String?   // YYYY-MM-DD, bids close at the end of this day
   clientName  String?   // who the work is for (optional, may stay private)
   attachments String?   // JSON array of { name, url }
+  // A job Buildsasa staff found elsewhere (a tender portal, a company's site) and
+  // shared with subscribers. Contractors apply there, not by bidding here.
+  externalUrl String?
+  externalSource String? // e.g. "PPIP tenders portal", shown on the button
   status      String    @default("open") // open | closed | awarded
   createdBy   String?
   // Jobs posted by a client account wait for Buildsasa staff before contractors

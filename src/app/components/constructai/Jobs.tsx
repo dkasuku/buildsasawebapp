@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Briefcase, MapPin, CalendarClock, Wallet, Paperclip, Search, X, Loader2, Send, CheckCircle2, Clock, Trophy, XCircle, FileText, Trash2 } from "lucide-react";
+import { Briefcase, MapPin, CalendarClock, Wallet, Paperclip, Search, X, Loader2, Send, CheckCircle2, Clock, Trophy, XCircle, FileText, Trash2 , ExternalLink } from "lucide-react";
 import api, { absoluteFileUrl, type JobDto, type FileRef } from "../../services/api";
 import { useFileUpload, pickFiles } from "./useFileUpload";
 import { UploadTray } from "./UploadTray";
@@ -86,7 +86,7 @@ export function Jobs() {
             return (
               <button key={j.id} onClick={() => setOpen(j)} className="text-left rounded-xl border border-[#222A35] bg-[#11161D] p-4 hover:border-[#FF6B1A]/50 transition flex flex-col gap-2">
                 <div className="flex items-start justify-between gap-2">
-                  <span className="flex flex-wrap gap-1"><span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#FF6B1A]/10 text-[#FF6B1A]">{j.category}</span>{j.forYou && <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#22C55E]/10 text-[#22C55E]" title="The client chose your company for this job">Sent to you</span>}</span>
+                  <span className="flex flex-wrap gap-1"><span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#FF6B1A]/10 text-[#FF6B1A]">{j.category}</span>{j.forYou && <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#22C55E]/10 text-[#22C55E]" title="The client chose your company for this job">Sent to you</span>}{j.externalUrl && <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#3B82F6]/10 text-[#3B82F6] inline-flex items-center gap-1" title={`Apply on ${j.externalSource || "the original site"}`}><ExternalLink className="w-2.5 h-2.5" />External</span>}</span>
                   {meta ? <span className="text-[10.5px] px-2 py-0.5 rounded-full flex items-center gap-1" style={{ background: meta.color + "20", color: meta.color }}><meta.icon className="w-3 h-3" />{meta.label}</span>
                     : !j.acceptingBids ? <span className="text-[10.5px] text-[#8A95A5]">Closed</span> : null}
                 </div>
@@ -174,6 +174,15 @@ function JobDetail({ job, onClose, onChanged }: { job: JobDto; onClose: () => vo
             </div>
           )}
 
+          {job.externalUrl && (
+            <div className="rounded-lg border border-[#3B82F6]/40 bg-[#3B82F6]/10 p-4 space-y-2">
+              <div className="text-[12.5px] text-white">Apply on the original site</div>
+              <p className="text-[12px] text-[#C2CAD6]">Buildsasa shared this job from {job.externalSource || "another site"}. Applications go there, not through Buildsasa. Read the requirements and deadline on that page.</p>
+              <a href={job.externalUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[12px]">Open {job.externalSource || "the job post"} <ExternalLink className="w-3.5 h-3.5" /></a>
+              <div className="text-[10.5px] text-[#5B6675] break-all">{job.externalUrl}</div>
+            </div>
+          )}
+
           {meta && !bidding && (
             <div className="rounded-lg border p-3 space-y-1" style={{ borderColor: meta.color + "55", background: meta.color + "12" }}>
               <div className="text-[12.5px] flex items-center gap-1.5" style={{ color: meta.color }}><meta.icon className="w-4 h-4" />{meta.label}</div>
@@ -181,7 +190,7 @@ function JobDetail({ job, onClose, onChanged }: { job: JobDto; onClose: () => vo
             </div>
           )}
 
-          {editable && (bidding || !bid) && (
+          {!job.externalUrl && editable && (bidding || !bid) && (
             <div className="rounded-lg border border-[#222A35] bg-[#0A0E14] p-4 space-y-3">
               <div className="text-[12.5px] text-white">{bid ? "Edit your bid" : "Place your bid"}</div>
               <div className="grid grid-cols-2 gap-3">
@@ -214,7 +223,7 @@ function JobDetail({ job, onClose, onChanged }: { job: JobDto; onClose: () => vo
               <button onClick={withdraw} className="h-9 px-3 rounded-md border border-[#EF4444]/40 text-[12px] text-[#EF4444]">Withdraw</button>
             </div>
           )}
-          {!job.acceptingBids && !bid && <div className="text-[12px] text-[#8A95A5]">Bids for this job have closed.</div>}
+          {!job.externalUrl && !job.acceptingBids && !bid && <div className="text-[12px] text-[#8A95A5]">Bids for this job have closed.</div>}
         </div>
       </div>
     </div>

@@ -3207,7 +3207,9 @@ app.get('/api/admin/jobs', auth, requireAdmin, async (req, res) => {
 
 const pickJob = (b) => {
   const d = {};
-  for (const k of ['title', 'category', 'location', 'clientName']) if (b[k] !== undefined) d[k] = jobText(b[k], 300);
+  for (const k of ['title', 'category', 'location', 'clientName', 'externalSource']) if (b[k] !== undefined) d[k] = jobText(b[k], 300);
+  // Only a real web address, so a pasted note can't become a broken or unsafe link.
+  if (b.externalUrl !== undefined) { const u = String(b.externalUrl || '').trim(); d.externalUrl = /^https?:\/\/[^\s]+$/i.test(u) ? u.slice(0, 1000) : null; }
   if (b.description !== undefined) d.description = jobText(b.description, 8000);
   if (b.deadline !== undefined) d.deadline = /^\d{4}-\d{2}-\d{2}$/.test(String(b.deadline || '')) ? b.deadline : null;
   if (b.budgetKES !== undefined) d.budgetKES = b.budgetKES === '' || b.budgetKES == null ? null : (Number(b.budgetKES) || null);
@@ -3285,6 +3287,7 @@ app.post('/api/jobs/:id/bid', auth, async (req, res) => {
     const job = await prismaBase.job.findUnique({ where: { id: req.params.id } });
     if (!job) return res.status(404).json({ error: 'This job is no longer available.' });
     if (job.approval !== 'approved' || (job.targetWorkspaceId && job.targetWorkspaceId !== ws)) return res.status(404).json({ error: 'This job is no longer available.' });
+    if (job.externalUrl) return res.status(409).json({ error: 'This job is taken on another site. Use "Apply on the original site" to apply there.' });
     if (jobClosed(job)) return res.status(409).json({ error: job.status === 'awarded' ? 'This job has already been awarded.' : 'Bids for this job have closed.' });
     const b = req.body || {};
     const amount = Number(b.amountKES);

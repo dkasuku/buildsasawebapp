@@ -622,6 +622,9 @@ export type JobDto = {
   acceptingBids: boolean; createdAt: string; myBid: JobBidDto | null;
   /** Aimed at this company by the client who posted it. */
   forYou?: boolean;
+  /** Shared from another site: apply there, not by bidding here. */
+  externalUrl?: string | null;
+  externalSource?: string | null;
 };
 
 export type QuoteLine = { section?: string; description: string; unit: string; quantity: number; rate: number };
