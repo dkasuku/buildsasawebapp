@@ -6,7 +6,8 @@ import { ImageWithFallback } from "../figma/ImageWithFallback";
 export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { role?: string; name?: string; email?: string }) => void; theme?: "dark" | "light"; setTheme?: (t: "dark" | "light") => void }) {
   const params = (() => { try { return new URLSearchParams(window.location.search); } catch { return new URLSearchParams(); } })();
   const [accountType, setAccountType] = useState<"client" | "contractor" | null>(() => (params.get("as") === "client" ? "client" : params.get("as") === "contractor" ? "contractor" : null));
-  const [mode, setMode] = useState<"login" | "signup" | "forgot">(() => (params.get("as") === "client" && params.get("email") ? "signup" : "login"));
+  // Invite links say whether the person still needs an account (signup=1).
+  const [mode, setMode] = useState<"login" | "signup" | "forgot">(() => (params.get("as") === "client" && params.get("signup") === "1" ? "signup" : "login"));
   const [phone, setPhone] = useState("");
   const [country, setCountry] = useState("");
   const isClient = accountType === "client";
@@ -68,6 +69,8 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
       localStorage.setItem("constructai-token", res.token);
       if (res.refreshToken) localStorage.setItem("constructai-refresh", res.refreshToken);
       try { localStorage.setItem("constructai-user", JSON.stringify(res.user)); } catch { /* noop */ }
+      // A client link (?as=client) must not keep a company account on this page.
+      if (res.user?.role !== "Client") { try { window.history.replaceState({}, "", window.location.pathname); } catch { /* noop */ } }
       onContinue(res.user);
     } catch (e: any) {
       setError(e?.message || (mode === "signup" ? "Sign up failed" : "Login failed"));

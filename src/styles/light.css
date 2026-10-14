@@ -242,3 +242,17 @@ html.theme-light,
    background; without this they stayed dark in light mode and their dark text
    vanished. */
 .theme-light .bg-\[\#0A0E14\]\/95 { background-color: rgba(244, 246, 250, 0.95) !important; }
+
+/* White text on the orange accent stays white in light mode. ".text-white" is
+   darkened to ink everywhere else, which turned every orange button label
+   ("Save", "Send a job", active tabs, the client's own chat bubbles) dark. */
+.theme-light .bg-\[\#FF6B1A\].text-white,
+.theme-light .bg-\[\#FF6B1A\] .text-white,
+.theme-light .bg-\[\#FF6B1A\].text-white svg,
+.theme-light .bg-black\/60.text-white,
+.theme-light .bg-black\/70.text-white { color: #ffffff !important; }
+.theme-light .bg-\[\#FF6B1A\] .text-white\/70,
+.theme-light .bg-\[\#FF6B1A\].text-white .text-white\/70 { color: rgba(255, 255, 255, 0.8) !important; }
+/* Light body text used in chat bubbles and comments (pale on pale otherwise). */
+.theme-light .text-\[\#E5E9F0\] { color: #1F2937 !important; }
+.theme-light .text-\[\#FF8A47\] { color: #C2410C !important; }

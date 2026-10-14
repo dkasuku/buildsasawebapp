@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Bell, Briefcase, FileSignature, Building2, CalendarDays, Camera, ChevronRight, ClipboardCheck, Eye, Home, Loader2,
+  ArrowLeft, Bell, Briefcase, ChevronDown, FileSignature, Building2, CalendarDays, Camera, ChevronRight, ClipboardCheck, Eye, Home, Loader2,
   LogOut, MapPin, MessageCircle, Moon, Phone, Search, ShieldCheck, Sun, User, Users, Wallet,
 } from "lucide-react";
 import { ChatThread, Chip, CommentThread, MediaGrid, MediaPicker, UpdateFeed } from "./ClientParts";
@@ -41,6 +41,16 @@ export function ClientApp({ theme, setTheme, onSignOut }: { theme: "dark" | "lig
   const welcome = useWelcome("client", home?.user.email, !!home);
 
   const go = (v: View) => { setView(v); window.scrollTo({ top: 0 }); };
+  // Arrived from an invite or update email: open that site.
+  useEffect(() => {
+    if (!home) return;
+    const q = new URLSearchParams(window.location.search);
+    const pid = q.get("project");
+    if (q.get("as") || pid) window.history.replaceState({}, "", window.location.pathname);
+    if (pid && home.projects.some((p) => p.id === pid)) setView({ name: "site", id: pid });
+    else if (pid) toast.error("That project isn't in your account yet. Check you signed in with the email it was shared to.");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!home]);
   // The phone menu has five slots; Account links to the rest through this event.
   useEffect(() => {
     const on = (e: Event) => go({ name: (e as CustomEvent).detail } as View);
@@ -323,8 +333,8 @@ function SiteView({ id, initialTab, go }: { id: string; initialTab?: string; go:
         <div className="space-y-3">{d.inspections.map((i: any) => (
           <div key={i.id} className={`${card} p-4`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div><div className="text-[13.5px]">{i.type}</div><div className="text-[11.5px] text-[#8A95A5]">By {i.inspector} · {i.date}</div></div>
-              <Badge s={i.status === "approved" || i.status === "closed" ? "active" : i.status === "rejected" || i.status === "rework_required" ? "declined" : "requested"} label={String(i.status).replace(/_/g, " ")} />
+              <div><div className="text-[13.5px]">{i.type} inspection</div><div className="text-[11.5px] text-[#8A95A5]">By {i.inspector} · {(() => { const d = new Date(i.date); return isNaN(+d) ? i.date : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); })()}</div></div>
+              <Badge s={i.status === "approved" || i.status === "closed" ? "active" : i.status === "rejected" || i.status === "rework_required" ? "declined" : "requested"} label={(() => { const t = String(i.status).replace(/_/g, " "); return t.charAt(0).toUpperCase() + t.slice(1); })()} />
             </div>
             {i.notes && <p className="text-[12.5px] text-[#C2CAD6] mt-2 whitespace-pre-wrap">{i.notes}</p>}
             {Array.isArray(i.checklist) && i.checklist.length > 0 && (
@@ -551,8 +561,9 @@ function JobsView({ home, company, reload }: { home: ClientHome; company?: Compa
                 {step === -1 && <p className="text-[12px] text-[#8A95A5] mt-2">Our team will contact you to adjust the job before it goes live.</p>}
                 {step >= 1 && (
                   j.bidCount === 0 ? <p className="text-[12px] text-[#8A95A5] mt-2">No bids yet. Contractors are being notified; check back soon.</p> : (
-                    <button onClick={() => openBids(j.id)} className="mt-3 h-9 px-3 rounded-md border border-[#FF6B1A]/40 text-[#FF6B1A] text-[12.5px] hover:bg-[#FF6B1A]/10">
+                    <button onClick={() => openBids(j.id)} aria-expanded={bids?.jobId === j.id} className="mt-3 h-9 px-3 rounded-md border border-[#FF6B1A]/40 text-[#FF6B1A] text-[12.5px] hover:bg-[#FF6B1A]/10 inline-flex items-center gap-1.5">
                       {bids?.jobId === j.id ? "Hide bids" : `View ${j.bidCount} bid${j.bidCount > 1 ? "s" : ""}${step === 1 ? " and award" : ""}`}
+                      <ChevronDown className={`w-4 h-4 transition-transform ${bids?.jobId === j.id ? "rotate-180" : ""}`} />
                     </button>
                   )
                 )}
@@ -753,7 +764,7 @@ function AccountView({ home, reload, onSignOut }: { home: ClientHome; reload: ()
       <div className="lg:hidden grid grid-cols-2 gap-2">
         {/* Phone users reach the rest of the menu from here. */}
         <a href="#companies" onClick={(e) => { e.preventDefault(); document.dispatchEvent(new CustomEvent("client-go", { detail: "companies" })); }} className={ghost}><Users className="w-4 h-4" /> Companies</a>
-        <a href="#jobs" onClick={(e) => { e.preventDefault(); document.dispatchEvent(new CustomEvent("client-go", { detail: "jobs" })); }} className={ghost}><Briefcase className="w-4 h-4" /> Post a job</a>
+        <a href="#jobs" onClick={(e) => { e.preventDefault(); document.dispatchEvent(new CustomEvent("client-go", { detail: "jobs" })); }} className={ghost}><Briefcase className="w-4 h-4" /> Jobs &amp; bids</a>
         <a href="#quotes" onClick={(e) => { e.preventDefault(); document.dispatchEvent(new CustomEvent("client-go", { detail: "quotes" })); }} className={`${ghost} col-span-2`}><FileSignature className="w-4 h-4" /> Quotes & proposals</a>
       </div>
       <button onClick={onSignOut} className={ghost}><LogOut className="w-4 h-4" /> Sign out</button>

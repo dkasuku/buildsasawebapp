@@ -403,7 +403,9 @@ export default function App() {
   }
 
   const authed = (() => { try { return !!localStorage.getItem("constructai-token"); } catch { return false; } })();
-  if (view === "login" || !authed) {
+  const wantsClient = (() => { try { return new URLSearchParams(window.location.search).get("as") === "client"; } catch { return false; } })();
+  const signedInAsClient = (() => { try { return JSON.parse(localStorage.getItem("constructai-user") || "null")?.role === "Client"; } catch { return false; } })();
+  if (view === "login" || !authed || (wantsClient && !signedInAsClient)) {
     return (
       <div className={`h-screen w-full ${theme === "light" ? "theme-light" : ""}`}>
         <Login onContinue={(user) => { if (user && user.role && ROLES[user.role as Role]) setRole(user.role as Role); setView(sessionStorage.getItem("pending-drawing") ? "plans" : "dashboard"); }} theme={theme} setTheme={setTheme} />

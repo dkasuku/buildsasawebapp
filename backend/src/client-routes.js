@@ -71,7 +71,7 @@ module.exports = function clientRoutes(app, d) {
   const p14 = (s) => `<p style="font-size:14px;color:#11161D">${s}</p>`;
   async function emailClients(projectId, subject, line) {
     const links = await prismaBase.projectClient.findMany({ where: { projectId } });
-    for (const l of links) notify(l.email, subject, p14(line) + button(`${APP_URL}/?as=client`, 'Open Buildsasa'));
+    for (const l of links) notify(l.email, subject, p14(line) + button(`${APP_URL}/?as=client&project=${projectId}`, 'Open Buildsasa'));
   }
   async function emailTeam(workspaceId, subject, line) {
     // The people who can share with clients hear from them.
@@ -562,7 +562,8 @@ module.exports = function clientRoutes(app, d) {
         update: { name: name || undefined, ...(existingUser ? { userId: existingUser.id } : {}) },
       });
       const company = await prismaBase.workspace.findUnique({ where: { id: p.workspaceId } });
-      const link = `${APP_URL}/?as=client&email=${encodeURIComponent(email)}`;
+      // Existing clients go to sign-in, new ones to sign-up; both open this project.
+      const link = `${APP_URL}/?as=client&email=${encodeURIComponent(email)}&project=${p.id}${existingUser ? '' : '&signup=1'}`;
       notify(email, `${company ? company.name : 'Your contractor'} invited you to follow ${p.name}`,
         p14(`Hi${name ? ` ${name}` : ''}, <b>${company ? company.name : 'your contractor'}</b> is sharing <b>${p.name}</b> with you on Buildsasa. You'll see site photos and short videos of every stage, daily logs, inspections and invoices, approve changes, and chat with the team, from anywhere in the world.`)
         + button(link, existingUser ? 'Open Buildsasa' : 'Create your free client account')
