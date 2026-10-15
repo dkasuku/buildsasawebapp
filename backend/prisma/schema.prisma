@@ -1254,6 +1254,11 @@ model SubscriptionPackage {
   features  String?                         // optional JSON array of feature strings
   active    Boolean  @default(true)         // hidden from the SaaS when false
   aiCredits Int      @default(200)          // Sasa Credits included per month
+  // Per-user pricing. 0 = flat price (the default, so existing plans are unchanged).
+  // Otherwise the base price covers this many team members and each one beyond
+  // it adds perUserUsd per period. Clients never count as users.
+  includedUsers Int   @default(0)
+  perUserUsd    Float @default(0)
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

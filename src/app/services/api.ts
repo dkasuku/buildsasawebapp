@@ -1112,6 +1112,8 @@ export type BillingInvoiceDto = {
   paystackRef?: string | null;
 };
 
+export type SeatQuote = { seats: number; perUser: boolean; included: number; extra: number; perUserUsd: number; perUserKes: number; usd: number; kes: number };
+
 export const api = {
   login: (email: string, password: string) => http<{ token: string; refreshToken?: string; user: any }>("/api/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   signup: (name: string, email: string, password: string, company?: string, role?: string) => http<{ token: string; refreshToken?: string; user: any }>("/api/signup", { method: "POST", body: JSON.stringify({ name, email, password, company, role }) }),
@@ -1267,6 +1269,7 @@ export const api = {
   generateSchedule: (projectId: string, payload: { prompt?: string; startDate?: string; durationWeeks?: number }, signal?: AbortSignal) => http<{ items: ScheduleItemDto[]; count: number }>(`/api/projects/${projectId}/schedule/generate`, { method: "POST", body: JSON.stringify(payload), signal }),
   // Billing / subscriptions (Paystack)
   getBillingPlans: () => http<{ plans: any[]; usdToKes: number; configured: boolean }>("/api/billing/plans"),
+  getBillingSeats: () => http<{ seats: number; currentPlanId: string | null; comp: boolean; quotes: { planId: string; name: string; cycle: string; now: SeatQuote; plusOne: SeatQuote }[] }>("/api/billing/seats"),
   getSubscription: () => http<any>("/api/billing/subscription"),
   billingCheckout: (planId: string, email?: string, currency?: string) => http<any>("/api/billing/checkout", { method: "POST", body: JSON.stringify({ planId, email, currency }) }),
   billingVerify: (reference: string) => http<any>("/api/billing/verify", { method: "POST", body: JSON.stringify({ reference }) }),

@@ -138,6 +138,19 @@ function InviteModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   const [memberRole, setMemberRole] = useState<Role>("Site Engineer");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  // Before inviting: what one more person does to the bill on a per-user plan.
+  const [seatNote, setSeatNote] = useState<string | null>(null);
+  useEffect(() => {
+    import("../../services/api").then((m) => m.default.getBillingSeats()).then((s) => {
+      if (!s || s.comp) return;
+      const q = s.quotes.find((x) => x.planId === s.currentPlanId) || null;
+      if (!q || !q.now.perUser) return;
+      const unit = q.cycle === "yearly" ? "year" : q.cycle === "weekly" ? "week" : "month";
+      setSeatNote(q.plusOne.extra > q.now.extra
+        ? `Your plan includes ${q.now.included} users and you have ${q.now.seats}. Adding this person takes you to ${q.plusOne.seats} users: KES ${q.plusOne.kes.toLocaleString()}/${unit} from your next invoice (+KES ${(q.plusOne.kes - q.now.kes).toLocaleString()}).`
+        : `Your plan includes ${q.now.included} users and you have ${q.now.seats}, so adding this person doesn't change your bill.`);
+    }).catch(() => {});
+  }, []);
   const cls = "w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]";
   const submit = async () => {
     if (!name.trim() || !email.trim()) return toast.error("Name and email are required");
@@ -167,6 +180,7 @@ function InviteModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
           </div>
           <div><div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">Temp password (optional — auto-generated if blank)</div><input value={password} onChange={(e) => setPassword(e.target.value)} className={cls} placeholder="min 6 characters" /><div className="text-[10px] text-[#5B6675] mt-1">We'll email them an invite with sign-in details. If email isn't set up yet, you'll get the temporary password to share.</div></div>
         </div>
+        {seatNote && <div className="mx-5 mb-1 rounded-lg border border-[#FF6B1A]/30 bg-[#FF6B1A]/5 px-3 py-2 text-[11.5px] text-[#C2CAD6]">{seatNote}</div>}
         <div className="px-5 py-4 border-t border-[#222A35] flex gap-2">
           <button onClick={onClose} className="flex-1 h-10 rounded-md border border-[#222A35] text-[12px] text-white">Cancel</button>
           <button disabled={busy} onClick={submit} className="flex-1 h-10 rounded-md bg-[#FF6B1A] text-white text-[12px] disabled:opacity-50">{busy ? "Inviting…" : "Send invite"}</button>

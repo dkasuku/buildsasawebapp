@@ -12,7 +12,7 @@ import { jsPDF } from "jspdf";
 import type { Role } from "./roles";
 import api, { type BillingInvoiceDto, type UserProfile } from "../../services/api";
 
-type Plan = { id: string; name: string; cycle: string; usd: number; kes: number; note?: string; features?: string[]; aiCredits?: number };
+type Plan = { id: string; name: string; cycle: string; usd: number; kes: number; note?: string; features?: string[]; aiCredits?: number; includedUsers?: number; perUserUsd?: number; perUserKes?: number };
 
 const FEATURES = [
   "Unlimited projects & drawings",
@@ -25,6 +25,9 @@ const FEATURES = [
 
 export default function Billing({ role }: { role: Role }) {
   const [plans, setPlans] = useState<Plan[]>([]);
+  // What each plan costs for this team's size (per-user plans).
+  const [seats, setSeats] = useState<Awaited<ReturnType<typeof api.getBillingSeats>> | null>(null);
+  useEffect(() => { api.getBillingSeats().then(setSeats).catch(() => {}); }, []);
   const [sub, setSub] = useState<any>(null);
   const [invoices, setInvoices] = useState<BillingInvoiceDto[]>([]);
   const [currency, setCurrency] = useState<"USD" | "KES">("USD");
@@ -301,6 +304,16 @@ export default function Billing({ role }: { role: Role }) {
                 </div>
                 <div className="mt-3"><span className="text-[28px] text-white font-display">{fmt(p)}</span><span className="text-[12px] text-[#8A95A5]"> / {p.cycle === "yearly" ? "year" : p.cycle === "weekly" ? "week" : "month"}</span></div>
                 {p.note && <div className="text-[11px] text-[#22C55E] mt-1">{p.note}</div>}
+                {(p.includedUsers || 0) > 0 && (p.perUserUsd || 0) > 0 && (() => {
+                  const q = seats?.quotes.find((x) => x.planId === p.id)?.now;
+                  const per = currency === "USD" ? `${p.perUserUsd}` : `KES ${(p.perUserKes || 0).toLocaleString()}`;
+                  return (
+                    <div className="mt-2 rounded-lg border border-[#222A35] bg-[#0A0E14] p-2.5 text-[11.5px] text-[#C2CAD6]">
+                      Includes <b className="text-white">{p.includedUsers} users</b>, then {per} per extra user.
+                      {q && <div className="mt-1">Your team: <b className="text-white">{q.seats} user{q.seats === 1 ? "" : "s"}</b>{q.extra ? ` (${q.extra} extra)` : ""} → <b className="text-[#FF6B1A]">{currency === "USD" ? `${q.usd}` : `KES ${q.kes.toLocaleString()}`}</b> / {p.cycle === "yearly" ? "year" : p.cycle === "weekly" ? "week" : "month"}</div>}
+                    </div>
+                  );
+                })()}
                 {AI_DESIGN_LIVE && p.aiCredits ? <div className="text-[11px] text-[#FF6B1A] mt-1">Includes {p.aiCredits.toLocaleString()} Sasa Credits for AI every month</div> : null}
                 <ul className="mt-4 space-y-1.5 flex-1">
                   {/* Per-plan features come from the admin-managed catalogue; fall

@@ -6560,8 +6560,27 @@ const PLANS_FALLBACK = [
 function planShape(row) {
   let features;
   if (row.features) { try { features = JSON.parse(row.features); } catch { /* ignore bad JSON */ } }
-  return { id: row.id, name: row.name, cycle: row.cycle, usd: row.usd, kes: Math.round((row.usd || 0) * USD_TO_KES), days: row.days, note: row.note || undefined, features, aiCredits: row.aiCredits ?? 200 };
+  return {
+    id: row.id, name: row.name, cycle: row.cycle, usd: row.usd, kes: Math.round((row.usd || 0) * USD_TO_KES), days: row.days, note: row.note || undefined, features, aiCredits: row.aiCredits ?? 200,
+    includedUsers: row.includedUsers || 0, perUserUsd: row.perUserUsd || 0, perUserKes: Math.round((row.perUserUsd || 0) * USD_TO_KES),
+  };
 }
+
+// ── Per-user pricing ──
+// Users = active team members of the company. Clients (property owners) never
+// count, nor do removed or suspended accounts.
+async function seatsFor(workspaceId) {
+  if (!workspaceId) return 1;
+  return Math.max(1, await prismaBase.user.count({ where: { workspaceId, status: 'active', role: { not: 'Client' } } }));
+}
+// What a plan costs for a team of `seats`. A plan with no included-user limit is flat.
+function quotePlan(p, seats) {
+  const perUser = p.includedUsers > 0 && p.perUserUsd > 0;
+  const extra = perUser ? Math.max(0, seats - p.includedUsers) : 0;
+  const usd = Math.round(((p.usd || 0) + extra * (p.perUserUsd || 0)) * 100) / 100;
+  return { seats, perUser, included: p.includedUsers || 0, extra, perUserUsd: p.perUserUsd || 0, perUserKes: p.perUserKes || 0, usd, kes: Math.round(usd * USD_TO_KES) };
+}
+const seatLine = (p, q) => (q.perUser ? ` · ${q.seats} user${q.seats === 1 ? '' : 's'} (${q.included} included${q.extra ? ` + ${q.extra} extra × KES ${q.perUserKes.toLocaleString('en-KE')}` : ''})` : '');
 
 // Load the plan catalogue from the DB (admin-managed), newest-ordered. Falls
 // back to the hardcoded list on empty/error so billing never breaks.
@@ -6597,6 +6616,16 @@ app.get('/api/billing/plans', async (_req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/api/billing/seats', auth, async (req, res) => {
+    try {
+      const seats = await seatsFor(currentWs());
+      const plans = await loadPlans();
+      const active = await prisma.subscription.findFirst({ where: { status: 'active' }, orderBy: { createdAt: 'desc' } });
+      const quotes = plans.map((p) => ({ planId: p.id, name: p.name, cycle: p.cycle, now: quotePlan(p, seats), plusOne: quotePlan(p, seats + 1) }));
+      res.json({ seats, currentPlanId: active ? active.plan : null, comp: hasFreeAccess(req.user?.email) || isPlatformAdmin(req.user?.email), quotes });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/billing/subscription', auth, async (req, res) => {
   try {
     // Comped accounts (FREE_ACCESS_EMAILS) and platform admins always report an
@@ -6628,13 +6657,15 @@ function nextInvoiceNumber() { return 'INV-' + Date.now().toString(36).toUpperCa
 async function issueInvoice(userId, planId, ref, opts = {}) {
   const p = (await planById(planId)) || (await loadPlans())[0] || { id: planId, usd: 0, kes: 0, name: 'Subscription' };
   const dueDays = opts.dueDays == null ? 7 : opts.dueDays;
+  const owner = await prismaBase.user.findUnique({ where: { id: userId }, select: { workspaceId: true } }).catch(() => null);
+  const q = quotePlan(p, await seatsFor(owner && owner.workspaceId));
   return prisma.billingInvoice.create({ data: {
     userId,
     number: nextInvoiceNumber(),
     plan: p.id || null,
-    description: opts.description || `${(p.name || p.id || 'Subscription')} subscription`,
-    amountUSD: p.usd || 0,
-    amountKES: p.kes || 0,
+    description: (opts.description || `${(p.name || p.id || 'Subscription')} subscription`) + seatLine(p, q),
+    amountUSD: q.usd || 0,
+    amountKES: q.kes || 0,
     currency: opts.currency === 'USD' ? 'USD' : 'KES',
     status: 'unpaid',
     dueDate: new Date(Date.now() + dueDays * 864e5),
@@ -6802,10 +6833,11 @@ app.post('/api/billing/checkout', auth, async (req, res) => {
     if (!PAYSTACK_SECRET) {
       return res.status(400).json({ error: 'Payments are not configured. Set PAYSTACK_SECRET_KEY in backend/.env.' });
     }
-    const amount = Math.round((cur === 'USD' ? plan.usd : plan.kes) * 100); // lowest unit
+    const q = quotePlan(plan, await seatsFor(currentWs()));
+    const amount = Math.round((cur === 'USD' ? q.usd : q.kes) * 100); // lowest unit, for the team's size
     const init = await paystackRequest('/transaction/initialize', 'POST', { email: email || req.user.email || 'owner@buildsasa.com', amount, currency: cur, callback_url: process.env.APP_URL || 'http://localhost:5173', metadata: { userId, planId: plan.id } });
     if (!init.status) return res.status(502).json({ error: init.message || 'Paystack init failed' });
-    await prisma.subscription.create({ data: { userId, email: email || null, plan: plan.id, status: 'inactive', amountUSD: plan.usd, currency: cur, paystackRef: init.data.reference } });
+    await prisma.subscription.create({ data: { userId, email: email || null, plan: plan.id, status: 'inactive', amountUSD: Math.round(q.usd), currency: cur, paystackRef: init.data.reference } });
     await issueInvoice(userId, plan.id, init.data.reference, { currency: cur });
     res.json({ authorizationUrl: init.data.authorization_url, reference: init.data.reference });
   } catch (e) { res.status(500).json({ error: e.message }); }
