@@ -43,6 +43,7 @@ import { ClientFolder } from "./project-hub/ClientFolder";
 import { CostControlFolder } from "./project-hub/CostControlFolder";
 import { ReportFolder } from "./project-hub/ReportFolder";
 import { Bar, Field, Modal, Panel, Pill, btnGhost, btnPrimary, fmtDate, input, statusTone, useMoney } from "./project-hub/shared";
+import { isStarter } from "./planTier";
 
 type Folder = "overview" | "contract" | "drawings" | "boq" | "variations" | "selections" | "certificates" | "site" | "costs" | "report" | "closeout" | "client";
 
@@ -61,7 +62,9 @@ export function ProjectDetail({
 }) {
   const { fmt, compact } = useMoney();
   const perms = ROLES[role];
-  const showFin = perms.financials;
+  // Payment certificates, cost control and the BOQ are Business plan features.
+  const starterPlan = isStarter();
+  const showFin = perms.financials && !starterPlan;
   const canEditDocs = canManageBids(role) || perms.manageTeam;
   const canLogVariations = perms.createCO;
   const canApproveVariations = perms.approveAny;
@@ -97,7 +100,7 @@ export function ProjectDetail({
       { key: "overview", label: "Overview", icon: LayoutDashboard },
       { key: "contract", label: "Contract Documents", icon: FileText, count: docsIn("contract") },
       { key: "drawings", label: "Drawings & Designs", icon: FileStack, count: c.sheets, hint: c.drawings !== c.sheets ? `${c.drawings} versions` : undefined },
-      { key: "boq", label: "Bills of Quantities", icon: Calculator, count: data.boq.itemCount, hint: data.boq.revisions.length ? `V${data.boq.revisions[0].version} saved` : undefined },
+      ...(starterPlan ? [] : [{ key: "boq" as Folder, label: "Bills of Quantities", icon: Calculator, count: data.boq.itemCount, hint: data.boq.revisions.length ? `V${data.boq.revisions[0].version} saved` : undefined }]),
       { key: "variations", label: "Variations", icon: Wrench, count: c.variations },
       { key: "selections", label: "Finish Selections", icon: Palette },
       ...(showFin ? [{ key: "certificates" as Folder, label: "Payment Certificates", icon: Receipt, count: c.certificates }] : []),

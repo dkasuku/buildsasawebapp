@@ -11,6 +11,8 @@ import { PublicQuoteView } from "./components/constructai/PublicQuoteView";
 import { PublicPortalView } from "./components/constructai/PublicPortalView";
 import { ClientApp } from "./components/constructai/client/ClientApp";
 import { useWelcome, WelcomeModal } from "./components/constructai/Welcome";
+import { BUSINESS_VIEWS, setPlanTier } from "./components/constructai/planTier";
+import { PlanUpgrade } from "./components/constructai/PlanUpgrade";
 import { ErrorBoundary } from "./components/constructai/ErrorBoundary";
 import { Dashboard } from "./components/constructai/Dashboard";
 import { Projects } from "./components/constructai/Projects";
@@ -250,7 +252,7 @@ export default function App() {
   // Start locked (active:false) so we NEVER flash the dashboard before the
   // subscription status is known. `gateLoaded` stays false until the first
   // check resolves; until then we hold on a neutral loading screen.
-  const [gate, setGate] = useState<{ configured: boolean; active: boolean; overdue: boolean; unpaidDue: string | null; isBillingOwner: boolean; trialDaysLeft?: number | null; trialEnded?: boolean }>({ configured: false, active: false, overdue: false, unpaidDue: null, isBillingOwner: false });
+  const [gate, setGate] = useState<{ configured: boolean; active: boolean; overdue: boolean; unpaidDue: string | null; isBillingOwner: boolean; trialDaysLeft?: number | null; trialEnded?: boolean; tier?: "starter" | "business" }>({ configured: false, active: false, overdue: false, unpaidDue: null, isBillingOwner: false });
   const [gateLoaded, setGateLoaded] = useState(false);
   const [gateNonce, setGateNonce] = useState(0);
   // Welcome a company's people the first time they're in with an active plan.
@@ -282,6 +284,7 @@ export default function App() {
           unpaidDue: soonest,
           isBillingOwner,
           trialDaysLeft: (sub as any)?.trial ? (sub as any).trialDaysLeft : null,
+          tier: (sub as any)?.tier === "starter" ? "starter" : "business",
           trialEnded: !!(sub as any)?.trialEnded,
         });
       } catch { /* ignore */ }
@@ -461,6 +464,9 @@ export default function App() {
   // prompt; paid companies get full access. (In demo mode without Paystack,
   // choosing a plan activates instantly so it stays testable.)
   const paywalled = gate.overdue || !gate.active;
+  const starter = gate.tier === "starter";
+  // Not a hook: this sits below early returns, where hooks would break the render order.
+  setPlanTier(starter ? "starter" : "business");
   const invoiceBanner = !paywalled && !!gate.unpaidDue;
   // The first-run setup wizard only applies to workspace owners/managers.
   const onboardingShowing = !onboarded && (ROLES[role].isWorkspaceOwner || ROLES[role].manageTeam);
@@ -479,6 +485,7 @@ export default function App() {
           onClose={() => setDrawerOpen(false)}
           role={role}
           locked={paywalled}
+          starter={starter}
         />
         <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
           <Topbar
@@ -546,6 +553,7 @@ export default function App() {
                 <button onClick={() => navigate("billing")} className="h-8 px-3 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[11.5px] shrink-0">Pay invoice</button>
               </div>
             )}
+            {starter && BUSINESS_VIEWS.includes(effectiveView) ? <PlanUpgrade view={effectiveView} onUpgrade={() => navigate("billing")} /> : (
             <ErrorBoundary resetKey={effectiveView} onReset={() => setView("dashboard")}>
             {effectiveView === "dashboard" && (
               <Dashboard
@@ -617,6 +625,7 @@ export default function App() {
             {effectiveView === "attendance" && <Attendance role={role} />}
             {effectiveView === "buildflex-ai" && <BuildflexAI role={role} messages={aiMessages} setMessages={setAiMessages} onOpenForm={openAiForm} />}
             </ErrorBoundary>
+            )}
           </div>
         </div>
         <Toaster theme={theme} position="top-right" />

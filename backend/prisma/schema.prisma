@@ -1259,6 +1259,10 @@ model SubscriptionPackage {
   // it adds perUserUsd per period. Clients never count as users.
   includedUsers Int   @default(0)
   perUserUsd    Float @default(0)
+  // Which features the plan unlocks. "business" = everything (the default);
+  // "starter" leaves out financials, BOQ & certificates, inventory & equipment,
+  // subcontractors and reports (see BUSINESS_ONLY in server.js).
+  tier          String @default("business")
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

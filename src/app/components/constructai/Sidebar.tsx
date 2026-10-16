@@ -1,9 +1,10 @@
-import { LayoutDashboard, CalendarDays, FolderKanban, FileText, BarChart3, Users, Settings, LifeBuoy, Smartphone, X, FileStack, ListChecks, ClipboardList, CheckCircle, Handshake, Mail, Bell, Eye, ClipboardCheck, MessageSquare, Briefcase, UsersRound, FolderOpen, Megaphone, Shield, ChevronDown, ChevronRight, Gavel, Receipt, FileSignature, ShieldAlert, Truck, Clock, FileDigit, CreditCard, LogOut, Boxes } from "lucide-react";
+import { LayoutDashboard, CalendarDays, FolderKanban, FileText, BarChart3, Users, Settings, LifeBuoy, Smartphone, X, FileStack, ListChecks, ClipboardList, CheckCircle, Handshake, Mail, Bell, Eye, ClipboardCheck, MessageSquare, Briefcase, UsersRound, FolderOpen, Megaphone, Shield, ChevronDown, ChevronRight, Gavel, Receipt, FileSignature, ShieldAlert, Truck, Clock, FileDigit, CreditCard, LogOut, Boxes , Lock } from "lucide-react";
 import { useState, useEffect } from "react";
 import type { Role } from "./roles";
 import { ROLES, ROLE_COLORS } from "./roles";
 import { isViewVisible } from "../../config/features";
 import apiClient, { type UserProfile } from "../../services/api";
+import { BUSINESS_VIEWS } from "./planTier";
 
 export type View =
   | "login"
@@ -133,6 +134,7 @@ export function Sidebar({
   onClose,
   role,
   locked = false,
+  starter = false,
 }: {
   view: View;
   setView: (v: View) => void;
@@ -140,6 +142,8 @@ export function Sidebar({
   onClose: () => void;
   role: Role;
   locked?: boolean;
+  /** On the Starter plan: Business-only items show a lock. */
+  starter?: boolean;
 }) {
   const perms = ROLES[role];
   const go = (v: View) => {
@@ -292,6 +296,7 @@ export function Sidebar({
                         >
                           <n.icon className="w-4 h-4" />
                           <span className="flex-1 text-left">{n.label}</span>
+                          {starter && BUSINESS_VIEWS.includes(n.key) && <Lock className="w-3 h-3 text-[#5B6675]" aria-label="Business plan" />}
                           {active && <span className="ml-auto w-1 h-1 rounded-full bg-[#FF6B1A]" />}
                         </button>
                       );

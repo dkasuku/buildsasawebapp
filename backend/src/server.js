@@ -284,10 +284,36 @@ function requireRole(allowedRoles) {
 // never reach a workspace route: only these prefixes are open to them, and every
 // handler under them checks ownership explicitly (src/client-routes.js).
 const CLIENT_ALLOWED = ['/api/client/', '/api/me', '/api/upload', '/api/auth/', '/api/public/'];
+// Features only the Business tier unlocks.
+const BUSINESS_ONLY = /^\/api\/(?:boq|commitments|cost-codes|equipment|inventory|retention|scheduled-reports|subcontractors|rate-library)(?:\/|$)|^\/api\/projects\/[^/]+\/(?:boq|commitments|expenses|ledger|payment-applications|retention|certificates)(?:\/|$)/;
+// The company's plan tier: staff, comped accounts and companies on their free
+// trial get everything; otherwise it's the tier of the plan they pay for.
+// Cached briefly, since it runs on every Business-only request.
+const tierCache = new Map();
+async function planTierFor(req) {
+  const email = req.user && req.user.email;
+  if (hasFreeAccess(email) || isPlatformAdmin(email)) return 'business';
+  const ws = req.user && req.user.ws;
+  if (!ws) return 'business';
+  const hit = tierCache.get(ws);
+  if (hit && Date.now() - hit.at < 60000) return hit.tier;
+  const sub = await prismaBase.subscription.findFirst({ where: { workspaceId: ws, status: 'active' }, orderBy: { createdAt: 'desc' } });
+  let tier = 'business';
+  if (sub) { const p = await planById(sub.plan); tier = (p && p.tier) || 'business'; }
+  tierCache.set(ws, { tier, at: Date.now() });
+  return tier;
+}
+
 function auth(req, res, next) {
   // Run the rest of the request inside the workspace context so the Prisma
   // engine scopes every query to this user's company.
   const run = () => {
+    // Starter companies: Business-only features are refused here, before any route runs.
+    if (req.user && req.user.role !== 'Client' && BUSINESS_ONLY.test(String(req.originalUrl || req.url || '').split('?')[0])) {
+      return planTierFor(req).then((tier) => (tier === 'starter'
+        ? res.status(403).json({ code: 'upgrade', error: 'This is a Business plan feature. Upgrade in Billing & Plan to use it.' })
+        : wsStore.run({ ws: (req.user && req.user.ws) || null }, next)), () => wsStore.run({ ws: (req.user && req.user.ws) || null }, next));
+    }
     if (req.user && req.user.role === 'Client') {
       const p = String(req.originalUrl || req.url || '').split('?')[0];
       if (!CLIENT_ALLOWED.some((a) => p === a.replace(/\/$/, '') || p.startsWith(a))) return res.status(403).json({ error: 'This page is for company accounts. You are signed in as a client.' });
@@ -6562,7 +6588,7 @@ function planShape(row) {
   if (row.features) { try { features = JSON.parse(row.features); } catch { /* ignore bad JSON */ } }
   return {
     id: row.id, name: row.name, cycle: row.cycle, usd: row.usd, kes: Math.round((row.usd || 0) * USD_TO_KES), days: row.days, note: row.note || undefined, features, aiCredits: row.aiCredits ?? 200,
-    includedUsers: row.includedUsers || 0, perUserUsd: row.perUserUsd || 0, perUserKes: Math.round((row.perUserUsd || 0) * USD_TO_KES),
+    includedUsers: row.includedUsers || 0, perUserUsd: row.perUserUsd || 0, perUserKes: Math.round((row.perUserUsd || 0) * USD_TO_KES), tier: row.tier || 'business',
   };
 }
 
@@ -6668,7 +6694,8 @@ app.get('/api/billing/subscription', auth, async (req, res) => {
       if (t && t.active) return res.json({ status: 'active', plan: 'trial', trial: true, trialEndsAt: t.endsAt, trialDaysLeft: t.daysLeft, isBillingOwner });
       trialEnded = !!t;
     }
-    res.json(sub ? { ...sub, isBillingOwner, trialEnded } : { status: 'inactive', isBillingOwner, trialEnded });
+    const tier = active ? (((await planById(active.plan)) || {}).tier || 'business') : 'business';
+    res.json(sub ? { ...sub, isBillingOwner, trialEnded, tier } : { status: 'inactive', isBillingOwner, trialEnded, tier });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
