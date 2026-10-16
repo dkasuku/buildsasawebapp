@@ -250,7 +250,7 @@ export default function App() {
   // Start locked (active:false) so we NEVER flash the dashboard before the
   // subscription status is known. `gateLoaded` stays false until the first
   // check resolves; until then we hold on a neutral loading screen.
-  const [gate, setGate] = useState<{ configured: boolean; active: boolean; overdue: boolean; unpaidDue: string | null; isBillingOwner: boolean }>({ configured: false, active: false, overdue: false, unpaidDue: null, isBillingOwner: false });
+  const [gate, setGate] = useState<{ configured: boolean; active: boolean; overdue: boolean; unpaidDue: string | null; isBillingOwner: boolean; trialDaysLeft?: number | null; trialEnded?: boolean }>({ configured: false, active: false, overdue: false, unpaidDue: null, isBillingOwner: false });
   const [gateLoaded, setGateLoaded] = useState(false);
   const [gateNonce, setGateNonce] = useState(0);
   // Welcome a company's people the first time they're in with an active plan.
@@ -281,6 +281,8 @@ export default function App() {
           overdue,
           unpaidDue: soonest,
           isBillingOwner,
+          trialDaysLeft: (sub as any)?.trial ? (sub as any).trialDaysLeft : null,
+          trialEnded: !!(sub as any)?.trialEnded,
         });
       } catch { /* ignore */ }
       finally { if (alive) setGateLoaded(true); }
@@ -507,7 +509,7 @@ export default function App() {
                     <CreditCard className="w-6 h-6 text-[#FF6B1A]" />
                   </div>
                   <div className="text-[18px] text-white font-display mt-4">
-                    {gate.overdue ? "Payment required" : gate.isBillingOwner ? "Activate your workspace" : "This workspace isn't active yet"}
+                    {gate.overdue ? "Payment required" : gate.isBillingOwner ? (gate.trialEnded ? "Your free trial has ended" : "Activate your workspace") : "This workspace isn't active yet"}
                   </div>
                   {/* A teammate cannot settle their company's bill. Sending them to a
                       checkout they have no authority over is a dead end, so they are
@@ -526,6 +528,15 @@ export default function App() {
                     <button onClick={() => { try { localStorage.removeItem("constructai-token"); localStorage.removeItem("constructai-user"); localStorage.removeItem("constructai-refresh"); } catch { /* noop */ } setView("login"); }} className="h-10 px-4 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white text-[12.5px]">Sign out</button>
                   </div>
                 </div>
+              </div>
+            )}
+            {!paywalled && gate.trialDaysLeft != null && effectiveView !== "billing" && (
+              <div className="flex items-center gap-3 px-4 sm:px-7 py-2.5 bg-[#FF6B1A]/10 border-b border-[#FF6B1A]/30">
+                <CreditCard className="w-4 h-4 text-[#FF6B1A] shrink-0" />
+                <div className="text-[12px] text-[#E6EAF0] flex-1">
+                  {gate.trialDaysLeft <= 1 ? "Your free trial ends today." : `Free trial: ${gate.trialDaysLeft} days left.`} Everything is unlocked. {gate.isBillingOwner ? "Choose a plan to keep going without interruption." : "Ask whoever manages your account to choose a plan."}
+                </div>
+                {gate.isBillingOwner && <button onClick={() => navigate("billing")} className="h-8 px-3 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[11.5px] shrink-0">Choose a plan</button>}
               </div>
             )}
             {invoiceBanner && effectiveView !== "billing" && (

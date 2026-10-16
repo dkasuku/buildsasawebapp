@@ -63,7 +63,10 @@ module.exports = function clientRoutes(app, d) {
     // Comped companies (Buildsasa staff, FREE_ACCESS_EMAILS) never pay, so they have
     // no subscription row but are just as active.
     const comped = freeAccessEmails ? await prismaBase.user.findMany({ where: { email: { in: freeAccessEmails() }, workspaceId: { not: null } }, select: { workspaceId: true } }) : [];
-    return [...new Set([...subs.filter((s) => !s.currentPeriodEnd || new Date(s.currentPeriodEnd).getTime() > now).map((s) => s.workspaceId), ...comped.map((u) => u.workspaceId)])];
+    // Companies still inside their free trial (see TRIAL_DAYS in server.js).
+    const trialDays = d.trialDays || 0;
+    const trial = trialDays ? await prismaBase.workspace.findMany({ where: { createdAt: { gt: new Date(now - trialDays * 864e5) } }, select: { id: true } }) : [];
+    return [...new Set([...subs.filter((s) => !s.currentPeriodEnd || new Date(s.currentPeriodEnd).getTime() > now).map((s) => s.workspaceId), ...comped.map((u) => u.workspaceId), ...trial.map((w) => w.id)])];
   }
 
   // Best-effort email; never blocks a request.
