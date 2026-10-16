@@ -58,6 +58,7 @@ export type ClientJob = {
   awardedBid: { id: string; workspaceId: string; companyName: string; contactName: string; phone?: string | null; email?: string | null; amountKES: number; timelineDays?: number | null } | null;
   sharedProjectId: string | null;
 };
+export type ProjectRequestRow = { id: string; projectType: string; location: string; budget?: string | null; timeline?: string | null; description: string; status: "new" | "reviewing" | "matched" | "closed"; createdAt: string };
 export type ClientHome = {
   user: { name: string; email: string; phone?: string | null; country?: string | null };
   projects: { id: string; name: string; city: string; status: string; progress: number; startDate?: string | null; targetEndDate?: string | null; cover?: string | null; companyActive?: boolean; company: { name: string; logoUrl?: string | null; phone?: string | null; email?: string | null } | null; lastUpdate: { title: string; stage: string; createdAt: string } | null }[];
@@ -81,6 +82,8 @@ export const clientApi = {
   siteComments: (id: string) => http<ClientComment[]>(`/api/client/projects/${id}/comments`),
   commentOnSite: (id: string, targetType: string, targetId: string, body: string, media: Media[]) => http<ClientComment>(`/api/client/projects/${id}/comments`, j({ targetType, targetId, body, media })),
   quotes: () => http<ClientQuote[]>("/api/client/quotes"),
+  projectRequests: () => http<ProjectRequestRow[]>("/api/client/project-requests"),
+  requestProject: (p: Record<string, unknown>) => http<ProjectRequestRow>("/api/client/project-requests", j(p)),
   commentOnQuote: (id: string, body: string, media: Media[]) => http<ClientComment>(`/api/client/quotes/${id}/comments`, j({ body, media })),
   companies: () => http<Company[]>("/api/client/companies"),
   postJob: (p: Record<string, unknown>) => http("/api/client/jobs", j(p)),

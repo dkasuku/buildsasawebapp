@@ -59,7 +59,6 @@ const NAV_GROUPS: NavGroup[] = [
       { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
       { key: "inbox", label: "Inbox", icon: Mail },
       { key: "announcements", label: "Announcements", icon: Megaphone },
-      { key: "jobs", label: "Jobs Board", icon: Briefcase },
     ],
   },
   {
@@ -78,7 +77,6 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Commitments & Money",
     items: [
-      { key: "bidding", label: "Bidding", icon: Gavel },
       { key: "commitments", label: "Commitments", icon: Handshake },
       { key: "financials", label: "Financials", icon: BarChart3 },
       { key: "quotes", label: "Quotes", icon: FileSignature },

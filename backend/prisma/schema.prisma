@@ -1540,8 +1540,9 @@ model ProjectRequest {
   budget      String?  // a range picked on the form, e.g. "KES 5M – 20M"
   timeline    String?  // e.g. "Within 3 months"
   description String
-  status      String   @default("new") // new | reviewing | posted | closed
-  jobId       String?  // the Jobs Board job created from it
+  status      String   @default("new") // new | reviewing | matched | closed (posted = legacy, shown as matched)
+  jobId       String?  // legacy: the Jobs Board job created from it
+  clientUserId String? // set when a signed-in client sent it from their client panel
   adminNote   String?
   pageUrl     String?
   ip          String?

@@ -37,7 +37,7 @@ const COPY: Record<Kind, { title: (n: string) => string; sub: string; points: { 
       { icon: CalendarDays, t: "Log site work daily", d: "Daily logs with photos keep your team, and your clients, in the loop." },
       { icon: UserCheck, t: "Invite your clients", d: "Open a project's Client tab and invite the owner. They follow progress free, and trust grows." },
       { icon: Users, t: "Bring your team", d: "Add site managers, foremen and inspectors from Team, each with the right access." },
-      { icon: Briefcase, t: "Win new work", d: "Check the Jobs Board for projects clients and Buildsasa post for subscribers." },
+      { icon: Briefcase, t: "Send professional quotes", d: "Price jobs from templates and send a link your client accepts online." },
     ],
     cta: "Start building",
   },
