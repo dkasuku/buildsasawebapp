@@ -6,11 +6,11 @@
 
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { FolderOpen, Search, UploadCloud, Loader2 } from "lucide-react";
-import api, { type DocCategory, type DocumentDto } from "../../../services/api";
+import { Search, Plus, Loader2, ExternalLink, Trash2 } from "lucide-react";
+import api, { absoluteFileUrl, type DocCategory, type DocumentDto } from "../../../services/api";
 import { pickFiles, useFileUpload } from "../useFileUpload";
 import { UploadTray } from "../UploadTray";
-import { DocRow, Empty, Panel, btnPrimary, fileSizeLabel, input } from "./shared";
+import { DocRow, fileSizeLabel, fmtDate } from "./shared";
 
 export type UploadTarget = { category: DocCategory; linkedType?: string; linkedId?: string; note?: string };
 
@@ -22,8 +22,8 @@ export type UploadTarget = { category: DocCategory; linkedType?: string; linkedI
 export function useDocumentUpload(projectId: string, onChanged: () => void | Promise<void>) {
   const uploader = useFileUpload();
   const [saving, setSaving] = useState(false);
-  const upload = async (target: UploadTarget, accept?: string) => {
-    const files = await pickFiles({ multiple: true, accept });
+  const upload = async (target: UploadTarget, accept?: string, dropped?: File[]) => {
+    const files = dropped?.length ? dropped : await pickFiles({ multiple: true, accept });
     if (!files.length) return [] as DocumentDto[];
     setSaving(true);
     const created: DocumentDto[] = [];
@@ -63,7 +63,7 @@ export const FOLDER_META: Record<DocCategory, { title: string; blurb: string; ex
 };
 
 export function DocumentFolder({
-  projectId, category, docs, onChanged, canEdit, title, blurb, examples,
+  projectId, category, docs, onChanged, canEdit, title, blurb, examples, tiles = false,
 }: {
   projectId: string;
   category: DocCategory;
@@ -71,48 +71,84 @@ export function DocumentFolder({
   onChanged: () => void | Promise<void>;
   canEdit: boolean;
   title?: string; blurb?: string; examples?: string;
+  /** Show files as a grid of tiles rather than rows. */
+  tiles?: boolean;
 }) {
   const meta = FOLDER_META[category];
   const [q, setQ] = useState("");
+  const [drag, setDrag] = useState(false);
   const { upload, uploader, pending, busy } = useDocumentUpload(projectId, onChanged);
 
+  const all = useMemo(() => docs.filter((d) => (d.category || "general") === category), [docs, category]);
   const rows = useMemo(() => {
-    const mine = docs.filter((d) => (d.category || "general") === category);
     const needle = q.trim().toLowerCase();
-    return needle ? mine.filter((d) => `${d.name} ${d.note || ""}`.toLowerCase().includes(needle)) : mine;
-  }, [docs, category, q]);
+    return needle ? all.filter((d) => `${d.name} ${d.note || ""}`.toLowerCase().includes(needle)) : all;
+  }, [all, q]);
 
   const del = async (d: DocumentDto) => {
+    if (!confirm(`Delete ${d.name}?`)) return;
     try { await api.deleteDocument(d.id); await onChanged(); toast.success("Deleted"); }
     catch (e: any) { toast.error(e?.message || "Could not delete that file"); }
   };
+  const dropProps = canEdit ? {
+    onDragOver: (e: React.DragEvent) => { e.preventDefault(); setDrag(true); },
+    onDragLeave: () => setDrag(false),
+    onDrop: (e: React.DragEvent) => { e.preventDefault(); setDrag(false); const files = Array.from(e.dataTransfer.files || []); if (files.length) upload({ category }, undefined, files); },
+  } : {};
 
   return (
-    <Panel
-      title={title ?? meta.title}
-      subtitle={`${rows.length} file${rows.length === 1 ? "" : "s"} · ${blurb ?? meta.blurb}`}
-      action={canEdit && (
-        <button onClick={() => upload({ category })} disabled={busy} className={btnPrimary}>
-          {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UploadCloud className="w-3.5 h-3.5" />} Upload
-        </button>
-      )}
-    >
-      {docs.filter((d) => (d.category || "general") === category).length > 4 && (
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-[#222A35]">
-          <Search className="w-3.5 h-3.5 text-[#5B6675]" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search this folder" className={`${input} border-0 bg-transparent h-8 px-0`} />
+    <section className="ws-card" aria-label={title ?? meta.title} {...dropProps} style={drag ? { borderColor: "var(--ws-primary)" } : undefined}>
+      <div className="ws-card-head">
+        <div className="min-w-0">
+          <h2 className="ws-h2">{title ?? meta.title}</h2>
+          <div className="ws-sub">{all.length} file{all.length === 1 ? "" : "s"} · {blurb ?? meta.blurb}</div>
+        </div>
+        {canEdit && (
+          <button type="button" onClick={() => upload({ category })} disabled={busy} className="ws-btn">
+            {busy ? <Loader2 className="animate-spin" /> : <Plus />} Add document
+          </button>
+        )}
+      </div>
+      {all.length > 6 && (
+        <div className="flex items-center gap-2 px-[18px] py-2" style={{ borderBottom: "1px solid var(--ws-divider)" }}>
+          <Search className="w-4 h-4" style={{ color: "var(--ws-muted)" }} aria-hidden />
+          <label className="sr-only" htmlFor={`search-${category}`}>Search this folder</label>
+          <input id={`search-${category}`} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search this folder" className="flex-1 h-8 bg-transparent outline-none text-[13.5px]" style={{ color: "var(--ws-text)" }} />
         </div>
       )}
-      {pending.length > 0 && <div className="px-4 pt-3"><UploadTray state={uploader} /></div>}
-      {rows.length === 0 ? (
-        <Empty icon={FolderOpen} title={q ? "Nothing matches that search" : "This folder is empty"} hint={q ? undefined : `Upload ${examples ?? meta.examples}`}>
-          {canEdit && !q && <button onClick={() => upload({ category })} disabled={busy} className={btnPrimary}><UploadCloud className="w-3.5 h-3.5" /> Upload files</button>}
-        </Empty>
+      {pending.length > 0 && <div className="px-[18px] pt-3"><UploadTray state={uploader} /></div>}
+      {rows.length > 0 && !tiles ? (
+        <div>{rows.map((d) => <DocRow key={d.id} doc={d} onDelete={canEdit ? del : undefined} />)}</div>
       ) : (
-        <div className="divide-y divide-[#222A35]">
-          {rows.map((d) => <DocRow key={d.id} doc={d} onDelete={canEdit ? del : undefined} />)}
+        <div className="ws-card-body">
+          {rows.length === 0 ? (
+            <div className="ws-dashed-row" style={drag ? { borderColor: "var(--ws-primary)", background: "var(--ws-wash)" } : undefined}>
+              {q ? "Nothing matches that search." : canEdit ? "Nothing here yet. Drop files or add a document." : "Nothing here yet."}
+            </div>
+          ) : (
+            <div className="ws-grid-3">
+              {rows.map((d) => <DocTile key={d.id} doc={d} onDelete={canEdit ? del : undefined} />)}
+            </div>
+          )}
         </div>
       )}
-    </Panel>
+    </section>
+  );
+}
+
+function DocTile({ doc, onDelete }: { doc: DocumentDto; onDelete?: (d: DocumentDto) => void }) {
+  const ext = (doc.name.split(".").pop() || "file").slice(0, 4).toUpperCase();
+  return (
+    <div className="rounded-[10px] p-3 flex flex-col gap-2 min-w-0" style={{ border: "1px solid var(--ws-border)", background: "var(--ws-card)" }}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="ws-pill ws-mono" style={{ height: 20, fontSize: 11 }}>{ext}</span>
+        <span className="flex items-center gap-1">
+          <a href={absoluteFileUrl(doc.url)} target="_blank" rel="noreferrer" className="ws-icon-btn ws-ghost" style={{ width: 28, height: 28 }} aria-label={`Open ${doc.name}`}><ExternalLink /></a>
+          {onDelete && <button type="button" onClick={() => onDelete(doc)} className="ws-icon-btn ws-ghost" style={{ width: 28, height: 28 }} aria-label={`Delete ${doc.name}`}><Trash2 /></button>}
+        </span>
+      </div>
+      <a href={absoluteFileUrl(doc.url)} target="_blank" rel="noreferrer" className="text-[13.5px] font-medium truncate hover:underline" style={{ color: "var(--ws-text)" }} title={doc.name}>{doc.name}</a>
+      <div className="text-[12px] truncate" style={{ color: "var(--ws-muted)" }}>{doc.size} · {doc.createdAt ? fmtDate(doc.createdAt) : doc.updated}</div>
+    </div>
   );
 }

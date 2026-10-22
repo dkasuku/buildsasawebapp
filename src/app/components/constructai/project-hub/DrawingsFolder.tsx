@@ -7,19 +7,29 @@
 // document folder underneath.
 // ============================================================================
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { FileStack, UploadCloud, Loader2, History, ExternalLink, ChevronDown, ChevronRight, Trash2, Search } from "lucide-react";
+import { FileStack, UploadCloud, Loader2, History, Trash2 } from "lucide-react";
 import api, { absoluteFileUrl, type DocumentDto, type DrawingDto, type DrawingSheetDto } from "../../../services/api";
 import { pickFiles, useFileUpload } from "../useFileUpload";
 import { UploadTray } from "../UploadTray";
 import { DocumentFolder } from "./DocumentFolder";
 import { DrawingViewer, toViewerRole } from "../drawing-viewer";
 import type { Role } from "../roles";
-import { Empty, Field, Modal, Panel, Pill, btnGhost, btnPrimary, fileSizeLabel, fmtDate, input, statusLabel, statusTone } from "./shared";
+import { Field, Modal, btnGhost, btnPrimary, fileSizeLabel, fmtDate, input } from "./shared";
 
 const DISCIPLINES = ["Architectural", "Structural", "Civil", "Mechanical", "Electrical", "Plumbing", "Landscape", "Interior", "Other"];
 const STATUSES = ["Draft", "For Review", "Approved", "For Construction", "Superseded"];
+
+const PAGE = 7;
+
+/** Status pill for a sheet: label always shown, colour only reinforces it. */
+function SheetStatus({ status }: { status: string }) {
+  const s = status.toLowerCase();
+  const tone = s.includes("construction") || s === "approved" ? "ws-pill-green" : s.includes("review") || s.includes("await") ? "ws-pill-amber" : s.includes("draft") ? "ws-pill-blue" : "";
+  const label = s.includes("review") ? "Awaiting approval" : status;
+  return <span className={`ws-pill ${tone}`}>{label}</span>;
+}
 
 export function DrawingsFolder({
   projectId, sheets, docs, canEdit, onChanged, role = "Contractor", projectName = "",
@@ -32,122 +42,132 @@ export function DrawingsFolder({
   canEdit: boolean;
   onChanged: () => void | Promise<void>;
 }) {
-  const [q, setQ] = useState("");
-  const [open, setOpen] = useState<Record<string, boolean>>({});
-  const [adding, setAdding] = useState(false);
+  const [discipline, setDiscipline] = useState("all");
+  const [versions, setVersions] = useState<"latest" | "all">("latest");
+  const [showAll, setShowAll] = useState(false);
+  const [adding, setAdding] = useState<File[] | null>(null);
+  const [drag, setDrag] = useState(false);
   const [revisionFor, setRevisionFor] = useState<DrawingSheetDto | null>(null);
-  // Drawings open in the same viewer as Plans & Drawings, over this page, so
-  // Back returns here instead of to a raw file in a new browser tab.
+  // Drawings open in the same viewer as Plans & drawings, over this page.
   const [viewing, setViewing] = useState<DrawingDto | null>(null);
 
-  const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return needle ? sheets.filter((s) => `${s.number} ${s.title} ${s.discipline}`.toLowerCase().includes(needle)) : sheets;
-  }, [sheets, q]);
-
-  const byDiscipline = useMemo(() => {
-    const groups: Record<string, DrawingSheetDto[]> = {};
-    for (const s of filtered) (groups[s.discipline || "Other"] = groups[s.discipline || "Other"] || []).push(s);
-    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
-  }, [filtered]);
-
-  const totalVersions = sheets.reduce((n, s) => n + s.versions.length, 0);
+  const disciplines = useMemo(() => Array.from(new Set(sheets.map((s) => s.discipline || "Other"))).sort(), [sheets]);
+  const filtered = useMemo(
+    () => sheets.filter((s) => discipline === "all" || (s.discipline || "Other") === discipline),
+    [sheets, discipline],
+  );
+  const rows = useMemo(() => {
+    const list = versions === "latest"
+      ? filtered.map((s) => ({ sheet: s, d: s.latest, isLatest: true }))
+      : filtered.flatMap((s) => s.versions.map((d, i) => ({ sheet: s, d, isLatest: i === 0 })));
+    return list;
+  }, [filtered, versions]);
+  const visible = showAll ? rows : rows.slice(0, PAGE);
 
   const setStatus = async (d: DrawingDto, status: string) => {
     try { await api.updateDrawing(d.id, { status }); await onChanged(); }
     catch (e: any) { toast.error(e?.message || "Could not update the drawing"); }
   };
   const remove = async (d: DrawingDto) => {
-    if (!confirm(`Delete ${d.number} Rev ${d.rev}? Other revisions are kept.`)) return;
-    try { await api.deleteDrawing(d.id); await onChanged(); toast.success("Revision deleted"); }
+    if (!confirm(`Delete ${d.number} V${d.rev}? Other versions are kept.`)) return;
+    try { await api.deleteDrawing(d.id); await onChanged(); toast.success("Version deleted"); }
     catch (e: any) { toast.error(e?.message || "Could not delete"); }
   };
+  const dropProps = canEdit ? {
+    onDragOver: (e: React.DragEvent) => { e.preventDefault(); setDrag(true); },
+    onDragLeave: () => setDrag(false),
+    onDrop: (e: React.DragEvent) => { e.preventDefault(); setDrag(false); const f = Array.from(e.dataTransfer.files || []); if (f.length) setAdding(f); },
+  } : {};
 
   return (
-    <div className="space-y-4">
-      <Panel
-        title="Drawings & Designs"
-        subtitle={`${sheets.length} sheet${sheets.length === 1 ? "" : "s"} · ${totalVersions} version${totalVersions === 1 ? "" : "s"} in total`}
-        action={canEdit && (
-          <button onClick={() => setAdding(true)} className={btnPrimary}><UploadCloud className="w-3.5 h-3.5" /> Upload drawing</button>
-        )}
-      >
-        {sheets.length > 3 && (
-          <div className="flex items-center gap-2 px-4 py-2 border-b border-[#222A35]">
-            <Search className="w-3.5 h-3.5 text-[#5B6675]" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by sheet number, title or discipline" className={`${input} border-0 bg-transparent h-8 px-0`} />
+    <>
+      <section className="ws-card" aria-labelledby="dwg-title" {...dropProps}>
+        <div className="ws-card-head">
+          <div className="min-w-0">
+            <h2 id="dwg-title" className="ws-h2">Drawing sheets</h2>
+            <div className="ws-sub">{sheets.length} sheet{sheets.length === 1 ? "" : "s"} · revisions stack as V2, V3… under one sheet number</div>
           </div>
-        )}
-        {filtered.length === 0 ? (
-          <Empty icon={FileStack} title={q ? "No sheets match" : "No drawings uploaded yet"} hint={q ? undefined : "Upload the architectural, structural and services sheets. Each later revision is added as V2, V3… under the same sheet number, so nothing is lost."}>
-            {canEdit && !q && <button onClick={() => setAdding(true)} className={btnPrimary}><UploadCloud className="w-3.5 h-3.5" /> Upload the first drawing</button>}
-          </Empty>
+          <div className="ws-toolbar">
+            {sheets.length > 0 && (
+              <>
+                <label className="sr-only" htmlFor="dwg-discipline">Discipline</label>
+                <select id="dwg-discipline" className="ws-select" value={discipline} onChange={(e) => { setDiscipline(e.target.value); setShowAll(false); }}>
+                  <option value="all">All disciplines</option>
+                  {disciplines.map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+                <label className="sr-only" htmlFor="dwg-versions">Versions</label>
+                <select id="dwg-versions" className="ws-select" value={versions} onChange={(e) => setVersions(e.target.value as "latest" | "all")}>
+                  <option value="latest">Latest only</option>
+                  <option value="all">All versions</option>
+                </select>
+              </>
+            )}
+            {canEdit && <button type="button" onClick={() => setAdding([])} className="ws-btn-primary"><UploadCloud aria-hidden /> Upload drawings</button>}
+          </div>
+        </div>
+
+        {sheets.length === 0 ? (
+          <div className="ws-card-body">
+            <div className={`ws-dropzone ${drag ? "ws-drag" : ""}`}>
+              <FileStack className="w-7 h-7" style={{ color: "var(--ws-muted)" }} aria-hidden />
+              <div className="ws-h2">Drop drawing sheets here</div>
+              <div className="ws-sub max-w-md">PDF, DWG or images. Each file becomes a sheet at V1, and later revisions stack under the same number.</div>
+              {canEdit && <button type="button" className="ws-btn mt-1" onClick={() => setAdding([])}>Browse files</button>}
+            </div>
+          </div>
         ) : (
-          <div className="divide-y divide-[#222A35]">
-            {byDiscipline.map(([discipline, list]) => (
-              <div key={discipline}>
-                <div className="px-4 py-2 text-[10px] uppercase tracking-wider text-[#5B6675] bg-[#0A0E14]/60">{discipline} · {list.length}</div>
-                {list.map((s) => {
-                  const key = s.number.toLowerCase();
-                  const expanded = !!open[key];
-                  const latest = s.latest;
-                  return (
-                    <div key={key} className="border-t border-[#222A35]/60">
-                      <div className="px-4 py-3 flex items-center gap-3">
-                        <button onClick={() => setOpen((o) => ({ ...o, [key]: !o[key] }))} className="text-[#8A95A5] hover:text-white shrink-0" title="Show versions">
-                          {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                        </button>
-                        <div className="w-10 h-10 rounded-md bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 flex items-center justify-center shrink-0"><FileStack className="w-4 h-4 text-[#FF6B1A]" /></div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-[11px] font-mono text-[#8A95A5]">{s.number}</span>
-                            <button onClick={() => setViewing(latest)} className="text-[12.5px] text-white hover:underline truncate text-left">{s.title}</button>
-                            <Pill tone="brand">V{latest.rev}</Pill>
-                            <Pill tone={statusTone(latest.status)}>{statusLabel(latest.status)}</Pill>
-                          </div>
-                          <div className="text-[10.5px] text-[#5B6675] mt-0.5">
-                            {s.versions.length} version{s.versions.length === 1 ? "" : "s"} · latest {fmtDate(latest.createdAt)}{latest.uploadedBy ? ` by ${latest.uploadedBy}` : ""}
-                          </div>
-                        </div>
-                        <button onClick={() => setViewing(latest)} className={`${btnGhost} h-8 px-2.5`}><ExternalLink className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Open</span></button>
-                        {canEdit && (
-                          <button onClick={() => setRevisionFor(s)} className={`${btnGhost} h-8 px-2.5`} title="Upload a new revision of this sheet"><History className="w-3.5 h-3.5" /> <span className="hidden sm:inline">New version</span></button>
-                        )}
-                      </div>
-                      {expanded && (
-                        <div className="px-4 pb-3 pl-[4.25rem]">
-                          <div className="rounded-lg border border-[#222A35] bg-[#0A0E14] divide-y divide-[#222A35]">
-                            {s.versions.map((v, i) => (
-                              <div key={v.id} className="px-3 py-2 flex items-center gap-3 text-[12px]">
-                                <Pill tone={i === 0 ? "brand" : "neutral"}>V{v.rev}</Pill>
-                                <div className="flex-1 min-w-0">
-                                  <button onClick={() => setViewing(v)} className="text-white hover:underline truncate block text-left max-w-full">{v.fileName || v.title}</button>
-                                  <div className="text-[10.5px] text-[#5B6675]">{fmtDate(v.createdAt)}{v.uploadedBy ? ` · ${v.uploadedBy}` : ""}{v.fileSize ? ` · ${fileSizeLabel(v.fileSize)}` : ""}{i > 0 ? " · superseded" : " · current"}</div>
-                                </div>
-                                {canEdit ? (
-                                  <select value={v.status} onChange={(e) => setStatus(v, e.target.value)} className="h-7 bg-[#11161D] border border-[#222A35] rounded px-1.5 text-[11px] text-[#C2CAD6]">
-                                    {STATUSES.map((st) => <option key={st}>{st}</option>)}
-                                  </select>
-                                ) : <Pill tone={statusTone(v.status)}>{statusLabel(v.status)}</Pill>}
-                                <button onClick={() => setViewing(v)} title="Open in viewer" className="w-7 h-7 rounded flex items-center justify-center text-[#8A95A5] hover:text-white"><ExternalLink className="w-3.5 h-3.5" /></button>
-                                {canEdit && <button onClick={() => remove(v)} className="w-7 h-7 rounded flex items-center justify-center text-[#5B6675] hover:text-[#EF4444]"><Trash2 className="w-3.5 h-3.5" /></button>}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+          <>
+            <div className="ws-table-wrap">
+              <table className="ws-table">
+                <thead>
+                  <tr><th scope="col">Sheet</th><th scope="col">Title</th><th scope="col">Discipline</th><th scope="col">{versions === "latest" ? "Latest" : "Version"}</th><th scope="col">Updated</th><th scope="col">Status</th><th scope="col"><span className="sr-only">Actions</span></th></tr>
+                </thead>
+                <tbody>
+                  {visible.map(({ sheet, d, isLatest }) => (
+                    <tr key={d.id}>
+                      <td className="ws-mono ws-nowrap" style={{ fontSize: 12.5 }}>{sheet.number}</td>
+                      <td style={{ maxWidth: 260 }}>
+                        <button type="button" className="text-left truncate max-w-full hover:underline" style={{ color: "var(--ws-text)", fontWeight: 500 }} onClick={() => setViewing(d)}>{d.title || sheet.title}</button>
+                      </td>
+                      <td style={{ color: "var(--ws-text-2)" }}>{sheet.discipline || "Other"}</td>
+                      <td className="whitespace-nowrap">
+                        <strong style={{ fontWeight: 600 }}>V{d.rev}</strong>
+                        {versions === "latest" && sheet.versions.length > 1 && <span style={{ color: "var(--ws-muted)" }}> ({sheet.versions.length} versions)</span>}
+                        {versions === "all" && !isLatest && <span style={{ color: "var(--ws-muted)" }}> (older)</span>}
+                      </td>
+                      <td className="whitespace-nowrap" style={{ color: "var(--ws-muted)" }}>{fmtDate(d.createdAt, { day: "numeric", month: "short" })}{d.uploadedBy ? ` · ${d.uploadedBy}` : ""}</td>
+                      <td>
+                        {canEdit ? (
+                          <>
+                            <label className="sr-only" htmlFor={`st-${d.id}`}>Status of {sheet.number} V{d.rev}</label>
+                            <select id={`st-${d.id}`} value={d.status} onChange={(e) => setStatus(d, e.target.value)} className="ws-select" style={{ height: 30, fontSize: 12.5 }}>
+                              {STATUSES.map((st) => <option key={st}>{st}</option>)}
+                            </select>
+                          </>
+                        ) : <SheetStatus status={d.status} />}
+                      </td>
+                      <td className="whitespace-nowrap text-right">
+                        {canEdit && isLatest && <button type="button" onClick={() => setRevisionFor(sheet)} className="ws-icon-btn ws-ghost" style={{ width: 30, height: 30 }} aria-label={`Upload a new version of ${sheet.number}`} title="New version"><History /></button>}
+                        {canEdit && <button type="button" onClick={() => remove(d)} className="ws-icon-btn ws-ghost" style={{ width: 30, height: 30 }} aria-label={`Delete ${sheet.number} V${d.rev}`} title="Delete this version"><Trash2 /></button>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {rows.length > PAGE && (
+              <div className="flex items-center justify-between gap-3 px-[18px] py-3" style={{ borderTop: "1px solid var(--ws-divider)", fontSize: 13, color: "var(--ws-muted)" }}>
+                <span>Showing {visible.length} of {rows.length}</span>
+                <button type="button" className="ws-link" onClick={() => setShowAll((v) => !v)}>{showAll ? "Show fewer" : `Show all ${versions === "latest" ? "sheets" : "versions"}`}</button>
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
-      </Panel>
+      </section>
 
-      <DocumentFolder projectId={projectId} category="drawing" docs={docs} onChanged={onChanged} canEdit={canEdit} title="Design documents" blurb="Reports, specifications and approvals that go with the drawings." />
+      <DocumentFolder projectId={projectId} category="drawing" docs={docs} onChanged={onChanged} canEdit={canEdit} title="Design documents" blurb="reports, specifications and approvals" tiles />
 
-      {adding && <UploadDrawingModal projectId={projectId} onClose={() => setAdding(false)} onDone={async () => { setAdding(false); await onChanged(); }} />}
+      {adding && <UploadDrawingModal projectId={projectId} initialFiles={adding} onClose={() => setAdding(null)} onDone={async () => { setAdding(null); await onChanged(); }} />}
       {viewing && (
         <DrawingViewer
           seed={{ id: viewing.id, sheetNumber: viewing.number, title: viewing.title, projectName, discipline: viewing.discipline, fileUrl: absoluteFileUrl(viewing.fileUrl), rev: viewing.rev }}
@@ -157,13 +177,13 @@ export function DrawingsFolder({
         />
       )}
       {revisionFor && <NewRevisionModal projectId={projectId} sheet={revisionFor} onClose={() => setRevisionFor(null)} onDone={async () => { setRevisionFor(null); await onChanged(); }} />}
-    </div>
+    </>
   );
 }
 
 // ----------------------------------------------------------------------------
 
-function UploadDrawingModal({ projectId, onClose, onDone }: { projectId: string; onClose: () => void; onDone: () => Promise<void> }) {
+function UploadDrawingModal({ projectId, initialFiles = [], onClose, onDone }: { projectId: string; initialFiles?: File[]; onClose: () => void; onDone: () => Promise<void> }) {
   const uploader = useFileUpload();
   const [files, setFiles] = useState<File[]>([]);
   const [discipline, setDiscipline] = useState("Architectural");
@@ -173,8 +193,8 @@ function UploadDrawingModal({ projectId, onClose, onDone }: { projectId: string;
   const [meta, setMeta] = useState<Record<string, { number: string; title: string }>>({});
   const [saving, setSaving] = useState(false);
 
-  const pick = async () => {
-    const picked = await pickFiles({ multiple: true, accept: ".pdf,.dwg,.dxf,.png,.jpg,.jpeg,.webp" });
+  const pick = async (dropped?: File[]) => {
+    const picked = dropped ?? await pickFiles({ multiple: true, accept: ".pdf,.dwg,.dxf,.png,.jpg,.jpeg,.webp" });
     if (!picked.length) return;
     setFiles((f) => [...f, ...picked]);
     setMeta((m) => {
@@ -188,6 +208,9 @@ function UploadDrawingModal({ projectId, onClose, onDone }: { projectId: string;
       return next;
     });
   };
+
+  // Files dropped on the drawings card arrive here pre-picked.
+  useEffect(() => { if (initialFiles.length) pick(initialFiles); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = async () => {
     if (!files.length) return toast.error("Choose at least one file");
@@ -214,7 +237,7 @@ function UploadDrawingModal({ projectId, onClose, onDone }: { projectId: string;
           <Field label="Discipline"><select value={discipline} onChange={(e) => setDiscipline(e.target.value)} className={input}>{DISCIPLINES.map((d) => <option key={d}>{d}</option>)}</select></Field>
           <Field label="Status"><select value={status} onChange={(e) => setStatus(e.target.value)} className={input}>{STATUSES.map((d) => <option key={d}>{d}</option>)}</select></Field>
         </div>
-        <button onClick={pick} className="w-full h-20 border-2 border-dashed border-[#222A35] rounded-xl flex flex-col items-center justify-center gap-1 text-[#8A95A5] hover:border-[#FF6B1A] hover:text-white transition">
+        <button onClick={() => pick()} className="w-full h-20 border-2 border-dashed border-[#222A35] rounded-xl flex flex-col items-center justify-center gap-1 text-[#8A95A5] hover:border-[#FF6B1A] hover:text-white transition">
           <UploadCloud className="w-5 h-5" /><span className="text-[12px]">Choose files — PDF, DWG, images</span>
         </button>
         {files.length > 0 && (

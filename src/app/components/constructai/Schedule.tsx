@@ -5,14 +5,13 @@
 // shows up on the same timeline. Dates + milestones + progress (no dependencies yet).
 // ============================================================================
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Plus, X, Loader2, Trash2, Flag, CalendarDays, Pencil, ClipboardList, Sparkles } from "lucide-react";
 import type { Role } from "./roles";
 import { ROLES, TRADES } from "./roles";
 import { useTeam, resolveName } from "./useTeam";
 import api, { type ScheduleItemDto, type ProjectDto, type ChecklistDto } from "../../services/api";
-import { EmptyState } from "./EmptyState";
 import { checklistProgress } from "./Checklists";
 
 const DAY = 86400000;
@@ -26,6 +25,14 @@ const d = (s: string | number | Date) => new Date(s);
 const isoDay = (s: string | number | Date) => { const x = new Date(s); return isNaN(+x) ? "" : x.toISOString().slice(0, 10); };
 const fmt = (s: string | number | Date) => new Date(s).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
+type Row =
+  | { kind: "group"; id: string; name: string; item?: ScheduleItemDto }
+  | { kind: "item"; item: ScheduleItemDto }
+  | { kind: "form"; id: string; name: string; start: string; end: string; percent: number };
+
+const BAR: Record<string, string> = { not_started: "var(--ws-dashed)", in_progress: "var(--ws-primary)", done: "var(--ws-green)", blocked: "var(--ws-red)" };
+const days = (a: string, b: string) => Math.max(1, Math.round((+d(b) - +d(a)) / DAY) + 1);
+
 export function Schedule({ role = "Contractor" }: { role?: Role }) {
   const perms = ROLES[role];
   const canManage = perms.canCreateInspection || role === "Project Manager" || role === "Superintendent" || (perms as any).assignTasks || perms.isWorkspaceOwner || (perms as any).createCO;
@@ -38,10 +45,11 @@ export function Schedule({ role = "Contractor" }: { role?: Role }) {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<ScheduleItemDto | "new" | null>(null);
   const [genOpen, setGenOpen] = useState(false);
+  const [mode, setMode] = useState<"gantt" | "list" | "milestones">("gantt");
+  const [zoom, setZoom] = useState<"weeks" | "days">("weeks");
+  const scroller = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Resolve the loading flag on BOTH success and error so the page never hangs
-    // on the spinner if the backend is unreachable.
     (async () => {
       try {
         const p = await api.getProjects();
@@ -56,8 +64,6 @@ export function Schedule({ role = "Contractor" }: { role?: Role }) {
     })();
   }, []);
 
-  // Items load after the project list; without this the empty state flashed
-  // "No schedule items yet" while a project's real schedule was still on its way.
   const [itemsLoading, setItemsLoading] = useState(true);
   const load = () => {
     if (!projectId) { setItems([]); setChecklists([]); setItemsLoading(false); return; }
@@ -72,184 +78,272 @@ export function Schedule({ role = "Contractor" }: { role?: Role }) {
   };
   useEffect(load, [projectId]);
 
-  // Field work overlaid on the timeline: assigned checklists that carry a due date.
+  // Assigned checklists with a due date, shown read-only on the same timeline.
   const overlay = useMemo(() => checklists.filter((c) => c.dueDate).map((c) => ({
-    id: c.id,
-    name: c.title,
-    start: c.createdAt,
-    end: c.dueDate as string,
-    // Third copy of the same broken completion formula, now shared. Dividing raw
-    // response rows by question count exceeded 100% as soon as more than one
-    // person was assigned, which drew an over-long bar on the timeline.
+    id: c.id, name: c.title, start: c.createdAt, end: c.dueDate as string,
     percent: c.reportedProgress != null ? c.reportedProgress : checklistProgress(c),
   })), [checklists]);
 
-  // Timeline scale across every dated thing in view.
+  const sorted = useMemo(() => [...items].sort((a, b) => (a.sortOrder - b.sortOrder) || (+d(a.startDate) - +d(b.startDate))), [items]);
+  // Phases become group rows; the tasks after a phase sit under it.
+  const rows = useMemo<Row[]>(() => {
+    const out: Row[] = [];
+    for (const i of sorted) out.push(i.type === "phase" ? { kind: "group", id: i.id, name: i.name, item: i } : { kind: "item", item: i });
+    if (overlay.length) {
+      out.push({ kind: "group", id: "forms", name: "Assigned forms" });
+      overlay.forEach((o) => out.push({ kind: "form", ...o }));
+    }
+    return out;
+  }, [sorted, overlay]);
+
+  // Timeline: whole programme, padded to whole weeks starting Monday.
   const range = useMemo(() => {
     const ds: number[] = [];
-    items.forEach((i) => { ds.push(+d(i.startDate), +d(i.endDate)); });
-    overlay.forEach((o) => { ds.push(+d(o.start), +d(o.end)); });
+    items.forEach((i) => ds.push(+d(i.startDate), +d(i.endDate)));
+    overlay.forEach((o) => ds.push(+d(o.start), +d(o.end)));
     const today = new Date(); today.setHours(0, 0, 0, 0);
-    let min = ds.length ? Math.min(...ds) : +today;
-    let max = ds.length ? Math.max(...ds) : +today + 30 * DAY;
-    min -= 3 * DAY; max += 3 * DAY;
-    if (max - min < 14 * DAY) max = min + 14 * DAY;
-    return { min, max, span: max - min, days: Math.round((max - min) / DAY) };
+    const min0 = new Date(ds.length ? Math.min(...ds, +today) : +today); min0.setHours(0, 0, 0, 0);
+    min0.setDate(min0.getDate() - ((min0.getDay() + 6) % 7));
+    let max = ds.length ? Math.max(...ds, +today) : +today + 56 * DAY;
+    const weeks = Math.max(8, Math.ceil((max - +min0) / (7 * DAY)) + 1);
+    max = +min0 + weeks * 7 * DAY;
+    return { min: +min0, max, weeks };
   }, [items, overlay]);
-
-  const leftPct = (t: number) => ((t - range.min) / range.span) * 100;
-  const widthPct = (a: number, b: number) => Math.max(0.4, ((b - a) / range.span) * 100);
-  const timelineWidth = Math.max(680, range.days * 13);
-  const todayLeft = leftPct(Date.now());
-
+  const pxDay = zoom === "weeks" ? 12 : 32;
+  const width = range.weeks * 7 * pxDay;
+  const x = (t: number) => ((t - range.min) / DAY) * pxDay;
+  const todayX = x(Date.now());
+  const weekCols = Array.from({ length: range.weeks }, (_, i) => range.min + i * 7 * DAY);
   const months = useMemo(() => {
     const out: { label: string; left: number; width: number }[] = [];
-    const cur = new Date(range.min); cur.setDate(1); cur.setHours(0, 0, 0, 0);
-    while (+cur <= range.max) {
-      const mStart = Math.max(+cur, range.min);
+    const cur = new Date(range.min); cur.setDate(1);
+    while (+cur < range.max) {
+      const s = Math.max(+cur, range.min);
       const next = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
-      const mEnd = Math.min(+next, range.max);
-      out.push({ label: cur.toLocaleDateString(undefined, { month: "short", year: "2-digit" }), left: leftPct(mStart), width: widthPct(mStart, mEnd) });
+      const e = Math.min(+next, range.max);
+      out.push({ label: cur.toLocaleDateString(undefined, { month: "long", year: "numeric" }), left: x(s), width: x(e) - x(s) });
       cur.setMonth(cur.getMonth() + 1);
     }
     return out;
-  }, [range]);
+  }, [range, pxDay]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const names = (a?: string | null) => { if (!a) return ""; try { return (JSON.parse(a) as string[]).map(resolveName).join(", "); } catch { return ""; } };
+  const scrollToToday = () => scroller.current?.scrollTo({ left: Math.max(0, todayX - 200), behavior: "smooth" });
+  useEffect(() => { if (mode === "gantt") requestAnimationFrame(scrollToToday); }, [mode, zoom, range.min]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const milestones = sorted.filter((i) => i.type === "milestone");
+  const activities = sorted.filter((i) => i.type !== "milestone" && i.type !== "phase");
+  const start = sorted.length ? new Date(Math.min(...sorted.map((i) => +d(i.startDate)))) : null;
+  const finish = sorted.length ? new Date(Math.max(...sorted.map((i) => +d(i.endDate)))) : null;
 
   async function remove(id: string) {
     if (!confirm("Delete this schedule item?")) return;
     try { await api.deleteScheduleItem(id); toast.success("Deleted"); load(); } catch { toast.error("Could not delete"); }
   }
 
+  const ROW_H = 44;
   return (
-    <div className="px-4 sm:px-7 py-5 sm:py-6 space-y-4 max-w-[1500px] mx-auto">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <CalendarDays className="w-4 h-4 text-[#FF6B1A]" />
-        <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="h-9 bg-[#11161D] border border-[#222A35] rounded-lg px-2 text-[12.5px] text-white min-w-[180px]">
-          {projects.length === 0 && <option value="">No projects</option>}
-          {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <div className="flex-1" />
-        <div className="flex items-center gap-3 text-[10.5px] text-[#8A95A5]">
-          {Object.entries(STATUS).map(([k, v]) => <span key={k} className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: v.bar }} /> {v.label}</span>)}
+    <div className="ws-page">
+      <div className="ws-page-head">
+        <div>
+          <h1 className="ws-h1">Schedule</h1>
+          <div className="ws-sub">The project programme: activities, phases and milestones against the calendar.</div>
         </div>
-        {canManage && projectId && <button onClick={() => setGenOpen(true)} className="h-9 px-3 bg-[#11161D] border border-[#222A35] rounded-lg text-[12px] text-white flex items-center gap-1.5 hover:border-[#FF6B1A]"><Sparkles className="w-3.5 h-3.5 text-[#FF6B1A]" /> AI schedule</button>}
-        {canManage && projectId && <button onClick={() => setEditing("new")} className="h-9 px-4 bg-[#FF6B1A] text-white rounded-lg text-[12px] flex items-center gap-1.5 hover:bg-[#FF7E33]"><Plus className="w-3.5 h-3.5" /> Add item</button>}
+        <div className="ws-toolbar">
+          <label className="sr-only" htmlFor="sch-project">Project</label>
+          <select id="sch-project" className="ws-select" style={{ minWidth: 200 }} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+            {projects.length === 0 && <option value="">No projects</option>}
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          {canManage && projectId && <button type="button" className="ws-btn" onClick={() => setGenOpen(true)}><Sparkles aria-hidden /> AI schedule</button>}
+          {canManage && projectId && <button type="button" className="ws-btn-primary" onClick={() => setEditing("new")}><Plus aria-hidden /> Add activity</button>}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div role="group" aria-label="View" className="inline-flex rounded-lg p-0.5" style={{ border: "1px solid var(--ws-btn-border)", background: "var(--ws-card)" }}>
+          {(["gantt", "list", "milestones"] as const).map((m) => (
+            <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)} className="h-8 px-3 rounded-md text-[13px] font-medium capitalize"
+              style={mode === m ? { background: "var(--ws-ink)", color: "var(--ws-ink-text)" } : { color: "var(--ws-text-2)" }}>{m === "gantt" ? "Gantt" : m}</button>
+          ))}
+        </div>
+        {mode === "gantt" && (
+          <>
+            <label className="sr-only" htmlFor="sch-zoom">Scale</label>
+            <select id="sch-zoom" className="ws-select" value={zoom} onChange={(e) => setZoom(e.target.value as "weeks" | "days")}>
+              <option value="weeks">Weeks</option>
+              <option value="days">Days</option>
+            </select>
+            <button type="button" className="ws-btn" onClick={scrollToToday}>Today</button>
+          </>
+        )}
+        <div className="flex-1" />
+        <ul className="flex flex-wrap items-center gap-x-3 gap-y-1" style={{ fontSize: 12.5, color: "var(--ws-muted)" }} aria-label="Legend">
+          {Object.entries(STATUS).map(([k, v]) => <li key={k} className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm" style={{ background: BAR[k] }} aria-hidden />{v.label}</li>)}
+          <li className="flex items-center gap-1.5"><span className="w-0.5 h-3" style={{ background: "var(--ws-ink)" }} aria-hidden />Today</li>
+        </ul>
       </div>
 
       {loading || (projectId && itemsLoading) ? (
-        <div className="text-center py-16 text-[#5B6675] text-[13px]"><Loader2 className="w-4 h-4 animate-spin inline mr-1.5" /> Loading schedule…</div>
+        <div className="ws-card ws-card-body ws-sub text-center py-14"><Loader2 className="w-4 h-4 animate-spin inline mr-1.5" /> Loading schedule…</div>
       ) : !projectId ? (
-        <div className="rounded-xl border border-dashed border-[#222A35] p-8 text-center text-[13px] text-[#8A95A5]">Create a project first, then build its schedule here.</div>
+        <div className="ws-dashed-row text-center">Create a project first, then build its schedule here.</div>
       ) : items.length === 0 && overlay.length === 0 ? (
-        <EmptyState
-          icon={CalendarDays}
-          title="No schedule items yet"
-          description="Build this project's timeline by adding tasks, phases and milestones."
-          actionLabel={canManage ? "Add your first schedule item" : undefined}
-          onAction={canManage ? () => setEditing("new") : undefined}
-          secondaryLabel={canManage ? "AI schedule" : undefined}
-          onSecondary={canManage ? () => setGenOpen(true) : undefined}
-        />
-      ) : (
-        <div className="rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden">
-          <div className="flex">
-            {/* left: names */}
-            <div className="w-52 shrink-0 border-r border-[#222A35]">
-              <div className="h-9 border-b border-[#222A35] px-3 flex items-center text-[10px] uppercase tracking-wider text-[#5B6675]">Activity</div>
-              {items.length === 0 && overlay.length === 0 && (
-                <div className="px-3 py-6 text-[12px] text-[#5B6675]">No items yet.</div>
-              )}
-              {items.map((i) => (
-                <div key={i.id} className="group h-10 border-b border-[#222A35] px-3 flex items-center gap-1.5">
-                  {i.type === "milestone" ? <Flag className="w-3 h-3 text-[#F5A623] shrink-0" /> : null}
-                  <span className="text-[12px] text-white truncate flex-1" title={i.name}>{i.name}</span>
-                  {canManage && (
-                    <span className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5">
-                      <button onClick={() => setEditing(i)} title="Edit" className="h-6 w-6 rounded text-[#8A95A5] hover:text-white flex items-center justify-center"><Pencil className="w-3 h-3" /></button>
-                      <button onClick={() => remove(i.id)} title="Delete" className="h-6 w-6 rounded text-[#5B6675] hover:text-[#EF4444] flex items-center justify-center"><Trash2 className="w-3 h-3" /></button>
-                    </span>
-                  )}
-                </div>
-              ))}
-              {overlay.length > 0 && <div className="h-7 border-b border-[#222A35] px-3 flex items-center text-[10px] uppercase tracking-wider text-[#5B6675] bg-[#0A0E14]"><ClipboardList className="w-3 h-3 mr-1" /> Assigned forms</div>}
-              {overlay.map((o) => (
-                <div key={o.id} className="h-10 border-b border-[#222A35] px-3 flex items-center">
-                  <span className="text-[12px] text-[#8A95A5] truncate" title={o.name}>{o.name}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* right: timeline */}
-            <div className="flex-1 overflow-x-auto">
-              <div className="relative" style={{ minWidth: timelineWidth }}>
-                {/* month header */}
-                <div className="h-9 border-b border-[#222A35] relative">
-                  {months.map((m, idx) => (
-                    <div key={idx} className="absolute top-0 h-9 border-l border-[#222A35] flex items-center px-2 text-[10px] text-[#8A95A5]" style={{ left: `${m.left}%`, width: `${m.width}%` }}>{m.label}</div>
-                  ))}
-                </div>
-                {/* today line */}
-                {todayLeft >= 0 && todayLeft <= 100 && <div className="absolute top-9 bottom-0 w-px bg-[#FF6B1A]/50 z-10" style={{ left: `${todayLeft}%` }} />}
-
-                {/* schedule rows */}
-                {items.map((i) => {
-                  const st = STATUS[i.status] || STATUS.not_started;
-                  const left = leftPct(+d(i.startDate));
-                  if (i.type === "milestone") {
-                    return (
-                      <div key={i.id} className="h-10 border-b border-[#222A35] relative">
-                        <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2" style={{ left: `${left}%` }} title={`${i.name} · ${fmt(i.startDate)}`}>
-                          <div className="w-3.5 h-3.5 rotate-45 bg-[#F5A623] border border-[#0A0E14]" />
-                        </div>
-                      </div>
-                    );
-                  }
-                  const w = widthPct(+d(i.startDate), +d(i.endDate));
-                  return (
-                    <div key={i.id} className="h-10 border-b border-[#222A35] relative">
-                      <button onClick={() => canManage && setEditing(i)} className="absolute top-1/2 -translate-y-1/2 h-5 rounded-md overflow-hidden text-left" style={{ left: `${left}%`, width: `${w}%`, background: `${st.bar}40`, border: `1px solid ${st.bar}` }} title={`${i.name} · ${fmt(i.startDate)}–${fmt(i.endDate)} · ${i.percent}%`}>
-                        <div className="h-full" style={{ width: `${Math.max(0, Math.min(100, i.percent))}%`, background: st.bar }} />
-                      </button>
-                    </div>
-                  );
-                })}
-
-                {/* overlay header spacer */}
-                {overlay.length > 0 && <div className="h-7 border-b border-[#222A35] bg-[#0A0E14]" />}
-                {/* overlay rows (read-only) */}
-                {overlay.map((o) => {
-                  const left = leftPct(+d(o.start));
-                  const w = widthPct(+d(o.start), +d(o.end));
-                  return (
-                    <div key={o.id} className="h-10 border-b border-[#222A35] relative">
-                      <div className="absolute top-1/2 -translate-y-1/2 h-4 rounded overflow-hidden border border-dashed border-[#3B82F6]/60 bg-[#3B82F6]/15" style={{ left: `${left}%`, width: `${w}%` }} title={`${o.name} · due ${fmt(o.end)} · ${o.percent}%`}>
-                        <div className="h-full bg-[#3B82F6]/60" style={{ width: `${Math.max(0, Math.min(100, o.percent))}%` }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+        <div className="ws-card ws-card-body">
+          <div className="ws-dropzone">
+            <CalendarDays className="w-7 h-7" style={{ color: "var(--ws-muted)" }} aria-hidden />
+            <div className="ws-h2">No activities yet</div>
+            <div className="ws-sub max-w-md">Add phases, activities and milestones with <strong>Add activity</strong>, or let AI schedule draft a programme you can edit.</div>
           </div>
         </div>
+      ) : (
+        <section className="ws-card overflow-hidden" aria-label="Programme">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-[18px] py-3" style={{ borderBottom: "1px solid var(--ws-divider)", fontSize: 13.5 }}>
+            <span><strong style={{ fontWeight: 600 }}>{activities.length} activit{activities.length === 1 ? "y" : "ies"}</strong> · {milestones.length} milestone{milestones.length === 1 ? "" : "s"}{start && finish ? ` · ${fmt(start)} → ${fmt(finish)}` : ""}</span>
+            {mode === "gantt" && <span className="ws-sub">Showing {range.weeks} weeks · Whole programme</span>}
+          </div>
+
+          {mode === "gantt" && (
+            <div className="flex">
+              {/* Left: names */}
+              <div className="shrink-0 w-[150px] sm:w-[300px]" style={{ borderRight: "1px solid var(--ws-border)" }}>
+                <div className="flex items-end px-3 pb-1.5" style={{ height: 52, borderBottom: "1px solid var(--ws-border)", fontSize: 12, color: "var(--ws-muted)" }}>Activity</div>
+                {rows.map((r) => r.kind === "group" ? (
+                  <div key={`g-${r.id}`} className="group flex items-center gap-2 px-3" style={{ height: 34, background: "var(--ws-hover)", borderBottom: "1px solid var(--ws-divider)", fontSize: 13, fontWeight: 600 }}>
+                    <span className="truncate flex-1">{r.name}</span>
+                    {r.item && canManage && <RowActions onEdit={() => setEditing(r.item!)} onDelete={() => remove(r.item!.id)} name={r.name} />}
+                  </div>
+                ) : r.kind === "form" ? (
+                  <div key={`f-${r.id}`} className="flex items-center gap-2 px-3" style={{ height: ROW_H, borderBottom: "1px solid var(--ws-divider)" }}>
+                    <ClipboardList className="w-4 h-4 shrink-0" style={{ color: "var(--ws-muted)" }} aria-hidden />
+                    <span className="min-w-0 flex-1"><span className="block truncate" style={{ fontSize: 13.5 }}>{r.name}</span><span className="block" style={{ fontSize: 12, color: "var(--ws-muted)" }}>due {fmt(r.end)}</span></span>
+                    <span style={{ fontSize: 12.5, color: "var(--ws-muted)" }}>{r.percent}%</span>
+                  </div>
+                ) : (
+                  <div key={r.item.id} className="group flex items-center gap-2 px-3" style={{ height: ROW_H, borderBottom: "1px solid var(--ws-divider)" }}>
+                    {r.item.type === "milestone" && <Flag className="w-3.5 h-3.5 shrink-0" aria-label="Milestone" />}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate" style={{ fontSize: 13.5, fontWeight: 500 }} title={r.item.name}>{r.item.name}</span>
+                      <span className="block truncate" style={{ fontSize: 12, color: "var(--ws-muted)" }}>
+                        {r.item.type === "milestone" ? fmt(r.item.endDate) : `${fmt(r.item.startDate)} – ${fmt(r.item.endDate)} · ${days(r.item.startDate, r.item.endDate)}d`}
+                      </span>
+                    </span>
+                    {canManage && <RowActions onEdit={() => setEditing(r.item)} onDelete={() => remove(r.item.id)} name={r.item.name} />}
+                    {r.item.type !== "milestone" && <span style={{ fontSize: 12.5, color: r.item.status === "blocked" ? "var(--ws-red)" : "var(--ws-muted)", minWidth: 34, textAlign: "right" }}>{r.item.percent}%</span>}
+                  </div>
+                ))}
+              </div>
+
+              {/* Right: timeline */}
+              <div ref={scroller} className="flex-1 overflow-x-auto">
+                <div className="relative" style={{ width }}>
+                  <div className="relative" style={{ height: 26 }}>
+                    {months.map((m, i) => (
+                      <div key={i} className="absolute top-0 h-full flex items-center px-2 truncate" style={{ left: m.left, width: m.width, borderLeft: "1px solid var(--ws-divider)", fontSize: 12, fontWeight: 600 }}>{m.label}</div>
+                    ))}
+                  </div>
+                  <div className="relative" style={{ height: 26, borderBottom: "1px solid var(--ws-border)" }}>
+                    {weekCols.map((w) => {
+                      const current = Date.now() >= w && Date.now() < w + 7 * DAY;
+                      return <div key={w} className="absolute top-0 h-full flex items-center px-1.5" style={{ left: x(w), width: 7 * pxDay, borderLeft: "1px solid var(--ws-divider)", fontSize: 11.5, color: current ? "var(--ws-primary-text)" : "var(--ws-muted)", fontWeight: current ? 600 : 400, background: current ? "var(--ws-wash)" : undefined }}>{new Date(w).getDate()} {new Date(w).toLocaleDateString(undefined, { month: "short" })}</div>;
+                    })}
+                  </div>
+                  {/* grid + current week tint */}
+                  <div className="absolute left-0 right-0 bottom-0" style={{ top: 52 }} aria-hidden>
+                    {weekCols.map((w) => {
+                      const current = Date.now() >= w && Date.now() < w + 7 * DAY;
+                      return <div key={w} className="absolute top-0 bottom-0" style={{ left: x(w), width: 7 * pxDay, borderLeft: "1px solid var(--ws-divider)", background: current ? "var(--ws-wash)" : undefined }} />;
+                    })}
+                  </div>
+                  {rows.map((r) => {
+                    if (r.kind === "group") {
+                      const it = r.item;
+                      return (
+                        <div key={`g-${r.id}`} className="relative" style={{ height: 34, background: "color-mix(in srgb, var(--ws-hover) 70%, transparent)", borderBottom: "1px solid var(--ws-divider)" }}>
+                          {it && <div className="absolute rounded-sm" style={{ top: 15, height: 4, left: x(+d(it.startDate)), width: Math.max(4, x(+d(it.endDate) + DAY) - x(+d(it.startDate))), background: "var(--ws-ink)" }} title={`${it.name}: ${fmt(it.startDate)} – ${fmt(it.endDate)}`} />}
+                        </div>
+                      );
+                    }
+                    if (r.kind === "form") {
+                      return (
+                        <div key={`f-${r.id}`} className="relative" style={{ height: ROW_H, borderBottom: "1px solid var(--ws-divider)" }}>
+                          <div className="absolute overflow-hidden" style={{ top: 11, height: 22, borderRadius: 6, left: x(+d(r.start)), width: Math.max(8, x(+d(r.end)) - x(+d(r.start))), border: "1px dashed var(--ws-blue)", background: "var(--ws-blue-bg)" }} title={`${r.name} · due ${fmt(r.end)} · ${r.percent}%`}>
+                            <div className="h-full" style={{ width: `${Math.max(0, Math.min(100, r.percent))}%`, background: "var(--ws-blue)", opacity: 0.35 }} />
+                          </div>
+                        </div>
+                      );
+                    }
+                    const i = r.item;
+                    if (i.type === "milestone") {
+                      return (
+                        <div key={i.id} className="relative" style={{ height: ROW_H, borderBottom: "1px solid var(--ws-divider)" }}>
+                          <button type="button" onClick={() => canManage && setEditing(i)} aria-label={`Milestone ${i.name}, ${fmt(i.endDate)}`} className="absolute" style={{ top: ROW_H / 2 - 7, left: x(+d(i.endDate)) + pxDay / 2 - 7, width: 14, height: 14, background: "var(--ws-ink)", transform: "rotate(45deg)", borderRadius: 2 }} />
+                          <span className="absolute whitespace-nowrap" style={{ top: ROW_H / 2 - 9, left: x(+d(i.endDate)) + pxDay / 2 + 12, fontSize: 12, color: "var(--ws-text-2)" }}>{i.name}</span>
+                        </div>
+                      );
+                    }
+                    const left = x(+d(i.startDate));
+                    const w = Math.max(8, x(+d(i.endDate) + DAY) - left);
+                    const blocked = i.status === "blocked";
+                    const prog = i.status === "in_progress";
+                    return (
+                      <div key={i.id} className="relative" style={{ height: ROW_H, borderBottom: "1px solid var(--ws-divider)" }}>
+                        <button type="button" onClick={() => canManage && setEditing(i)}
+                          aria-label={`${i.name}: ${STATUS[i.status]?.label ?? i.status}, ${i.percent}% complete, ${fmt(i.startDate)} to ${fmt(i.endDate)}`}
+                          className="absolute overflow-hidden text-left" style={{ top: 11, height: 22, borderRadius: 6, left, width: w, background: prog ? "var(--ws-track)" : BAR[i.status] ?? BAR.not_started }}>
+                          {prog && <div className="h-full" style={{ width: `${Math.max(0, Math.min(100, i.percent))}%`, background: "var(--ws-primary)" }} />}
+                        </button>
+                        {blocked && <span className="absolute whitespace-nowrap ws-pill ws-pill-red" style={{ top: 11, left: left + w + 6, height: 22 }}>Blocked</span>}
+                      </div>
+                    );
+                  })}
+                  {todayX >= 0 && todayX <= width && (
+                    <div className="absolute bottom-0 z-10 pointer-events-none" style={{ top: 26, left: todayX, width: 2, background: "var(--ws-ink)" }}>
+                      <span className="absolute -translate-x-1/2 whitespace-nowrap rounded px-1.5" style={{ top: 2, left: 1, fontSize: 11, fontWeight: 600, background: "var(--ws-ink)", color: "var(--ws-ink-text)" }}>Today · {fmt(Date.now())}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {mode !== "gantt" && (
+            <div className="ws-table-wrap">
+              <table className="ws-table">
+                <thead><tr><th scope="col">{mode === "list" ? "Activity" : "Milestone"}</th><th scope="col">{mode === "list" ? "Dates" : "Date"}</th>{mode === "list" && <th scope="col">Complete</th>}<th scope="col">Status</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
+                <tbody>
+                  {(mode === "list" ? sorted : milestones).map((i) => (
+                    <tr key={i.id}>
+                      <td style={{ fontWeight: i.type === "phase" ? 600 : 500 }}>{i.name}</td>
+                      <td className="whitespace-nowrap" style={{ color: "var(--ws-muted)" }}>{i.type === "milestone" ? fmt(i.endDate) : `${fmt(i.startDate)} – ${fmt(i.endDate)} · ${days(i.startDate, i.endDate)}d`}</td>
+                      {mode === "list" && <td>{i.type === "milestone" ? "—" : `${i.percent}%`}</td>}
+                      <td><span className={`ws-pill ${i.status === "done" ? "ws-pill-green" : i.status === "blocked" ? "ws-pill-red" : i.status === "in_progress" ? "ws-pill-amber" : ""}`}>{STATUS[i.status]?.label ?? i.status}</span></td>
+                      <td className="text-right whitespace-nowrap">{canManage && <RowActions always onEdit={() => setEditing(i)} onDelete={() => remove(i.id)} name={i.name} />}</td>
+                    </tr>
+                  ))}
+                  {(mode === "list" ? sorted : milestones).length === 0 && <tr><td colSpan={5} className="ws-sub">No {mode === "list" ? "activities" : "milestones"} yet.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       )}
 
       {editing && projectId && (
-        <ItemModal
-          projectId={projectId}
-          initial={editing === "new" ? null : editing}
-          onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); load(); }}
-        />
+        <ItemModal projectId={projectId} initial={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
       )}
-
       {genOpen && projectId && (
         <GenerateModal projectId={projectId} onClose={() => setGenOpen(false)} onDone={() => { setGenOpen(false); load(); }} />
       )}
     </div>
+  );
+}
+
+function RowActions({ onEdit, onDelete, name, always }: { onEdit: () => void; onDelete: () => void; name: string; always?: boolean }) {
+  return (
+    <span className={`flex items-center ${always ? "" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"}`}>
+      <button type="button" onClick={onEdit} className="ws-icon-btn ws-ghost" style={{ width: 26, height: 26 }} aria-label={`Edit ${name}`}><Pencil /></button>
+      <button type="button" onClick={onDelete} className="ws-icon-btn ws-ghost" style={{ width: 26, height: 26 }} aria-label={`Delete ${name}`}><Trash2 /></button>
+    </span>
   );
 }
 

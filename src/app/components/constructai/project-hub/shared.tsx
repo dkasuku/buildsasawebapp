@@ -46,46 +46,39 @@ export function useMoney() {
 
 export const input = "h-9 w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-[12px] text-white placeholder:text-[#3A4350] focus:outline-none focus:border-[#FF6B1A]";
 export const textarea = "w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-[12px] text-white placeholder:text-[#3A4350] focus:outline-none focus:border-[#FF6B1A] min-h-[72px]";
-export const btnPrimary = "h-9 px-3.5 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[12px] flex items-center justify-center gap-1.5 disabled:opacity-60 shrink-0";
-export const btnGhost = "h-9 px-3 rounded-md border border-[#222A35] text-[12px] text-[#C2CAD6] hover:text-white hover:border-[#FF6B1A]/50 flex items-center justify-center gap-1.5 disabled:opacity-60 shrink-0";
+export const btnPrimary = "ws-btn-primary";
+export const btnGhost = "ws-btn";
 export const btnDanger = "h-9 px-3 rounded-md border border-[#EF4444]/40 text-[12px] text-[#EF4444] hover:bg-[#EF4444]/10 flex items-center justify-center gap-1.5 disabled:opacity-60 shrink-0";
 
 export function Panel({ title, subtitle, action, children, className = "" }: { title: string; subtitle?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <div className={`rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden ${className}`}>
-      <div className="px-4 py-3 border-b border-[#222A35] flex items-center justify-between gap-3 flex-wrap">
+    <section className={`ws-card overflow-hidden ${className}`} aria-label={title}>
+      <div className="ws-card-head">
         <div className="min-w-0">
-          <div className="text-[13px] text-white font-display">{title}</div>
-          {subtitle && <div className="text-[11px] text-[#8A95A5]">{subtitle}</div>}
+          <h2 className="ws-h2">{title}</h2>
+          {subtitle && <div className="ws-sub">{subtitle}</div>}
         </div>
         {action && <div className="flex items-center gap-2">{action}</div>}
       </div>
       {children}
-    </div>
+    </section>
   );
 }
 
 export function Kpi({ label, value, sub, tone }: { label: string; value: ReactNode; sub?: ReactNode; tone?: "good" | "bad" | "warn" | "brand" }) {
   const color = tone === "good" ? "text-[#22C55E]" : tone === "bad" ? "text-[#EF4444]" : tone === "warn" ? "text-[#F5A623]" : tone === "brand" ? "text-[#FF6B1A]" : "text-white";
   return (
-    <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-4 min-w-0">
-      <div className="text-[11px] text-[#8A95A5]">{label}</div>
-      <div className={`text-[19px] sm:text-[21px] mt-1 font-display leading-tight break-words ${color}`}>{value}</div>
-      {sub && <div className="text-[10.5px] text-[#5B6675] mt-1 leading-snug">{sub}</div>}
+    <div className="ws-card ws-kpi">
+      <div className="ws-kpi-label">{label}</div>
+      <div className={`ws-kpi-value break-words ${tone ? color : ""}`}>{value}</div>
+      {sub && <div className="ws-kpi-sub">{sub}</div>}
     </div>
   );
 }
 
 export function Pill({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "good" | "bad" | "warn" | "info" | "brand" }) {
-  const cls = {
-    neutral: "bg-[#5B6675]/15 text-[#8A95A5] border-[#222A35]",
-    good: "bg-[#22C55E]/15 text-[#22C55E] border-[#22C55E]/30",
-    bad: "bg-[#EF4444]/15 text-[#EF4444] border-[#EF4444]/30",
-    warn: "bg-[#F5A623]/15 text-[#F5A623] border-[#F5A623]/30",
-    info: "bg-[#3B82F6]/15 text-[#3B82F6] border-[#3B82F6]/30",
-    brand: "bg-[#FF6B1A]/15 text-[#FF6B1A] border-[#FF6B1A]/30",
-  }[tone];
-  return <span className={`px-2 py-0.5 rounded-full text-[10px] border whitespace-nowrap ${cls}`}>{children}</span>;
+  const cls = { neutral: "", good: "ws-pill-green", bad: "ws-pill-red", warn: "ws-pill-amber", info: "ws-pill-blue", brand: "ws-pill-amber" }[tone];
+  return <span className={`ws-pill ${cls}`}>{children}</span>;
 }
 
 export const statusTone = (s?: string | null): "neutral" | "good" | "bad" | "warn" | "info" => {
@@ -111,9 +104,9 @@ export function Bar({ pct, tone = "brand", className = "h-1.5" }: { pct: number 
 export function Empty({ icon: Icon, title, hint, children }: { icon: any; title: string; hint?: string; children?: ReactNode }) {
   return (
     <div className="px-6 py-10 flex flex-col items-center text-center gap-2">
-      <div className="w-10 h-10 rounded-xl bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 flex items-center justify-center"><Icon className="w-5 h-5 text-[#FF6B1A]" /></div>
-      <div className="text-[13px] text-white">{title}</div>
-      {hint && <div className="text-[11.5px] text-[#8A95A5] max-w-sm">{hint}</div>}
+      <Icon className="w-6 h-6" style={{ color: "var(--ws-muted)" }} aria-hidden />
+      <div className="ws-h2">{title}</div>
+      {hint && <div className="ws-sub max-w-sm">{hint}</div>}
       {children && <div className="mt-2 flex gap-2 flex-wrap justify-center">{children}</div>}
     </div>
   );
@@ -136,7 +129,7 @@ export function Modal({ title, subtitle, onClose, children, wide }: { title: str
       <div onClick={(e) => e.stopPropagation()} className={`bg-[#11161D] border border-[#222A35] rounded-t-2xl sm:rounded-xl w-full ${wide ? "sm:max-w-3xl" : "sm:max-w-lg"} max-h-[92vh] overflow-y-auto`}>
         <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-[#222A35] sticky top-0 bg-[#11161D] z-10">
           <div>
-            <div className="text-[15px] text-white font-display">{title}</div>
+            <h2 className="ws-h1" style={{ fontSize: 16 }}>{title}</h2>
             {subtitle && <div className="text-[11.5px] text-[#8A95A5] mt-0.5">{subtitle}</div>}
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-md text-[#8A95A5] hover:text-white hover:bg-[#161C24] flex items-center justify-center"><X className="w-4 h-4" /></button>

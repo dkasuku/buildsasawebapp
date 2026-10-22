@@ -1,93 +1,153 @@
-// Daily Log — the day-by-day site record for a project: what was done, who was
-// on site, plant and deliveries, the weather, where, and photo or video evidence.
+// Daily log: the day-by-day site record for a project. What was done, who was
+// on site, plant and deliveries, the weather, and photo or video evidence.
 // The form and the feed are shared with the project's Site folder
 // (daily-log/DailyLogParts) so both screens record the day the same way.
 import { useMemo, useState } from "react";
-import { ClipboardList, FolderKanban, Plus, RefreshCw, Camera, Users, CalendarCheck, AlertTriangle } from "lucide-react";
-import { type DailyLogDto } from "../../services/api";
+import { FolderKanban, Plus, Pencil, Trash2, Camera, CloudSun } from "lucide-react";
+import { absoluteFileUrl, type DailyLogDto } from "../../services/api";
 import { EmptyState } from "./EmptyState";
 import { useProjects } from "./useProjects";
 import { SiteWeather } from "./SiteWeather";
+import { ImageLightbox } from "./ImageLightbox";
 import { DailyLogEditor, DailyLogFeed, parseUrls, useDailyLogs } from "./daily-log/DailyLogParts";
+
+const iso = (d: Date) => {
+  const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  return z.toISOString().slice(0, 10);
+};
+const dayOf = (l: DailyLogDto) => String(l.date).slice(0, 10);
+const longDay = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" });
+const time = (s?: string) => (s ? new Date(s).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
+const chips = (s?: string | null) => (s || "").split(/[,\n;]+/).map((x) => x.trim()).filter(Boolean);
 
 export function DailyLog() {
   const { projects, loading: projectsLoading } = useProjects();
   const [picked, setPicked] = useState("");
+  const [range, setRange] = useState<7 | 14>(7);
   const projectId = picked || projects[0]?.id || "";
   const project = projects.find((p) => p.id === projectId);
-  const { logs, loading, load, upsert, remove } = useDailyLogs(projectId);
+  const { logs, loading, upsert, remove } = useDailyLogs(projectId);
   const [editing, setEditing] = useState<DailyLogDto | "new" | null>(null);
 
-  const week = useMemo(() => {
-    const since = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
-    const recent = logs.filter((l) => String(l.date).slice(0, 10) >= since);
-    return {
-      days: new Set(recent.map((l) => String(l.date).slice(0, 10))).size,
-      people: recent.reduce((s, l) => s + (Number(l.headcount) || 0), 0),
-      media: recent.reduce((s, l) => s + parseUrls(l.photos).length + parseUrls(l.videos).length, 0),
-    };
+  const today = iso(new Date());
+  const days = useMemo(() => Array.from({ length: range }, (_, i) => iso(new Date(Date.now() - (range - 1 - i) * 86400000))), [range]);
+  const byDay = useMemo(() => {
+    const m = new Map<string, DailyLogDto[]>();
+    logs.forEach((l) => { const k = dayOf(l); if (!m.has(k)) m.set(k, []); m.get(k)!.push(l); });
+    return m;
   }, [logs]);
-  const today = new Date().toISOString().slice(0, 10);
-  const loggedToday = logs.some((l) => String(l.date).slice(0, 10) === today);
+  const inRange = logs.filter((l) => dayOf(l) >= days[0]);
+  const stats = {
+    logged: days.filter((d) => byDay.has(d)).length,
+    labour: inRange.reduce((s, l) => s + (Number(l.headcount) || 0), 0),
+    media: inRange.reduce((s, l) => s + parseUrls(l.photos).length + parseUrls(l.videos).length, 0),
+    deliveries: inRange.filter((l) => (l.materials || "").trim()).length,
+  };
+  const todays = byDay.get(today) ?? [];
+  const earlier = days.filter((d) => d !== today).reverse();
+  const older = logs.filter((l) => dayOf(l) < days[0]);
 
   return (
-    <div className="px-4 sm:px-7 py-5 space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div className="ws-page">
+      <div className="ws-page-head">
         <div>
-          <div className="text-[13px] text-white font-display flex items-center gap-2"><ClipboardList className="w-4 h-4 text-[#FF6B1A]" /> Daily Log</div>
-          <div className="text-[11px] text-[#8A95A5]">The day-by-day site record, your evidence for claims, delays and disputes</div>
+          <h1 className="ws-h1">Daily log</h1>
+          <div className="ws-sub">Day-by-day site record — your evidence for claims, delays and disputes.</div>
         </div>
-        <div className="flex items-end gap-2 flex-wrap">
-          <select
-            value={projectId}
-            onChange={(e) => setPicked(e.target.value)}
-            disabled={projectsLoading || projects.length === 0}
-            className="h-9 min-w-[200px] bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A] disabled:opacity-60"
-          >
+        <div className="ws-toolbar">
+          <label className="sr-only" htmlFor="dl-project">Project</label>
+          <select id="dl-project" className="ws-select" style={{ minWidth: 200 }} value={projectId} onChange={(e) => setPicked(e.target.value)} disabled={projectsLoading || projects.length === 0}>
             {projectsLoading && <option value="">Loading projects…</option>}
             {!projectsLoading && projects.length === 0 && <option value="">No projects yet</option>}
-            {projects.map((p) => <option key={p.id} value={p.id}>{p.code ? `${p.code} · ${p.name}` : p.name}</option>)}
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <button onClick={load} title="Refresh" className="h-9 w-9 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center"><RefreshCw className="w-3.5 h-3.5" /></button>
-          {projectId && (
-            <button onClick={() => setEditing("new")} className="h-9 px-4 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[12px] flex items-center gap-1.5"><Plus className="w-4 h-4" /> New daily log</button>
-          )}
+          <label className="sr-only" htmlFor="dl-range">Period</label>
+          <select id="dl-range" className="ws-select" value={range} onChange={(e) => setRange(Number(e.target.value) as 7 | 14)}>
+            <option value={7}>This week</option>
+            <option value={14}>Last 2 weeks</option>
+          </select>
+          {projectId && <button type="button" className="ws-btn-primary" onClick={() => setEditing("new")}><Plus aria-hidden /> New daily log</button>}
         </div>
       </div>
 
       {projects.length === 0 && !projectsLoading ? (
-        <div className="rounded-xl border border-[#222A35] bg-[#11161D]">
+        <div className="ws-card">
           <EmptyState icon={FolderKanban} title="No projects yet" description="A daily log belongs to a project. Create a project first, then come back to record each day on site." />
         </div>
       ) : (
         <>
-          {projectId && !loading && !loggedToday && (
-            <button onClick={() => setEditing("new")} className="w-full text-left rounded-xl border border-[#FF6B1A]/30 bg-[#FF6B1A]/5 px-4 py-3 flex items-center gap-3">
-              <AlertTriangle className="w-4 h-4 text-[#FF6B1A] shrink-0" />
-              <span className="text-[12.5px] text-[#E6EAF0] flex-1">No log for today on {project?.name || "this project"} yet. Record it while the day is fresh.</span>
-              <span className="text-[12px] text-[#FF6B1A] shrink-0">Write today's log →</span>
-            </button>
-          )}
+          {/* Last N days strip */}
+          <section className="ws-card flex flex-wrap items-center gap-x-6 gap-y-3 px-[18px] py-3" aria-label={`Last ${range} days`}>
+            <div className="flex items-center gap-1" role="list" aria-label="Days logged">
+              {days.map((d) => (
+                <span key={d} role="listitem" title={`${longDay(d)}: ${byDay.has(d) ? "logged" : "not logged"}`} aria-label={`${longDay(d)}: ${byDay.has(d) ? "logged" : "not logged"}`}
+                  className="w-3.5 h-3.5 rounded-[3px]" style={{ background: byDay.has(d) ? "var(--ws-primary)" : "var(--ws-divider)", outline: d === today ? "1.5px solid var(--ws-ink)" : undefined, outlineOffset: 1 }} />
+              ))}
+            </div>
+            <StripStat strong={`${stats.logged} of ${range}`} text="days logged" />
+            <StripStat strong={String(stats.labour)} text="labour-days" />
+            <StripStat strong={String(stats.media)} text="photos & videos" />
+            <StripStat strong={String(stats.deliveries)} text={stats.deliveries === 1 ? "day with deliveries" : "days with deliveries"} />
+          </section>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-4 items-start">
-            <div className="space-y-4 min-w-0 order-2 lg:order-1">
-              <div className="grid grid-cols-3 gap-2">
-                <Stat icon={CalendarCheck} label="Days logged" value={`${week.days} / 7`} sub="last 7 days" warn={week.days < 5} />
-                <Stat icon={Users} label="Labour-days" value={String(week.people)} sub="last 7 days" />
-                <Stat icon={Camera} label="Photos & videos" value={String(week.media)} sub="last 7 days" />
-              </div>
-              {!loading && logs.length === 0 ? (
-                <div className="rounded-xl border border-[#222A35] bg-[#11161D]">
-                  <EmptyState icon={ClipboardList} title="No daily logs for this project yet" description="Record each day: what got done, who was on site, deliveries, delays and visitors, with photos. It's your best evidence if there's ever a dispute." />
-                  <div className="pb-6 text-center"><button onClick={() => setEditing("new")} className="h-9 px-4 rounded-md bg-[#FF6B1A] text-white text-[12px] inline-flex items-center gap-1.5"><Plus className="w-4 h-4" /> Write the first log</button></div>
-                </div>
+          <div className="flex flex-wrap gap-6 items-start">
+            <div className="ws-main">
+              {loading ? <div className="ws-card h-40 animate-pulse" /> : todays.length > 0 ? (
+                todays.map((l) => <TodayCard key={l.id} log={l} onEdit={() => setEditing(l)} onDelete={() => remove(l)} />)
               ) : (
-                <DailyLogFeed logs={logs} loading={loading} canEdit onEdit={(l) => setEditing(l)} onDelete={remove} />
+                <section className="ws-card" aria-label="Today">
+                  <div className="ws-card-head">
+                    <div className="flex items-center gap-2"><h2 className="ws-h2">{longDay(today)}</h2><span className="ws-pill ws-pill-ink">Today</span></div>
+                  </div>
+                  <div className="ws-card-body">
+                    <div className="ws-dashed-row">No log for today on {project?.name || "this project"} yet. Record it while the day is fresh with <strong>New daily log</strong>.</div>
+                  </div>
+                </section>
+              )}
+
+              <section className="ws-card" aria-labelledby="dl-earlier">
+                <div className="ws-card-head"><h2 id="dl-earlier" className="ws-h2">{range === 7 ? "Earlier this week" : "Earlier in the last 2 weeks"}</h2></div>
+                <ul>
+                  {earlier.map((d) => {
+                    const list = byDay.get(d) ?? [];
+                    const weekend = [0, 6].includes(new Date(`${d}T12:00:00`).getDay());
+                    return (
+                      <li key={d} className="flex items-center gap-3 px-[18px] py-2.5" style={{ borderBottom: "1px solid var(--ws-divider)", fontSize: 13.5 }}>
+                        <span style={{ width: 150, fontWeight: 500 }}>{longDay(d)}</span>
+                        {list.length ? (
+                          <>
+                            <span className="ws-pill ws-pill-green">Logged</span>
+                            <span className="truncate flex-1" style={{ color: "var(--ws-muted)" }}>{list.reduce((s, l) => s + (Number(l.headcount) || 0), 0)} on site · {list[0].notes?.slice(0, 80) || list[0].crew}</span>
+                            <button type="button" className="ws-link" onClick={() => setEditing(list[0])}>Open</button>
+                          </>
+                        ) : (
+                          <>
+                            <span className="ws-pill">{weekend ? "No work day?" : "Not logged"}</span>
+                            <span className="flex-1" />
+                            <button type="button" className="ws-link" onClick={() => setEditing("new")}>Add log</button>
+                          </>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+
+              {older.length > 0 && (
+                <section aria-labelledby="dl-older" className="flex flex-col gap-3">
+                  <h2 id="dl-older" className="ws-h2">Older entries</h2>
+                  <DailyLogFeed logs={older} canEdit onEdit={(l) => setEditing(l)} onDelete={remove} />
+                </section>
               )}
             </div>
-            <div className="order-1 lg:order-2 lg:sticky lg:top-4">
+
+            <aside className="ws-aside" aria-label="Site conditions">
               {projectId && <SiteWeather projectId={projectId} compact />}
-            </div>
+              <section className="ws-card ws-card-body">
+                <h2 className="ws-h2">Why log every day</h2>
+                <p className="ws-sub mt-1.5">A dated record of who was on site, what got done and what held you up is what wins extension-of-time claims and settles payment disputes. Two minutes at the end of each day is enough.</p>
+              </section>
+            </aside>
           </div>
         </>
       )}
@@ -105,12 +165,61 @@ export function DailyLog() {
   );
 }
 
-function Stat({ icon: Icon, label, value, sub, warn }: { icon: any; label: string; value: string; sub: string; warn?: boolean }) {
+function StripStat({ strong, text }: { strong: string; text: string }) {
+  return <span style={{ fontSize: 13.5, color: "var(--ws-muted)" }}><strong style={{ color: "var(--ws-text)", fontWeight: 600 }}>{strong}</strong> {text}</span>;
+}
+
+function TodayCard({ log, onEdit, onDelete }: { log: DailyLogDto; onEdit: () => void; onDelete: () => void }) {
+  const [lightbox, setLightbox] = useState<number | null>(null);
+  const photos = parseUrls(log.photos).map((u) => absoluteFileUrl(u));
+  const trades = chips(log.labour);
   return (
-    <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-3">
-      <div className="text-[10px] text-[#5B6675] uppercase tracking-wider flex items-center gap-1"><Icon className="w-3 h-3" />{label}</div>
-      <div className={`text-[18px] font-display mt-1 ${warn ? "text-[#F59E0B]" : "text-white"}`}>{value}</div>
-      <div className="text-[10px] text-[#5B6675]">{sub}</div>
+    <section className="ws-card" aria-label="Today's entry">
+      <div className="ws-card-head">
+        <div className="flex items-center gap-2 flex-wrap">
+          <h2 className="ws-h2">{longDay(dayOf(log))}</h2>
+          <span className="ws-pill ws-pill-ink">Today</span>
+          {log.weather && <span className="ws-pill ws-pill-blue"><CloudSun className="w-3.5 h-3.5" aria-hidden />{log.weather}</span>}
+          <span className="ws-pill">{log.headcount} on site</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="ws-sub">{log.crew ? `Crew: ${log.crew}` : "Logged"}{log.createdAt ? ` · ${time(log.createdAt)}` : ""}</span>
+          <button type="button" className="ws-btn" onClick={onEdit}><Pencil aria-hidden /> Edit</button>
+          <button type="button" className="ws-icon-btn" onClick={onDelete} aria-label="Delete this entry"><Trash2 /></button>
+        </div>
+      </div>
+      <div className="ws-card-body ws-grid-2" style={{ gap: 20 }}>
+        <div className="flex flex-col gap-4">
+          <Block title="Work done">{log.notes || <span style={{ color: "var(--ws-muted)" }}>Nothing written.</span>}</Block>
+          <Block title="Plant & deliveries">
+            {log.plant || log.materials ? <>{log.plant && <div>Plant: {log.plant}</div>}{log.materials && <div>Delivered: {log.materials}</div>}</> : <span style={{ color: "var(--ws-muted)" }}>None recorded.</span>}
+          </Block>
+        </div>
+        <div className="flex flex-col gap-4">
+          <Block title="Labour">
+            {trades.length ? <div className="flex flex-wrap gap-1.5">{trades.map((t) => <span key={t} className="ws-pill">{t}</span>)}</div> : <span style={{ color: "var(--ws-muted)" }}>{log.headcount} people, trades not listed.</span>}
+          </Block>
+          {photos.length ? (
+            <div className="flex gap-2 flex-wrap">
+              {photos.map((src, i) => (
+                <button key={src} type="button" onClick={() => setLightbox(i)} aria-label={`Open photo ${i + 1}`}><img src={src} alt="" className="h-16 w-20 rounded-md object-cover" style={{ border: "1px solid var(--ws-border)" }} /></button>
+              ))}
+            </div>
+          ) : (
+            <button type="button" onClick={onEdit} className="ws-dashed-row flex items-center gap-2 text-left w-full"><Camera className="w-4 h-4" aria-hidden /> Add photos from site</button>
+          )}
+        </div>
+      </div>
+      {lightbox != null && <ImageLightbox images={photos} startIndex={lightbox} onClose={() => setLightbox(null)} />}
+    </section>
+  );
+}
+
+function Block({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h3 style={{ fontSize: 12.5, color: "var(--ws-muted)", fontWeight: 500, marginBottom: 4 }}>{title}</h3>
+      <div style={{ fontSize: 13.5, color: "var(--ws-text)", whiteSpace: "pre-wrap" }}>{children}</div>
     </div>
   );
 }

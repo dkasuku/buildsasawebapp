@@ -61,37 +61,37 @@ const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }
   dashboard: { title: "Dashboard", subtitle: "Executive overview" },
   projects: { title: "Projects", subtitle: "Your sites and jobs" },
   "project-detail": { title: "Project", subtitle: "Contract, drawings, BOQ, variations, certificates, site & costs — in one place" },
-  "change-orders": { title: "Change Orders", subtitle: "Cost & schedule impact · approvals" },
-  billing: { title: "Billing & Plan", subtitle: "Subscription & payments" },
-  plans: { title: "Plans & Drawings", subtitle: "Architectural sheets & sharing" },
+  "change-orders": { title: "Change orders", subtitle: "Cost & schedule impact · approvals" },
+  billing: { title: "Billing & plan", subtitle: "Subscription & payments" },
+  plans: { title: "Plans & drawings", subtitle: "Architectural sheets & sharing" },
   tasks: { title: "Checklists", subtitle: "Checklist assignments and progress by trade" },
   schedule: { title: "Schedule", subtitle: "Project timeline — Gantt, dates & milestones" },
-  documents: { title: "Unfiled Documents", subtitle: "Documents with no project — file them into one" },
-  "daily-log": { title: "Daily Log", subtitle: "Site record, weather, photos and video" },
-  "punch-list": { title: "Punch List", subtitle: "Deficiencies and closeouts" },
+  documents: { title: "Unfiled documents", subtitle: "Documents with no project — file them into one" },
+  "daily-log": { title: "Daily log", subtitle: "Site record, weather, photos and video" },
+  "punch-list": { title: "Punch list", subtitle: "Deficiencies and closeouts" },
   commitments: { title: "Commitments", subtitle: "Subcontracts, POs, obligations" },
   reports: { title: "Reports", subtitle: "Financial & operational analytics" },
   financials: { title: "Financials", subtitle: "Cash flow, budgets, and exports" },
   team: { title: "Team", subtitle: "Members, roles & workflows" },
-  "field-view": { title: "Field Supervisor", subtitle: "Mobile — jobsite operations" },
+  "field-view": { title: "Field supervisor", subtitle: "Mobile — jobsite operations" },
   inbox: { title: "Inbox", subtitle: "Internal messages & project conversations" },
   announcements: { title: "Announcements", subtitle: "Company-wide broadcasts & notices" },
   observations: { title: "Observations", subtitle: "Quality & safety site observations" },
   "action-plans": { title: "Observations", subtitle: "Site issues and their corrective actions" },
-  coordination: { title: "Coordination Issues", subtitle: "RFIs, clashes, design questions" },
+  coordination: { title: "Coordination issues", subtitle: "RFIs, clashes, design questions" },
   correspondence: { title: "Correspondence", subtitle: "Letters, submittals & transmittals" },
   crews: { title: "Crews", subtitle: "Crew rosters & schedules" },
   directory: { title: "Directory", subtitle: "Global contacts & companies" },
   subcontractors: { title: "Subcontractors", subtitle: "Subcontractor & supplier database · engagements & payments" },
-  "company-docs": { title: "Company Documents", subtitle: "Organization-wide vault" },
-  "role-manager": { title: "Role Manager", subtitle: "Configure team roles and permissions" },
+  "company-docs": { title: "Company documents", subtitle: "Organization-wide vault" },
+  "role-manager": { title: "Role manager", subtitle: "Configure team roles and permissions" },
   bidding: { title: "Bidding", subtitle: "Subcontractor bids and tendering" },
-  jobs: { title: "Jobs Board", subtitle: "Work opportunities from Buildsasa, open for bids" },
+  jobs: { title: "Jobs board", subtitle: "Work opportunities from Buildsasa, open for bids" },
   quotes: { title: "Quotes", subtitle: "Price jobs, send them for online acceptance, convert wins to projects" },
   invoicing: { title: "Invoicing", subtitle: "Accounts receivable and invoice management" },
   inspections: { title: "Inspections", subtitle: "Quality, safety, and compliance inspections" },
   checklists: { title: "Checklists", subtitle: "Templates, assignments, and digital submissions" },
-  "safety-incidents": { title: "Safety Incidents", subtitle: "OSHA-style incident reporting and tracking" },
+  "safety-incidents": { title: "Safety incidents", subtitle: "OSHA-style incident reporting and tracking" },
   equipment: { title: "Inventory", subtitle: "Materials, equipment, tools & stock levels" },
   attendance: { title: "Attendance", subtitle: "Check in/out, breaks, leaves & time tracking" },
   "buildflex-ai": { title: "Buildsasa AI", subtitle: "AI assistant for reports & building expertise" },
@@ -396,7 +396,7 @@ export default function App() {
   // form here would tell a user who just authenticated that they are signed out.
   if (oauthExchanging) {
     return (
-      <div className={`h-screen w-full flex items-center justify-center ${theme === "light" ? "theme-light bg-[#F4F6FA]" : "bg-[#0A0E14]"}`}>
+      <div className={`h-screen w-full flex items-center justify-center ${theme === "light" ? "theme-light bg-[#F6F5F2]" : "bg-[#0A0E14]"}`}>
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 rounded-full border-2 border-[#222A35] border-t-[#FF6B1A] animate-spin" />
           <div className="text-[12.5px] text-[#8A95A5]">Signing you in…</div>
@@ -434,7 +434,7 @@ export default function App() {
   // loading screen so we never flash the dashboard before the paywall decision.
   if (!gateLoaded) {
     return (
-      <div className={`h-screen w-full flex items-center justify-center ${theme === "light" ? "theme-light bg-[#F4F6FA]" : "bg-[#0A0E14]"}`}>
+      <div className={`h-screen w-full flex items-center justify-center ${theme === "light" ? "theme-light bg-[#F6F5F2]" : "bg-[#0A0E14]"}`}>
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 rounded-full border-2 border-[#222A35] border-t-[#FF6B1A] animate-spin" />
           <div className="text-[12.5px] text-[#8A95A5]">Loading your workspace…</div>
@@ -453,7 +453,6 @@ export default function App() {
   const backMeta = TITLES[backTarget as Exclude<View, "login">];
   // The last page in the trail that is still allowed and isn't this one.
   const backView = [...history].reverse().find((v) => v !== effectiveView && allowed.includes(v));
-  const back = backView ? { label: TITLES[backView as Exclude<View, "login">]?.title || "previous page", onClick: goBack } : null;
   // Block (after due date) on an overdue invoice, or when a configured workspace
   // has no active plan. Stays dormant until Paystack is configured so local
   // testing is never blocked. A not-yet-due unpaid invoice shows a soft banner.
@@ -473,8 +472,8 @@ export default function App() {
     <CurrencyProvider>
       {welcome.show && !onboardingShowing && <div className={theme === "light" ? "theme-light" : ""}><WelcomeModal kind="contractor" name={meUser?.name || ""} onClose={welcome.close} /></div>}
       <div
-        className={`size-full min-h-screen flex text-[#E6EAF0] ${theme === "light" ? "theme-light bg-[#F4F6FA]" : "bg-[#0A0E14]"}`}
-        style={theme === "light" ? { backgroundColor: "#F4F6FA" } : undefined}
+        className={`size-full min-h-screen flex text-[#E6EAF0] ${theme === "light" ? "theme-light bg-[#F6F5F2]" : "bg-[#0A0E14]"}`}
+        style={theme === "light" ? { backgroundColor: "#F6F5F2" } : undefined}
       >
         <Sidebar
           view={effectiveView}
@@ -482,30 +481,26 @@ export default function App() {
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
           role={role}
+          setRole={setRole}
           locked={paywalled}
           starter={starter}
+          activeProjectId={activeProjectId}
+          onOpenProject={openProject}
         />
         <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
           <Topbar
             title={meta.title}
-            subtitle={meta.subtitle}
             onMenu={() => setDrawerOpen(true)}
             onNewOrder={() => navigate("change-orders")}
             role={role}
-            setRole={setRole}
             onNavigate={(v: View) => navigate(v)}
-            back={back}
+            projectId={effectiveView === "project-detail" ? activeProjectId : null}
+            onOpenProject={openProject}
             onOpenChangeOrder={openChangeOrder}
             onOpenAi={() => setAiPanelOpen(true)}
             theme={theme}
             setTheme={setTheme}
           />
-          {role !== "Contractor" && (
-            <div className="shrink-0 bg-[#11161D] border-b border-[#222A35] px-4 sm:px-7 py-2 text-[11px] text-[#8A95A5] flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#FF6B1A]" />
-              Viewing as <span className="text-white">{role}</span> — some panels & actions are hidden per permissions.
-            </div>
-          )}
           <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
             {paywalled && effectiveView !== "billing" && (
               <div className="fixed inset-0 z-[70] backdrop-blur-lg bg-[#0A0E14]/70 flex items-center justify-center p-6 text-center">
@@ -536,12 +531,11 @@ export default function App() {
               </div>
             )}
             {!paywalled && gate.trialDaysLeft != null && effectiveView !== "billing" && (
-              <div className="flex items-center gap-3 px-4 sm:px-7 py-2.5 bg-[#FF6B1A]/10 border-b border-[#FF6B1A]/30">
-                <CreditCard className="w-4 h-4 text-[#FF6B1A] shrink-0" />
-                <div className="text-[12px] text-[#E6EAF0] flex-1">
-                  {gate.trialDaysLeft <= 1 ? "Your free trial ends today." : `Free trial: ${gate.trialDaysLeft} days left.`} Everything is unlocked. {gate.isBillingOwner ? "Choose a plan to keep going without interruption." : "Ask whoever manages your account to choose a plan."}
-                </div>
-                {gate.isBillingOwner && <button onClick={() => navigate("billing")} className="h-8 px-3 rounded-md bg-[#FF6B1A] hover:bg-[#FF7E33] text-white text-[11.5px] shrink-0">Choose a plan</button>}
+              <div className="ws-trial" role="status">
+                <strong>{gate.trialDaysLeft <= 1 ? "Last day" : `${gate.trialDaysLeft} days left`}</strong> on your free trial. Everything is unlocked until then.{" "}
+                {gate.isBillingOwner
+                  ? <button type="button" className="ws-link" onClick={() => navigate("billing")}>Choose a plan →</button>
+                  : <span>Ask whoever manages your account to choose a plan.</span>}
               </div>
             )}
             {invoiceBanner && effectiveView !== "billing" && (

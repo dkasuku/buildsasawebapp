@@ -17,10 +17,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
-  AlertCircle, ArrowLeft, BarChart3, Calculator, Calendar, CalendarDays, CheckCircle2, ClipboardList, Clock, FileStack,
-  FileText, Flag, HardHat, Image as ImageIcon, LayoutDashboard, Loader2, MapPin, Pencil, Receipt, RefreshCw, ShieldAlert,
-  UserCircle, Wallet, Wrench, Check, AlertTriangle, ArrowUpRight, ChevronRight, FileBarChart, Share2, Palette,
-  UserCheck,
+  AlertCircle, ArrowLeft, Calendar, CalendarDays, CheckCircle2, Clock, Image as ImageIcon, Loader2, MapPin, MoreHorizontal,
+  Pencil, RefreshCw, UserCircle, Check, AlertTriangle, ChevronRight, Share2, UserCheck,
 } from "lucide-react";
 import { ClientPortalDialog } from "./ClientPortalDialog";
 import { SiteWeather } from "./SiteWeather";
@@ -33,6 +31,10 @@ import type { View } from "./Sidebar";
 import type { Role } from "./roles";
 import { ROLES, canManageBids } from "./roles";
 import { ProjectCloseout } from "./ProjectCloseout";
+import { clientApi } from "./client/clientData";
+import { projectTone, statusText } from "./wsStatus";
+import { ProjectAnalytics } from "./project-hub/ProjectAnalytics";
+import { ActivityCard, AttentionCard, ReadinessCard } from "./project-hub/ProjectAside";
 import { DocumentFolder } from "./project-hub/DocumentFolder";
 import { DrawingsFolder } from "./project-hub/DrawingsFolder";
 import { BoqFolder } from "./project-hub/BoqFolder";
@@ -42,10 +44,10 @@ import { SiteFolder } from "./project-hub/SiteFolder";
 import { ClientFolder } from "./project-hub/ClientFolder";
 import { CostControlFolder } from "./project-hub/CostControlFolder";
 import { ReportFolder } from "./project-hub/ReportFolder";
-import { Bar, Field, Modal, Panel, Pill, btnGhost, btnPrimary, fmtDate, input, statusTone, useMoney } from "./project-hub/shared";
+import { Field, Modal, Panel, btnGhost, btnPrimary, fmtDate, input, useMoney } from "./project-hub/shared";
 import { isStarter } from "./planTier";
 
-type Folder = "overview" | "contract" | "drawings" | "boq" | "variations" | "selections" | "certificates" | "site" | "costs" | "report" | "closeout" | "client";
+type Folder = "overview" | "analytics" | "contract" | "drawings" | "boq" | "variations" | "selections" | "certificates" | "site" | "costs" | "report" | "closeout" | "client";
 
 export function ProjectDetail({
   projectId,
@@ -78,6 +80,10 @@ export function ProjectDetail({
   const [contractModal, setContractModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [portalOpen, setPortalOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  // The project's client, for the header meta line and the setup checklist.
+  const [clients, setClients] = useState<{ id: string; email: string; name?: string | null }[] | null>(null);
+  useEffect(() => { clientApi.projectClients(projectId).then(setClients).catch(() => setClients([])); }, [projectId]);
   // Same roles the server lets share the portal (those that handle money).
   const canSharePortal = perms.financials;
 
@@ -92,25 +98,26 @@ export function ProjectDetail({
   // Every folder calls this after a write; quiet so the page does not flash.
   const refresh = useCallback(() => load(true), [load]);
 
-  const folders = useMemo<{ key: Folder; label: string; icon: any; count?: number; hint?: string }[]>(() => {
+  const folders = useMemo<{ key: Folder; label: string; count?: number }[]>(() => {
     if (!data) return [];
     const c = data.counts;
     const docsIn = (cat: string) => data.documents.filter((d) => (d.category || "general") === cat).length;
     return [
-      { key: "overview", label: "Overview", icon: LayoutDashboard },
-      { key: "contract", label: "Contract Documents", icon: FileText, count: docsIn("contract") },
-      { key: "drawings", label: "Drawings & Designs", icon: FileStack, count: c.sheets, hint: c.drawings !== c.sheets ? `${c.drawings} versions` : undefined },
-      ...(starterPlan ? [] : [{ key: "boq" as Folder, label: "Bills of Quantities", icon: Calculator, count: data.boq.itemCount, hint: data.boq.revisions.length ? `V${data.boq.revisions[0].version} saved` : undefined }]),
-      { key: "variations", label: "Variations", icon: Wrench, count: c.variations },
-      { key: "selections", label: "Finish Selections", icon: Palette },
-      ...(showFin ? [{ key: "certificates" as Folder, label: "Payment Certificates", icon: Receipt, count: c.certificates }] : []),
-      { key: "client", label: "Client", icon: UserCheck, hint: "share progress" },
-      { key: "site", label: "Site Execution", icon: HardHat, count: c.punchOpen, hint: c.punchOpen ? "open defects" : undefined },
-      ...(showFin ? [{ key: "costs" as Folder, label: "Cost Control", icon: BarChart3 }] : []),
-      ...(perms.viewReports ? [{ key: "report" as Folder, label: "Project Report", icon: FileBarChart }] : []),
-      { key: "closeout", label: "Closeout", icon: Flag },
+      { key: "overview", label: "Overview" },
+      { key: "analytics", label: "Analytics" },
+      { key: "contract", label: "Contract", count: docsIn("contract") },
+      { key: "drawings", label: "Drawings", count: c.sheets },
+      ...(starterPlan ? [] : [{ key: "boq" as Folder, label: "BOQ", count: data.boq.itemCount }]),
+      { key: "variations", label: "Variations", count: c.variations },
+      ...(showFin ? [{ key: "certificates" as Folder, label: "Certificates", count: c.certificates }] : []),
+      { key: "selections", label: "Finishes" },
+      { key: "site", label: "Site", count: c.punchOpen },
+      ...(showFin ? [{ key: "costs" as Folder, label: "Cost control" }] : []),
+      { key: "client", label: "Client" },
+      ...(perms.viewReports ? [{ key: "report" as Folder, label: "Reports" }] : []),
+      { key: "closeout", label: "Closeout" },
     ];
-  }, [data, showFin, perms.viewReports]);
+  }, [data, showFin, perms.viewReports, starterPlan]);
 
   if (loading) {
     return (
@@ -136,40 +143,66 @@ export function ProjectDetail({
     );
   }
 
-  const { project, timeline, progress, costs, counts } = data;
+  const { project, costs } = data;
   const images = (project.images ?? []).map((u) => absoluteFileUrl(u)).filter(Boolean);
-  const effectiveProgress = progress.schedule ?? progress.reported;
   const contractSum = project.contractSumKES ?? null;
-  const behind = timeline.elapsedPct != null && effectiveProgress < timeline.elapsedPct - 10;
+  const tone = projectTone(project.status);
+  const planning = tone === "blue";
+  const client = clients?.[0];
+  const withAside = ["overview", "contract", "drawings", "variations", "site", "closeout"].includes(folder);
 
   return (
-    <div className="px-4 sm:px-7 py-5 sm:py-6 space-y-4">
-      {/* ── Header ── */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-3 min-w-0">
-          <button onClick={onBack} title="Back to projects" className="h-9 w-9 shrink-0 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center"><ArrowLeft className="w-4 h-4" /></button>
+    <div>
+      {/* ── Header band ── */}
+      <div className="ws-project-head">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[11px] font-mono text-[#5B6675]">{project.code}</span>
-              <Pill tone={statusTone(project.status)}>{project.status}</Pill>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h1 className="ws-h1 truncate">{project.name}</h1>
+              {project.code && <span className="ws-mono" style={{ fontSize: 12, color: "var(--ws-muted)" }}>{project.code}</span>}
+              <span className={`ws-pill ws-pill-${tone}`}>{statusText(project.status)}</span>
             </div>
-            <h1 className="text-[20px] sm:text-[24px] text-white font-display leading-tight truncate">{project.name}</h1>
-            <div className="flex items-center gap-3 mt-1 text-[11px] text-[#8A95A5] flex-wrap">
-              <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{project.city || "—"}</span>
-              <span className="flex items-center gap-1"><Clock className="w-3 h-3" />Created {fmtDate(project.createdAt)}</span>
-              {data.team.length > 0 && <span className="flex items-center gap-1"><UserCircle className="w-3 h-3" />{data.team.length} on the team</span>}
+            <div className="ws-meta">
+              <span><MapPin aria-hidden />{project.city || "No location"}</span>
+              <span><Clock aria-hidden />Created {fmtDate(project.createdAt)}</span>
+              <span>
+                <UserCircle aria-hidden />Client:{" "}
+                {client ? <span style={{ color: "var(--ws-text)" }}>{client.name || client.email}</span>
+                  : <button type="button" className="ws-link" onClick={() => setFolder("client")}>not assigned yet</button>}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {canSharePortal && (client
+              ? <button type="button" onClick={() => setPortalOpen(true)} className="ws-btn ws-btn-lg"><Share2 aria-hidden /> Share</button>
+              : <button type="button" onClick={() => setFolder("client")} className="ws-btn ws-btn-lg"><UserCheck aria-hidden /> Invite client</button>)}
+            {onEdit && <button type="button" onClick={onEdit} className="ws-btn ws-btn-lg"><Pencil aria-hidden /> Edit project</button>}
+            <div className="relative">
+              <button type="button" className="ws-icon-btn" style={{ height: 38, width: 38 }} aria-label="More project actions" aria-haspopup="menu" aria-expanded={moreOpen} onClick={() => setMoreOpen((v) => !v)}>
+                {refreshing ? <Loader2 className="animate-spin" /> : <MoreHorizontal />}
+              </button>
+              {moreOpen && (
+                <>
+                  <div className="fixed inset-0 z-20" onClick={() => setMoreOpen(false)} />
+                  <div className="ws-menu" role="menu" style={{ right: 0, top: 44, width: 230 }}>
+                    <button role="menuitem" className="ws-menu-item" onClick={() => { setMoreOpen(false); refresh(); }}><RefreshCw /> Refresh</button>
+                    {canEditDocs && <button role="menuitem" className="ws-menu-item" onClick={() => { setMoreOpen(false); setContractModal(true); }}><CalendarDays /> Contract value &amp; dates</button>}
+                    {canSharePortal && <button role="menuitem" className="ws-menu-item" onClick={() => { setMoreOpen(false); setPortalOpen(true); }}><Share2 /> View-only portal link</button>}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={refresh} title="Refresh" className="h-9 w-9 rounded-md border border-[#222A35] text-[#8A95A5] hover:text-white flex items-center justify-center">{refreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}</button>
-          {canSharePortal && (
-            <button onClick={() => setFolder("client")} title="Invite the project owner to follow progress in their free client account" className="h-9 px-3 rounded-md border border-[#222A35] text-[12px] text-[#C2CAD6] hover:text-white flex items-center gap-1.5">
-              <UserCheck className="w-3.5 h-3.5" /> Invite client
+
+        <nav className="ws-tabs" aria-label="Project sections">
+          {folders.map((f) => (
+            <button key={f.key} type="button" className="ws-tab" aria-current={folder === f.key ? "page" : undefined} onClick={() => setFolder(f.key)}>
+              {f.label}
+              {f.count != null && f.count > 0 && <span className="ws-count">{f.count}</span>}
             </button>
-          )}
-          {onEdit && <button onClick={onEdit} className={btnPrimary}><Pencil className="w-3.5 h-3.5" /> Edit project</button>}
-        </div>
+          ))}
+        </nav>
       </div>
       {portalOpen && (
         <ClientPortalDialog
@@ -181,74 +214,20 @@ export function ProjectDetail({
         />
       )}
 
-      {/* ── Contract value · Timeline · Time elapsed ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <HeaderTile
-          icon={Wallet} label="Contract value" onClick={canEditDocs ? () => setContractModal(true) : undefined}
-          value={contractSum != null ? fmt(contractSum) : (project.value || "Not set")}
-          sub={contractSum != null
-            ? (costs.approvedVariations ? <>Revised <span className="text-white">{fmt(costs.revisedContractSum)}</span> after variations</> : "no approved variations yet")
-            : (canEditDocs ? "Click to set the agreed sum" : "not set")}
-          tone={showFin ? undefined : "muted"}
-          hidden={!showFin && contractSum != null}
-        />
-        <HeaderTile
-          icon={CalendarDays} label="Timeline" onClick={canEditDocs ? () => setContractModal(true) : undefined}
-          value={timeline.startDate && timeline.targetEndDate ? `${fmtDate(timeline.startDate, { month: "short", day: "numeric" })} → ${fmtDate(timeline.targetEndDate)}` : timeline.startDate ? `Started ${fmtDate(timeline.startDate)}` : "Not set"}
-          sub={timeline.durationDays != null ? `${timeline.durationDays} days · ${Math.round(timeline.durationDays / 7)} weeks` : canEditDocs ? "Click to set start and completion dates" : "dates not set"}
-        />
-        <div className={`rounded-xl border p-4 ${behind ? "border-[#F5A623]/40 bg-[#F5A623]/5" : "border-[#222A35] bg-[#11161D]"}`}>
-          <div className="flex items-center justify-between">
-            <div className="text-[11px] text-[#8A95A5] flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> Time elapsed</div>
-            {behind && <Pill tone="warn"><AlertTriangle className="w-2.5 h-2.5 inline -mt-px mr-0.5" /> behind</Pill>}
-          </div>
-          <div className="flex items-end justify-between mt-1 gap-2">
-            <div className="text-[20px] text-white font-display leading-tight">{timeline.elapsedPct != null ? `${timeline.elapsedPct}%` : timeline.elapsedDays != null ? `${timeline.elapsedDays} days` : "—"}</div>
-            <div className="text-[11px] text-[#8A95A5] text-right">
-              {timeline.remainingDays != null ? (timeline.remainingDays >= 0 ? `${timeline.remainingDays} days left` : `${-timeline.remainingDays} days over`) : "no end date"}
-            </div>
-          </div>
-          <div className="mt-2 relative">
-            <Bar pct={timeline.elapsedPct} tone={timeline.remainingDays != null && timeline.remainingDays < 0 ? "bad" : "info"} className="h-2" />
-            {/* progress marker: where the work is, against where the calendar is */}
-            <div className="absolute -top-0.5 h-3 w-0.5 bg-[#FF6B1A]" style={{ left: `calc(${Math.min(100, effectiveProgress)}% - 1px)` }} title={`Work ${effectiveProgress}% complete`} />
-          </div>
-          <div className="text-[10.5px] text-[#5B6675] mt-1">calendar {timeline.elapsedPct ?? "—"}% · <span className="text-[#FF6B1A]">work {effectiveProgress}%</span>{progress.schedule != null ? " (from schedule)" : " (reported)"}</div>
-        </div>
-      </div>
-
-      {/* ── Folder rail + content ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-[236px_minmax(0,1fr)] gap-4 items-start">
-        <nav className="lg:sticky lg:top-2">
-          <div className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible rounded-xl border border-[#222A35] bg-[#11161D] p-1.5">
-            {folders.map((f) => {
-              const active = folder === f.key;
-              return (
-                <button key={f.key} onClick={() => setFolder(f.key)} className={`min-w-max lg:min-w-0 lg:w-full h-10 px-3 rounded-lg text-[12px] flex items-center gap-2.5 transition text-left ${active ? "bg-[#FF6B1A] text-white" : "text-[#C2CAD6] hover:bg-[#161C24] hover:text-white"}`}>
-                  <f.icon className={`w-4 h-4 shrink-0 ${active ? "text-white" : "text-[#FF6B1A]"}`} />
-                  <span className="flex-1 truncate">{f.label}</span>
-                  {f.count != null && f.count > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full tabular-nums ${active ? "bg-white/20" : "bg-[#222A35] text-[#8A95A5]"}`}>{f.count}</span>}
-                </button>
-              );
-            })}
-          </div>
-          <div className="hidden lg:block mt-3 rounded-xl border border-[#222A35] bg-[#0A0E14] p-3 text-[10.5px] text-[#5B6675] leading-relaxed">
-            Everything here is also in the modules (Plans, Change Orders, Financials…). This page just puts one project's records in one place.
-          </div>
-        </nav>
-
-        <div className="min-w-0">
+      <div className="ws-content">
+        <div className="ws-main" style={withAside ? undefined : { flexBasis: "100%" }}>
           {folder === "overview" && (
             <>
-            <div className="mb-4"><SiteWeather projectId={projectId} compact site={{ name: data.project.name, lat: data.project.lat, lng: data.project.lng }} onPinLocation={onEdit || (() => toast.info("Ask a project manager to set this project's location"))} /></div>
-            <Overview data={data} images={images} onEdit={onEdit} onLightbox={(i) => setLightbox({ images, index: i })} go={setFolder} showFin={showFin} fmt={fmt} compact={compact} />
+              <SiteWeather projectId={projectId} compact site={{ name: data.project.name, lat: data.project.lat, lng: data.project.lng }} onPinLocation={onEdit || (() => toast.info("Ask a project manager to set this project's location"))} />
+              <Overview data={data} images={images} onEdit={onEdit} onLightbox={(i) => setLightbox({ images, index: i })} go={setFolder} showFin={showFin} fmt={fmt} />
             </>
           )}
+          {folder === "analytics" && <ProjectAnalytics data={data} fmt={fmt} showFin={showFin} go={setFolder} onExport={perms.viewReports ? () => setFolder("report") : undefined} />}
           {folder === "contract" && (
-            <div className="space-y-4">
+            <>
               <DocumentFolder projectId={projectId} category="contract" docs={data.documents} onChanged={refresh} canEdit={canEditDocs} />
               <DocumentFolder projectId={projectId} category="general" docs={data.documents} onChanged={refresh} canEdit={canEditDocs} />
-            </div>
+            </>
           )}
           {folder === "drawings" && <DrawingsFolder projectId={projectId} role={role} projectName={data.project.name} sheets={data.drawings} docs={data.documents} canEdit={canEditDocs} onChanged={refresh} />}
           {folder === "boq" && <BoqFolder projectId={projectId} summary={data.boq} docs={data.documents} canEdit={canManageBids(role)} onChanged={refresh} />}
@@ -259,12 +238,21 @@ export function ProjectDetail({
           {folder === "certificates" && showFin && (
             <CertificatesFolder projectId={projectId} certificates={data.certificates} contractSum={contractSum} revisedContractSum={costs.revisedContractSum} canEdit={canCertify} onChanged={refresh} onSetContractSum={() => setContractModal(true)} />
           )}
-          {folder === "site" && <SiteFolder projectId={projectId} site={data.site} progress={progress} schedule={data.schedule} docs={data.documents} canEdit={perms.completeTasks || canEditDocs} onChanged={refresh} />}
+          {folder === "site" && <SiteFolder projectId={projectId} site={data.site} progress={data.progress} schedule={data.schedule} docs={data.documents} canEdit={perms.completeTasks || canEditDocs} onChanged={refresh} />}
           {folder === "costs" && showFin && <CostControlFolder costs={costs} setView={setView} onSetContractSum={() => setContractModal(true)} />}
           {folder === "report" && perms.viewReports && <ReportFolder data={data} setView={setView} />}
           {folder === "client" && <ClientFolder projectId={projectId} canInvite={canSharePortal} onOpenPortal={canSharePortal ? () => setPortalOpen(true) : undefined} />}
           {folder === "closeout" && <ProjectCloseout projectId={projectId} canEdit={canManageBids(role)} />}
         </div>
+
+        {withAside && (
+          <aside className="ws-aside" aria-label="Project status">
+            {planning
+              ? <ReadinessCard data={data} hasClient={!!client} onContract={canEditDocs ? () => setContractModal(true) : undefined} go={setFolder} />
+              : <AttentionCard data={data} showFin={showFin} go={setFolder} />}
+            <ActivityCard data={data} />
+          </aside>
+        )}
       </div>
 
       {lightbox && <ImageLightbox images={lightbox.images} startIndex={lightbox.index} onClose={() => setLightbox(null)} />}
@@ -279,32 +267,13 @@ export function ProjectDetail({
   );
 }
 
-// ---------------------------------------------------------------------------
-
-function HeaderTile({ icon: Icon, label, value, sub, onClick, hidden }: { icon: any; label: string; value: React.ReactNode; sub?: React.ReactNode; onClick?: () => void; tone?: string; hidden?: boolean }) {
-  const inner = (
-    <>
-      <div className="text-[11px] text-[#8A95A5] flex items-center gap-1.5"><Icon className="w-3.5 h-3.5" /> {label}{onClick && <span className="ml-auto flex items-center gap-0.5 text-[10px] text-[#5B6675]"><Pencil className="w-2.5 h-2.5" /> edit</span>}</div>
-      <div className="text-[18px] sm:text-[20px] text-white font-display mt-1 leading-tight break-words">{hidden ? "••••" : value}</div>
-      {sub && <div className="text-[10.5px] text-[#5B6675] mt-1 leading-snug">{hidden ? "hidden for your role" : sub}</div>}
-    </>
-  );
-  return onClick ? (
-    <button onClick={onClick} className="rounded-xl border border-[#222A35] bg-[#11161D] p-4 text-left hover:border-[#FF6B1A]/50 transition w-full">{inner}</button>
-  ) : (
-    <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-4">{inner}</div>
-  );
-}
-
-function Overview({ data, images, onEdit, onLightbox, go, showFin, fmt, compact }: {
+function Overview({ data, images, onEdit, onLightbox, go, showFin, fmt }: {
   data: ProjectHubDto; images: string[]; onEdit?: () => void; onLightbox: (i: number) => void; go: (f: Folder) => void; showFin: boolean;
-  fmt: (n: number | null | undefined) => string; compact: (n: number | null | undefined) => string;
+  fmt: (n: number | null | undefined) => string;
 }) {
-  const { project, progress, counts, costs, site, variations, certificates, boq, drawings, documents } = data;
+  const { project, progress, counts, costs, site, variations } = data;
   const cover = images[0];
-  const latestDiary = site.dailyLogs[0];
   const pendingVars = variations.filter((v) => ["drafted", "pm_review", "owner_approval"].includes(v.status)).length;
-  const lastCert = certificates[certificates.length - 1];
   const budgetPct = costs.revisedBudget > 0 ? Math.round((costs.actual / costs.revisedBudget) * 100) : null;
 
   return (
@@ -352,17 +321,6 @@ function Overview({ data, images, onEdit, onLightbox, go, showFin, fmt, compact 
         </div>
       </div>
 
-      {/* Every folder at a glance — each tile opens it */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <GlanceTile icon={FileText} label="Contract documents" value={String(documents.filter((d) => (d.category || "general") === "contract").length)} sub="files on record" onClick={() => go("contract")} />
-        <GlanceTile icon={FileStack} label="Drawings" value={String(drawings.length)} sub={`${counts.drawings} version${counts.drawings === 1 ? "" : "s"} · ${drawings.filter((s) => s.latest.status === "For Construction" || s.latest.status === "Approved").length} approved`} onClick={() => go("drawings")} />
-        <GlanceTile icon={Calculator} label="Bill of quantities" value={boq.itemCount ? compact(boq.total) : "—"} sub={boq.itemCount ? `${boq.itemCount} items · ${boq.revisions.length} revision${boq.revisions.length === 1 ? "" : "s"}` : "not priced yet"} onClick={() => go("boq")} />
-        <GlanceTile icon={Wrench} label="Variations" value={costs.approvedVariations ? `${costs.approvedVariations > 0 ? "+" : "−"}${compact(Math.abs(costs.approvedVariations))}` : String(counts.variations)} sub={pendingVars ? `${pendingVars} awaiting decision` : `${counts.variations} logged`} onClick={() => go("variations")} tone={pendingVars ? "warn" : undefined} />
-        {showFin && <GlanceTile icon={Receipt} label="Certified to date" value={certificates.length ? compact(costs.certifiedToDate) : "—"} sub={lastCert ? `last: ${lastCert.number}${lastCert.pctOfContract != null ? ` · ${lastCert.pctOfContract}% of contract` : ""}` : "no certificates yet"} onClick={() => go("certificates")} />}
-        <GlanceTile icon={ClipboardList} label="Site diary" value={String(counts.dailyLogs)} sub={latestDiary ? `last entry ${fmtDate(latestDiary.date)}` : "no entries yet"} onClick={() => go("site")} />
-        <GlanceTile icon={CheckCircle2} label="Open defects" value={String(counts.punchOpen)} sub={`${counts.punchTotal} logged · ${counts.safetyIncidents} H&S incident${counts.safetyIncidents === 1 ? "" : "s"}`} onClick={() => go("site")} tone={counts.punchOpen ? "warn" : "good"} />
-        {showFin && <GlanceTile icon={BarChart3} label="Budget used" value={budgetPct == null ? "—" : `${budgetPct}%`} sub={costs.originalBudget ? `${compact(costs.actual)} of ${compact(costs.revisedBudget)}` : "no budget yet"} onClick={() => go("costs")} tone={budgetPct != null && budgetPct > 100 ? "bad" : undefined} />}
-      </div>
 
       <Panel title="Health signals" subtitle="Things worth looking at today">
         <div className="divide-y divide-[#222A35]">
@@ -379,16 +337,6 @@ function Overview({ data, images, onEdit, onLightbox, go, showFin, fmt, compact 
   );
 }
 
-function GlanceTile({ icon: Icon, label, value, sub, onClick, tone }: { icon: any; label: string; value: string; sub?: string; onClick: () => void; tone?: "warn" | "bad" | "good" }) {
-  const color = tone === "bad" ? "text-[#EF4444]" : tone === "warn" ? "text-[#F5A623]" : tone === "good" ? "text-[#22C55E]" : "text-white";
-  return (
-    <button onClick={onClick} className="rounded-xl border border-[#222A35] bg-[#11161D] p-3.5 text-left hover:border-[#FF6B1A]/50 transition min-w-0 group">
-      <div className="flex items-center gap-2 text-[11px] text-[#8A95A5]"><Icon className="w-3.5 h-3.5 text-[#FF6B1A]" /> <span className="truncate flex-1">{label}</span><ArrowUpRight className="w-3.5 h-3.5 text-[#5B6675] group-hover:text-[#FF6B1A] shrink-0" /></div>
-      <div className={`text-[19px] font-display mt-1 leading-tight truncate ${color}`}>{value}</div>
-      {sub && <div className="text-[10.5px] text-[#5B6675] mt-0.5 truncate">{sub}</div>}
-    </button>
-  );
-}
 
 function Signal({ ok, label, value, onClick }: { ok: boolean; label: string; value: string; onClick: () => void }) {
   return (

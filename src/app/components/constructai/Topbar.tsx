@@ -1,26 +1,16 @@
 import { useState, useRef, useEffect } from "react";
-import { ArrowLeft, Search, Bell, Plus, Menu, ChevronDown, Check, Eye, Sun, Moon, Coins, Sparkles } from "lucide-react";
-import { toast } from "sonner";
+import { Search, Bell, Plus, Menu, ChevronDown, ChevronsUpDown, Check, Sun, Moon, Sparkles, FileText, FolderKanban, NotebookPen, CalendarDays } from "lucide-react";
 import type { Role } from "./roles";
-import { ROLES, ROLE_COLORS } from "./roles";
+import { ROLES } from "./roles";
 import { useProjects } from "./useProjects";
 import { useTeam } from "./useTeam";
 import api from "../../services/api";
-
-// Role is normally fixed by how the user logged in. The interactive "View as"
-// switcher is a testing aid only — enable it with localStorage bf-role-testing=1.
-const ROLE_TESTING = (() => { try { return localStorage.getItem("bf-role-testing") === "1"; } catch { return false; } })();
 import { useCurrency } from "./CurrencyContext";
-import { formatCurrency } from "./currency";
-
-const $toKES = (dollars: number) => Math.round(dollars * 130);
+import { projectTone, TONE_DOT } from "./wsStatus";
 
 // Search results and notifications are built from the workspace's real projects,
-// change orders and teammates (see useSearchIndex / useNotifications below).
-// They used to be two hardcoded arrays naming projects, change orders, drawings
-// and people that do not exist — so searching found phantom records and the bell
-// always showed the same three invented events.
-type SearchHit = { type: string; label: string; target: string; coId?: string };
+// change orders and teammates. No invented records.
+type SearchHit = { type: string; label: string; target: string; coId?: string; projectId?: string };
 
 const relativeTime = (iso?: string) => {
   if (!iso) return "";
@@ -35,328 +25,256 @@ const relativeTime = (iso?: string) => {
 };
 
 const CO_DOT: Record<string, string> = {
-  approved: "#22C55E", rejected: "#EF4444", owner_approval: "#FF6B1A",
-  pm_review: "#3B82F6", drafted: "#5B6675", void: "#5B6675",
+  approved: "#1E6B3A", rejected: "#B42318", owner_approval: "#FF6B1A",
+  pm_review: "#1E4E8C", drafted: "#8A867D", void: "#8A867D",
 };
+
+const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || "");
 
 export function Topbar({
   title,
-  subtitle,
   onMenu,
   onNewOrder,
   role,
-  setRole,
   onNavigate,
   onOpenChangeOrder,
   onOpenAi,
   theme,
   setTheme,
-  back,
+  projectId,
+  onOpenProject,
 }: {
   title: string;
-  subtitle?: string;
-  /** Where "Back" goes — the page the user came from, when there is one. */
-  back?: { label: string; onClick: () => void } | null;
   onMenu: () => void;
   onNewOrder: () => void;
   role: Role;
-  setRole: (r: Role) => void;
   onNavigate: (v: any) => void;
   onOpenChangeOrder: (id: string) => void;
   onOpenAi?: () => void;
   theme: "dark" | "light";
   setTheme: (t: "dark" | "light") => void;
+  /** Set on a project page: the breadcrumb ends in a project switcher. */
+  projectId?: string | null;
+  onOpenProject?: (id: string) => void;
 }) {
   const [q, setQ] = useState("");
-  const [showResults, setShowResults] = useState(false);
-  const [showRoles, setShowRoles] = useState(false);
-  const [showNotifs, setShowNotifs] = useState(false);
-  const [showCurrency, setShowCurrency] = useState(false);
+  const [open, setOpen] = useState<null | "results" | "notifs" | "currency" | "new" | "project">(null);
   const { currency, setCurrency, currencies } = useCurrency();
-
-  const roleRef = useRef<HTMLDivElement>(null);
-  const currencyRef = useRef<HTMLDivElement>(null);
-  const notifRef = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLDivElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  // The search field is desktop-only by default; the mobile magnifier reveals it.
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
+  // Close any open menu on an outside click or Escape.
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (showRoles && roleRef.current && !roleRef.current.contains(target)) setShowRoles(false);
-      if (showCurrency && currencyRef.current && !currencyRef.current.contains(target)) setShowCurrency(false);
-      if (showNotifs && notifRef.current && !notifRef.current.contains(target)) setShowNotifs(false);
-      if (showResults && searchRef.current && !searchRef.current.contains(target)) setShowResults(false);
+    const onDown = (e: MouseEvent) => { if (open && barRef.current && !barRef.current.contains(e.target as Node)) setOpen(null); };
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setMobileSearchOpen(true);
+        setOpen("results");
+        requestAnimationFrame(() => searchInputRef.current?.focus());
+      } else if (e.key === "Escape" && open) setOpen(null);
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showRoles, showCurrency, showNotifs, showResults]);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [open]);
 
-  // Real, live search index: the workspace's own projects, change orders and
-  // teammates. Change orders are fetched once when the bar is first used, so an
-  // unopened Topbar costs nothing.
+  // The sidebar's search and "new" icons drive these.
+  useEffect(() => {
+    const focus = () => { setMobileSearchOpen(true); setOpen("results"); requestAnimationFrame(() => searchInputRef.current?.focus()); };
+    const openNew = () => setOpen("new");
+    window.addEventListener("buildsasa:focus-search", focus);
+    window.addEventListener("buildsasa:open-new", openNew);
+    return () => { window.removeEventListener("buildsasa:focus-search", focus); window.removeEventListener("buildsasa:open-new", openNew); };
+  }, []);
+
   const { projects } = useProjects();
   const team = useTeam();
   const [changeOrders, setChangeOrders] = useState<any[]>([]);
   const [coLoaded, setCoLoaded] = useState(false);
   useEffect(() => {
-    if (coLoaded || (!showResults && !showNotifs)) return;
+    if (coLoaded || (open !== "results" && open !== "notifs")) return;
     setCoLoaded(true);
     api.listChangeOrders()
       .then((rows) => setChangeOrders(Array.isArray(rows) ? rows : []))
       .catch(() => setChangeOrders([]));
-  }, [showResults, showNotifs, coLoaded]);
+  }, [open, coLoaded]);
 
   const searchIndex: SearchHit[] = [
-    ...projects.map((p) => ({ type: "Project", label: p.code ? `${p.code} · ${p.name}` : p.name, target: "projects" })),
+    ...projects.map((p) => ({ type: "Project", label: p.code ? `${p.code} · ${p.name}` : p.name, target: "projects", projectId: p.id })),
     ...changeOrders.map((c) => ({ type: "CO", label: `${c.number ?? "CO"} · ${c.title ?? "Untitled"}`, target: "change-orders", coId: c.id })),
     ...team.map((m) => ({ type: "People", label: `${m.name} · ${m.role}`, target: "team" })),
   ];
-
   const results = q
     ? searchIndex.filter((r) => r.label.toLowerCase().includes(q.toLowerCase()) || r.type.toLowerCase().includes(q.toLowerCase())).slice(0, 8)
     : searchIndex.slice(0, 5);
 
-  // Notifications derived from the most recently updated change orders. There is
-  // no notifications table yet, so rather than invent events this shows real
-  // recent activity — and says plainly when there is none.
+  // Recent activity from the most recently updated change orders. There is no
+  // notifications table yet, so this shows real activity or says there is none.
   const notifications = [...changeOrders]
     .sort((a, b) => +new Date(b.updatedAt ?? b.createdAt ?? 0) - +new Date(a.updatedAt ?? a.createdAt ?? 0))
     .slice(0, 6)
     .map((c) => ({
       t: `${c.number ?? "CO"} · ${c.title ?? "Untitled"}`,
       s: `${String(c.status ?? "").replace(/_/g, " ") || "updated"} · ${relativeTime(c.updatedAt ?? c.createdAt)}`,
-      c: CO_DOT[c.status] ?? "#5B6675",
-      target: "change-orders",
+      c: CO_DOT[c.status] ?? "#8A867D",
       coId: c.id as string | undefined,
     }));
 
-  const canCreate = ROLES[role].createCO;
+  const perms = ROLES[role];
+  const current = projectId ? projects.find((p) => p.id === projectId) : undefined;
+  const pick = (hit: SearchHit) => {
+    if (hit.coId) onOpenChangeOrder(hit.coId);
+    else if (hit.projectId && onOpenProject) onOpenProject(hit.projectId);
+    else onNavigate(hit.target);
+    setQ(""); setOpen(null); setMobileSearchOpen(false);
+  };
+  const toggle = (m: NonNullable<typeof open>) => setOpen((o) => (o === m ? null : m));
+
+  const newItems = [
+    perms.createCO && { label: "Change order", icon: FileText, run: onNewOrder },
+    perms.views.includes("projects") && { label: "Project", icon: FolderKanban, run: () => onNavigate("projects") },
+    perms.views.includes("daily-log") && { label: "Daily log", icon: NotebookPen, run: () => onNavigate("daily-log") },
+    perms.views.includes("schedule") && { label: "Schedule activity", icon: CalendarDays, run: () => onNavigate("schedule") },
+    onOpenAi && perms.useAI && { label: "Ask Buildsasa AI", icon: Sparkles, run: onOpenAi },
+  ].filter(Boolean) as { label: string; icon: any; run: () => void }[];
 
   return (
-    <div className={`min-h-[64px] shrink-0 border-b flex flex-col sm:flex-row sm:items-center sm:justify-between px-4 sm:px-7 gap-3 sm:gap-4 py-3 sm:py-0 relative ${theme === "light" ? "bg-white border-[#E2E8F0]" : "bg-[#0A0E14] border-[#222A35]"}`}>
-      <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto sm:flex-1">
-        <button onClick={onMenu} className={`lg:hidden h-9 w-9 rounded-md border flex items-center justify-center shrink-0 ${theme === "light" ? "bg-[#F1F5F9] border-[#E2E8F0] text-[#1A1D23]" : "bg-[#11161D] border-[#222A35] text-white"}`}>
-          <Menu className="w-4 h-4" />
-        </button>
-        {back && (
-          <button onClick={back.onClick} title={`Back to ${back.label}`} className={`h-9 px-2.5 rounded-md border flex items-center gap-1.5 shrink-0 text-[12px] ${theme === "light" ? "bg-[#F1F5F9] border-[#E2E8F0] text-[#475569] hover:text-[#1A1D23]" : "bg-[#11161D] border-[#222A35] text-[#8A95A5] hover:text-white"}`}>
-            <ArrowLeft className="w-3.5 h-3.5" /><span className="hidden md:inline">Back to {back.label}</span><span className="md:hidden">Back</span>
-          </button>
+    <header ref={barRef} className="ws-topbar">
+      <button type="button" onClick={onMenu} className="ws-icon-btn lg:hidden" aria-label="Open menu"><Menu /></button>
+
+      {/* Breadcrumb. On a project page the last crumb switches project. */}
+      <nav aria-label="Breadcrumb" className="ws-crumbs" style={{ flexShrink: 1 }}>
+        {projectId ? (
+          <>
+            <button type="button" className="ws-crumb hidden sm:inline" onClick={() => onNavigate("projects")}>Projects</button>
+            <span className="hidden sm:inline" aria-hidden>/</span>
+            <div className="relative min-w-0">
+              <button type="button" className="ws-project-switch" onClick={() => toggle("project")} aria-haspopup="listbox" aria-expanded={open === "project"} aria-label={`Switch project. Current: ${current?.name ?? "project"}`}>
+                <span className="ws-dot" style={{ color: TONE_DOT[projectTone(current?.status)] }} aria-hidden />
+                <span className="truncate">{current?.name ?? "Project"}</span>
+                <ChevronsUpDown aria-hidden />
+              </button>
+              {open === "project" && (
+                <div className="ws-menu" role="listbox" aria-label="Projects" style={{ top: 38, left: 0, width: 280, maxHeight: 360, overflowY: "auto" }}>
+                  <div className="ws-menu-label">Switch project</div>
+                  {projects.map((p) => (
+                    <button key={p.id} role="option" aria-selected={p.id === projectId} className="ws-menu-item" onClick={() => { setOpen(null); if (p.id !== projectId) onOpenProject?.(p.id); }}>
+                      <span className="ws-dot" style={{ color: TONE_DOT[projectTone(p.status)] }} aria-hidden />
+                      <span className="truncate flex-1">{p.name}</span>
+                      {p.id === projectId && <Check aria-hidden />}
+                    </button>
+                  ))}
+                  <div className="ws-divider" style={{ margin: "4px 0" }} />
+                  <button className="ws-menu-item" onClick={() => { setOpen(null); onNavigate("projects"); }}><FolderKanban /> All projects</button>
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <span className="ws-crumb-current" aria-current="page">{title}</span>
         )}
-        <div className="min-w-0">
-          <div className={`hidden sm:flex items-center gap-2 text-[12px] whitespace-nowrap overflow-hidden ${theme === "light" ? "text-[#64748B]" : "text-[#5B6675]"}`}>
-            <span className="hidden xl:inline">Workspace</span><span className="hidden xl:inline">/</span>
-            {back && <><button onClick={back.onClick} className="text-[12px] hover:underline truncate">{back.label}</button><span>/</span></>}
-            <span className={theme === "light" ? "text-[#475569]" : "text-[#8A95A5]"}>{title}</span>
+      </nav>
+
+      {/* Search */}
+      <div className={`ws-search ${mobileSearchOpen ? "block absolute left-3 right-3 top-[10px] z-30 max-w-none md:static md:max-w-[420px]" : "hidden"} md:block`}>
+        <Search aria-hidden />
+        <label htmlFor="ws-search-input" className="sr-only">Search projects, change orders and people</label>
+        <input
+          id="ws-search-input"
+          ref={searchInputRef}
+          value={q}
+          onChange={(e) => { setQ(e.target.value); setOpen("results"); }}
+          onFocus={() => setOpen("results")}
+          onBlur={() => { if (!q) setMobileSearchOpen(false); }}
+          placeholder="Search projects, orders, people…"
+          autoComplete="off"
+        />
+        <span className="ws-kbd hidden xl:inline" aria-hidden>{isMac ? "⌘K" : "Ctrl K"}</span>
+        {open === "results" && (
+          <div className="ws-menu" style={{ top: 42, left: 0, right: 0 }}>
+            <div className="ws-menu-label">{results.length} result{results.length === 1 ? "" : "s"}</div>
+            <div style={{ maxHeight: 340, overflowY: "auto" }}>
+              {results.map((r, ri) => (
+                <button key={`${r.type}-${r.coId ?? r.label}-${ri}`} className="ws-menu-item" onMouseDown={(e) => { e.preventDefault(); pick(r); }}>
+                  <span className="ws-pill" style={{ height: 20, fontSize: 11 }}>{r.type}</span>
+                  <span className="truncate">{r.label}</span>
+                </button>
+              ))}
+              {results.length === 0 && <div className="ws-sub" style={{ padding: "16px 9px", textAlign: "center" }}>{searchIndex.length === 0 ? "Nothing to search yet. Create a project first." : "No matches"}</div>}
+            </div>
           </div>
-          <div className={`text-[15px] sm:text-[18px] tracking-tight truncate font-display ${theme === "light" ? "text-[#1A1D23]" : "text-white"}`}>{subtitle || title}</div>
-        </div>
+        )}
       </div>
 
-      <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-2.5 w-full sm:w-auto sm:shrink-0 justify-start sm:justify-end">
-        {/* Search */}
-        <div ref={searchRef} className={`relative ${mobileSearchOpen ? "block w-full order-last mt-2 lg:order-none lg:mt-0 lg:w-auto" : "hidden"} lg:block`}>
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#5B6675]" />
-          <input
-            ref={searchInputRef}
-            value={q}
-            onChange={(e) => { setQ(e.target.value); setShowResults(true); }}
-            onFocus={() => setShowResults(true)}
-            placeholder="Search projects, orders, people, drawings…"
-            className={`w-full lg:w-[190px] xl:w-[260px] 2xl:w-[340px] h-9 rounded-md pl-8 pr-3 text-[12px] focus:outline-none focus:border-[#FF6B1A] border ${theme === "light" ? "bg-white border-[#E2E8F0] text-[#1A1D23] placeholder:text-[#94A3B8]" : "bg-[#11161D] border-[#222A35] text-white placeholder:text-[#5B6675]"}`}
-          />
-          {showResults && (
-            <div className={`absolute top-11 left-0 right-0 rounded-md shadow-2xl z-50 overflow-hidden border ${theme === "light" ? "bg-white border-[#E2E8F0]" : "bg-[#11161D] border-[#222A35]"}`}>
-              <div className={`px-3 py-2 text-[10px] uppercase tracking-wider border-b ${theme === "light" ? "text-[#64748B] border-[#E2E8F0]" : "text-[#5B6675] border-[#222A35]"}`}>{results.length} results</div>
-              <div className="max-h-[340px] overflow-y-auto">
-                {results.map((r, ri) => (
-                  <button
-                    key={`${r.type}-${r.coId ?? r.label}-${ri}`}
-                    onMouseDown={() => {
-                      if (r.target === "change-orders" && r.coId) {
-                        onOpenChangeOrder(r.coId);
-                      } else {
-                        onNavigate(r.target);
-                      }
-                      setQ("");
-                      setShowResults(false);
-                      toast(`Opening: ${r.label}`);
-                    }}
-                    className={`w-full text-left px-3 py-2.5 flex items-center gap-2.5 border-b last:border-0 ${theme === "light" ? "hover:bg-[#F1F5F9] border-[#E2E8F0]/40" : "hover:bg-[#161C24] border-[#222A35]/40"}`}
-                  >
-                    <span className={`text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded ${theme === "light" ? "bg-[#E2E8F0] text-[#64748B]" : "bg-[#222A35] text-[#8A95A5]"}`}>{r.type}</span>
-                    <span className={`text-[12px] truncate ${theme === "light" ? "text-[#1A1D23]" : "text-white"}`}>{r.label}</span>
-                  </button>
-                ))}
-                {results.length === 0 && <div className={`px-3 py-6 text-[12px] text-center ${theme === "light" ? "text-[#64748B]" : "text-[#5B6675]"}`}>{searchIndex.length === 0 ? "Nothing to search yet — create a project first" : "No matches"}</div>}
-              </div>
-            </div>
-          )}
-        </div>
+      <div className="flex items-center gap-2 ml-auto shrink-0">
+        <button type="button" onClick={() => { setMobileSearchOpen(true); setOpen("results"); requestAnimationFrame(() => searchInputRef.current?.focus()); }} className="ws-icon-btn md:hidden" aria-label="Search"><Search /></button>
 
-        {/* Reveals and focuses the real search field. It used to raise a toast
-            about a "⌘K command palette" that does not exist. */}
-        <button
-          onClick={() => { setMobileSearchOpen((o) => !o); setShowResults(true); requestAnimationFrame(() => searchInputRef.current?.focus()); }}
-          title="Search"
-          className={`lg:hidden h-9 w-9 rounded-md border flex items-center justify-center ${theme === "light" ? "bg-white border-[#E2E8F0] text-[#64748B] hover:text-[#1A1D23]" : "bg-[#11161D] border-[#222A35] text-[#8A95A5] hover:text-white"}`}
-        >
-          <Search className="w-4 h-4" />
-        </button>
-
-        {/* Role indicator — static badge in production; interactive switcher only in role-testing mode */}
-        <div ref={roleRef} className="relative">
-          {!ROLE_TESTING ? (
-            <div className={`h-9 px-2.5 rounded-md border flex items-center gap-2 text-[12px] whitespace-nowrap ${theme === "light" ? "bg-white border-[#E2E8F0] text-[#1A1D23]" : "bg-[#11161D] border-[#222A35] text-white"}`}>
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: ROLE_COLORS[role] }} />
-              <span className="hidden sm:inline">{role}</span>
-            </div>
-          ) : (
-          <button
-            onClick={() => setShowRoles((s) => !s)}
-            className={`h-9 px-2.5 rounded-md border flex items-center gap-2 text-[12px] whitespace-nowrap ${theme === "light" ? "bg-white border-[#E2E8F0] text-[#1A1D23] hover:border-[#CBD5E1]" : "bg-[#11161D] border-[#222A35] text-white hover:border-[#2C3744]"}`}
-          >
-            <Eye className="w-3.5 h-3.5 text-[#8A95A5]" />
-            <span className="hidden sm:inline">View as</span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: ROLE_COLORS[role] }} />
-              <span className="hidden sm:inline">{role}</span>
-            </span>
-            <ChevronDown className="w-3 h-3 text-[#5B6675]" />
+        {/* Currency */}
+        <div className="relative hidden sm:block">
+          <button type="button" className="ws-btn" onClick={() => toggle("currency")} aria-haspopup="listbox" aria-expanded={open === "currency"} aria-label={`Currency: ${currency}`}>
+            {currency} <ChevronDown aria-hidden style={{ color: "var(--ws-muted)", width: 14, height: 14 }} />
           </button>
-          )}
-          {ROLE_TESTING && showRoles && (
-            <div className={`absolute right-0 top-11 w-[260px] rounded-md shadow-2xl z-50 overflow-hidden border ${theme === "light" ? "bg-white border-[#E2E8F0]" : "bg-[#11161D] border-[#222A35]"}`}>
-              <div className={`px-3 py-2 text-[10px] uppercase tracking-wider border-b ${theme === "light" ? "text-[#64748B] border-[#E2E8F0]" : "text-[#5B6675] border-[#222A35]"}`}>Preview as role</div>
-              {(Object.keys(ROLES) as Role[]).map((r) => (
-                <button
-                  key={r}
-                  onClick={() => { setRole(r); setShowRoles(false); toast.success(`Now viewing as ${r}`); }}
-                  className={`w-full text-left px-3 py-2.5 flex items-center gap-2.5 border-b last:border-0 ${theme === "light" ? "hover:bg-[#F1F5F9] border-[#E2E8F0]/40" : "hover:bg-[#161C24] border-[#222A35]/40"}`}
-                >
-                  <span className="w-2 h-2 rounded-full" style={{ background: ROLE_COLORS[r] }} />
-                  <div className="flex-1">
-                    <div className={`text-[12px] ${theme === "light" ? "text-[#1A1D23]" : "text-white"}`}>{r}</div>
-                    <div className={`text-[10px] ${theme === "light" ? "text-[#64748B]" : "text-[#5B6675]"}`}>
-                      Approves to {ROLES[r].approveLimit === Infinity ? "∞" : formatCurrency($toKES(ROLES[r].approveLimit), currency)} · {ROLES[r].views.length} views
-                    </div>
-                  </div>
-                  {role === r && <span className="w-5 h-5 rounded-full bg-[#FF6B1A] flex items-center justify-center"><Check className="w-3.5 h-3.5 text-white" /></span>}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Currency selector */}
-        <div ref={currencyRef} className="relative">
-          <button
-            onClick={() => setShowCurrency((s) => !s)}
-            className={`h-9 px-2.5 rounded-md border flex items-center gap-1.5 text-[12px] whitespace-nowrap ${theme === "light" ? "bg-white border-[#E2E8F0] text-[#1A1D23] hover:border-[#CBD5E1]" : "bg-[#11161D] border-[#222A35] text-white hover:border-[#2C3744]"}`}
-            title="Change currency"
-          >
-            <Coins className="w-3.5 h-3.5 text-[#8A95A5]" />
-            <span className="hidden sm:inline">{currencies[currency].symbol}</span>
-            <span className="text-[#5B6675]">{currency}</span>
-            <ChevronDown className="w-3 h-3 text-[#5B6675]" />
-          </button>
-          {showCurrency && (
-            <div className={`absolute right-0 top-11 w-[200px] rounded-md shadow-2xl z-50 overflow-hidden border ${theme === "light" ? "bg-white border-[#E2E8F0]" : "bg-[#11161D] border-[#222A35]"}`}>
-              <div className={`px-3 py-2 text-[10px] uppercase tracking-wider border-b ${theme === "light" ? "text-[#64748B] border-[#E2E8F0]" : "text-[#5B6675] border-[#222A35]"}`}>Select currency</div>
+          {open === "currency" && (
+            <div className="ws-menu" role="listbox" style={{ right: 0, top: 42, width: 210 }}>
+              <div className="ws-menu-label">Show amounts in</div>
               {(Object.keys(currencies) as Array<keyof typeof currencies>).map((c) => (
-                <button
-                  key={c}
-                  onClick={() => { setCurrency(c); setShowCurrency(false); toast.success(`Currency set to ${currencies[c].name}`); }}
-                  className={`w-full text-left px-3 py-2.5 flex items-center gap-2.5 border-b last:border-0 ${theme === "light" ? "hover:bg-[#F1F5F9] border-[#E2E8F0]/40" : "hover:bg-[#161C24] border-[#222A35]/40"}`}
-                >
-                  <span className={`text-[14px] font-medium ${theme === "light" ? "text-[#1A1D23]" : "text-white"}`}>{currencies[c].symbol}</span>
-                  <div className="flex-1">
-                    <div className={`text-[12px] ${theme === "light" ? "text-[#1A1D23]" : "text-white"}`}>{c}</div>
-                    <div className={`text-[10px] ${theme === "light" ? "text-[#64748B]" : "text-[#5B6675]"}`}>{currencies[c].name}</div>
-                  </div>
-                  {currency === c && <span className="w-5 h-5 rounded-full bg-[#FF6B1A] flex items-center justify-center"><Check className="w-3.5 h-3.5 text-white" /></span>}
+                <button key={c} role="option" aria-selected={currency === c} className="ws-menu-item" onClick={() => { setCurrency(c); setOpen(null); }}>
+                  <span style={{ width: 34, fontWeight: 600 }}>{c}</span>
+                  <span className="flex-1 truncate" style={{ color: "var(--ws-muted)" }}>{currencies[c].name}</span>
+                  {currency === c && <Check aria-hidden />}
                 </button>
               ))}
             </div>
           )}
         </div>
-
-        {/* Buildflex AI */}
-        {onOpenAi && ROLES[role].useAI && (
-          <button
-            onClick={onOpenAi}
-            title="Ask Buildsasa AI"
-            className={`h-9 w-9 rounded-md border flex items-center justify-center transition-colors ${theme === "light" ? "bg-white border-[#E2E8F0] text-[#FF6B1A] hover:border-[#FF6B1A]/60" : "bg-[#11161D] border-[#222A35] text-[#FF6B1A] hover:border-[#FF6B1A]/60"}`}
-          >
-            <Sparkles className="w-4 h-4" />
-          </button>
-        )}
-
-        {/* Theme toggle */}
-        <button
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          className={`h-9 w-9 rounded-md border flex items-center justify-center ${theme === "light" ? "bg-white border-[#E2E8F0] text-[#64748B] hover:text-[#1A1D23]" : "bg-[#11161D] border-[#222A35] text-[#8A95A5] hover:text-white"}`}
-          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-        >
-          {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-        </button>
 
         {/* Notifications */}
-        <div ref={notifRef} className="relative">
-          <button
-            onClick={() => setShowNotifs((s) => !s)}
-            className={`h-9 w-9 rounded-md border flex items-center justify-center relative ${theme === "light" ? "bg-white border-[#E2E8F0] text-[#64748B] hover:text-[#1A1D23]" : "bg-[#11161D] border-[#222A35] text-[#8A95A5] hover:text-white"}`}
-          >
-            <Bell className="w-4 h-4" />
-            {/* Only badge the bell when there is genuinely something to see. */}
-            {notifications.length > 0 && <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[#FF6B1A]" />}
+        <div className="relative">
+          <button type="button" className="ws-icon-btn relative" onClick={() => toggle("notifs")} aria-label={notifications.length ? `Notifications, ${notifications.length} recent` : "Notifications"} aria-expanded={open === "notifs"}>
+            <Bell />
+            {notifications.length > 0 && <span className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full" style={{ background: "var(--ws-primary)" }} />}
           </button>
-          {showNotifs && (
-            <div className={`absolute right-0 top-11 w-[300px] rounded-md shadow-2xl z-50 border ${theme === "light" ? "bg-white border-[#E2E8F0]" : "bg-[#11161D] border-[#222A35]"}`}>
-              <div className={`px-3 py-2 text-[10px] uppercase tracking-wider border-b ${theme === "light" ? "text-[#64748B] border-[#E2E8F0]" : "text-[#5B6675] border-[#222A35]"}`}>Recent activity</div>
-              {notifications.length === 0 && <div className={`px-3 py-6 text-[12px] text-center ${theme === "light" ? "text-[#64748B]" : "text-[#5B6675]"}`}>Nothing recent yet</div>}
+          {open === "notifs" && (
+            <div className="ws-menu" style={{ right: 0, top: 42, width: 300 }}>
+              <div className="ws-menu-label">Recent activity</div>
+              {notifications.length === 0 && <div className="ws-sub" style={{ padding: "16px 9px", textAlign: "center" }}>Nothing recent yet</div>}
               {notifications.map((n, i) => (
-                <button
-                  key={i}
-                  onClick={() => {
-                    setShowNotifs(false);
-                    if (n.target === "change-orders" && n.coId) {
-                      onOpenChangeOrder(n.coId);
-                    } else {
-                      onNavigate(n.target);
-                    }
-                    toast(n.t);
-                  }}
-                  className={`w-full text-left px-3 py-2.5 border-b last:border-0 flex items-start gap-2.5 ${theme === "light" ? "hover:bg-[#F1F5F9] border-[#E2E8F0]/40" : "hover:bg-[#161C24] border-[#222A35]/40"}`}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full mt-1.5" style={{ background: n.c }} />
-                  <div className="flex-1">
-                    <div className={`text-[12px] ${theme === "light" ? "text-[#1A1D23]" : "text-white"}`}>{n.t}</div>
-                    <div className={`text-[10px] ${theme === "light" ? "text-[#64748B]" : "text-[#5B6675]"}`}>{n.s}</div>
-                  </div>
+                <button key={i} className="ws-menu-item" style={{ height: "auto", padding: "8px 9px", alignItems: "flex-start" }} onClick={() => { setOpen(null); if (n.coId) onOpenChangeOrder(n.coId); else onNavigate("change-orders"); }}>
+                  <span className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ background: n.c }} />
+                  <span className="min-w-0">
+                    <span className="block truncate">{n.t}</span>
+                    <span className="block" style={{ fontSize: 12, color: "var(--ws-muted)" }}>{n.s}</span>
+                  </span>
                 </button>
               ))}
             </div>
           )}
         </div>
 
-        <button
-          onClick={canCreate ? onNewOrder : () => toast.error(`${role} cannot create change orders`)}
-          className={`h-9 px-2.5 sm:px-3 rounded-md text-[12px] flex items-center gap-1.5 whitespace-nowrap ${
-            canCreate
-              ? "bg-[#FF6B1A] hover:bg-[#FF7E33] text-white shadow-[0_4px_14px_rgba(255,107,26,0.35)]"
-              : "bg-[#222A35] text-[#5B6675] cursor-not-allowed"
-          }`}
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span className="hidden lg:inline">New Change Order</span>
-          <span className="hidden sm:inline lg:hidden">New CO</span>
-          <span className="sm:hidden">New</span>
+        <button type="button" className="ws-icon-btn" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
+          {theme === "dark" ? <Sun /> : <Moon />}
         </button>
+
+        {/* + New */}
+        {newItems.length > 0 && (
+          <div className="relative">
+            <button type="button" className="ws-btn-primary" onClick={() => toggle("new")} aria-haspopup="menu" aria-expanded={open === "new"}>
+              <Plus aria-hidden /> <span className="hidden sm:inline">New</span> <ChevronDown aria-hidden style={{ width: 14, height: 14 }} />
+            </button>
+            {open === "new" && (
+              <div className="ws-menu" role="menu" style={{ right: 0, top: 42, width: 220 }}>
+                {newItems.map((it) => (
+                  <button key={it.label} role="menuitem" className="ws-menu-item" onClick={() => { setOpen(null); it.run(); }}>
+                    <it.icon aria-hidden /> {it.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
-    </div>
+    </header>
   );
 }

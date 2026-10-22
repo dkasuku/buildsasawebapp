@@ -812,13 +812,17 @@ export function Projects({
             const menuOpen = actionMenu === p.code;
 
             return (
-            <button
+            <div
               key={p.code}
+              role="button"
+              tabIndex={0}
+              aria-label={`Open ${p.name}`}
+              onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openProject(p); } }}
               // Clicking a card now opens the project's own dashboard. It used to
               // jump straight into the edit dialog, so there was no way to simply
               // look at a project. Editing is on the ⋯ menu.
               onClick={() => openProject(p)}
-              className="text-left rounded-xl border border-[#222A35] bg-[#11161D] overflow-visible hover:border-[#FF6B1A]/50 transition group relative"
+              className="text-left rounded-xl border border-[#222A35] bg-[#11161D] overflow-visible hover:border-[#FF6B1A]/50 transition group relative cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FF6B1A]"
             >
               <div className="relative h-[140px] overflow-hidden rounded-t-xl">
                 <ImageWithFallback src={cover} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
@@ -840,6 +844,7 @@ export function Projects({
                     e.stopPropagation();
                     setActionMenu((prev) => prev === p.code ? null : p.code);
                   }}
+                  aria-label={`Actions for ${p.name}`}
                   className="w-7 h-7 rounded-md bg-black/60 backdrop-blur text-white border border-white/20 shadow-lg flex items-center justify-center hover:bg-black/80"
                 >
                   <MoreHorizontal className="w-3.5 h-3.5 text-white" style={{ color: '#ffffff' }} />
@@ -935,7 +940,7 @@ export function Projects({
                   )}
                 </div>
               </div>
-            </button>
+            </div>
           );
           })}
         </div>

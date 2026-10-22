@@ -1,17 +1,23 @@
-import { LayoutDashboard, CalendarDays, FolderKanban, FileText, BarChart3, Users, Settings, LifeBuoy, Smartphone, X, FileStack, ListChecks, ClipboardList, CheckCircle, Handshake, Mail, Bell, Eye, ClipboardCheck, MessageSquare, Briefcase, UsersRound, FolderOpen, Megaphone, Shield, ChevronDown, ChevronRight, Gavel, Receipt, FileSignature, ShieldAlert, Truck, Clock, FileDigit, CreditCard, LogOut, Boxes , Lock } from "lucide-react";
+import {
+  LayoutDashboard, CalendarDays, FolderKanban, FileText, Users, Settings, LifeBuoy,
+  Mail, Eye, ClipboardCheck, ShieldCheck, Wallet, ChevronDown, ChevronRight, Megaphone, CreditCard, LogOut,
+  Lock, Search, SquarePen, X, NotebookPen, FolderOpen, Building2,
+} from "lucide-react";
 import { useState, useEffect } from "react";
 import type { Role } from "./roles";
-import { ROLES, ROLE_COLORS } from "./roles";
+import { ROLES } from "./roles";
 import { isViewVisible } from "../../config/features";
 import apiClient, { type UserProfile } from "../../services/api";
 import { BUSINESS_VIEWS } from "./planTier";
+import { useProjects } from "./useProjects";
+import { projectTone, TONE_DOT } from "./wsStatus";
 
 export type View =
   | "login"
   | "dashboard"
   | "projects"
-  // Per-project dashboard. Reached from a project card, never from the nav, so
-  // it is deliberately absent from NAV below.
+  // Per-project dashboard. Reached from a project card or the current-project
+  // row in the Projects tree.
   | "project-detail"
   | "change-orders"
   | "plans"
@@ -48,82 +54,63 @@ export type View =
   | "checklists"
   | "billing";
 
-type NavItem = { key: View; label: string; icon: any };
+// Role testing (localStorage bf-role-testing=1) is the only case where the
+// viewing role can be switched; in production it follows the login.
+const ROLE_TESTING = (() => { try { return localStorage.getItem("bf-role-testing") === "1"; } catch { return false; } })();
 
-type NavGroup = { label: string; items: NavItem[] };
+type Leaf = { key: View; label: string; icon?: any };
+type Group = { id: string; label: string; icon: any; items: Leaf[]; defaultOpen?: boolean };
+type Entry = { leaf: Leaf } | { group: Group } | { divider: true };
 
-const NAV_GROUPS: NavGroup[] = [
-  {
-    label: "Overview",
-    items: [
-      { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { key: "inbox", label: "Inbox", icon: Mail },
-      { key: "announcements", label: "Announcements", icon: Megaphone },
-    ],
-  },
-  {
-    label: "Project Work",
-    items: [
-      { key: "projects", label: "Projects", icon: FolderKanban },
-      { key: "checklists", label: "Checklists", icon: ClipboardList },
-      { key: "schedule", label: "Schedule", icon: CalendarDays },
-      { key: "daily-log", label: "Daily Log", icon: ClipboardList },
-      { key: "change-orders", label: "Change Orders", icon: FileText },
-      { key: "plans", label: "Plans & Drawings", icon: FileStack },
-      { key: "punch-list", label: "Punch List", icon: CheckCircle },
-      { key: "observations", label: "Observations", icon: Eye },
-    ],
-  },
-  {
-    label: "Commitments & Money",
-    items: [
-      { key: "commitments", label: "Commitments", icon: Handshake },
-      { key: "financials", label: "Financials", icon: BarChart3 },
-      { key: "quotes", label: "Quotes", icon: FileSignature },
-      { key: "invoicing", label: "Invoicing", icon: Receipt },
-      { key: "billing", label: "Billing & Plan", icon: CreditCard },
-    ],
-  },
-  {
-    label: "Quality & Safety",
-    items: [
-      { key: "inspections", label: "Inspections", icon: ClipboardCheck },
-      { key: "safety-incidents", label: "Safety Incidents", icon: ShieldAlert },
-    ],
-  },
-  {
-    label: "Resources",
-    items: [
-      { key: "equipment", label: "Inventory", icon: Boxes },
-    ],
-  },
-  {
-    label: "Reports",
-    items: [
-      { key: "reports", label: "Reports", icon: BarChart3 },
-    ],
-  },
-  {
-    label: "Documents & Comms",
-    items: [
-      { key: "documents", label: "Unfiled Documents", icon: FileText },
-      { key: "company-docs", label: "Company Documents", icon: FolderOpen },
-      { key: "correspondence", label: "Correspondence", icon: MessageSquare },
-      { key: "coordination", label: "Coordination Issues", icon: Briefcase },
-    ],
-  },
-  {
-    label: "People",
-    items: [
-      { key: "directory", label: "Directory", icon: Users },
-      { key: "subcontractors", label: "Subcontractors", icon: Handshake },
-      { key: "crews", label: "Crews", icon: UsersRound },
-      { key: "team", label: "Team", icon: Users },
-      { key: "attendance", label: "Attendance", icon: Clock },
-      { key: "role-manager", label: "Role Manager", icon: Shield },
-    ],
-  },
+// Linear-style tree: main items, with nested sub-items under a few of them.
+const TREE: Entry[] = [
+  { leaf: { key: "inbox", label: "Inbox", icon: Mail } },
+  { leaf: { key: "dashboard", label: "Dashboard", icon: LayoutDashboard } },
+  { leaf: { key: "announcements", label: "Announcements", icon: Megaphone } },
+  { divider: true },
+  { group: { id: "projects", label: "Projects", icon: FolderKanban, defaultOpen: true, items: [
+    { key: "projects", label: "All projects" },
+    // The current project is inserted here at render time.
+    { key: "change-orders", label: "Change orders" },
+    { key: "plans", label: "Plans & drawings" },
+  ] } },
+  { leaf: { key: "schedule", label: "Schedule", icon: CalendarDays } },
+  { leaf: { key: "daily-log", label: "Daily log", icon: NotebookPen } },
+  { group: { id: "site", label: "Site checks", icon: ClipboardCheck, defaultOpen: true, items: [
+    { key: "checklists", label: "Checklists" },
+    { key: "punch-list", label: "Punch list" },
+    { key: "observations", label: "Observations" },
+  ] } },
+  { group: { id: "money", label: "Money", icon: Wallet, items: [
+    { key: "financials", label: "Financials" },
+    { key: "commitments", label: "Commitments" },
+    { key: "quotes", label: "Quotes" },
+    { key: "invoicing", label: "Invoicing" },
+    { key: "equipment", label: "Inventory" },
+    { key: "billing", label: "Billing & plan" },
+  ] } },
+  { group: { id: "quality", label: "Quality & safety", icon: ShieldCheck, items: [
+    { key: "inspections", label: "Inspections" },
+    { key: "safety-incidents", label: "Safety incidents" },
+  ] } },
+  { group: { id: "people", label: "People", icon: Users, items: [
+    { key: "directory", label: "Directory" },
+    { key: "subcontractors", label: "Subcontractors" },
+    { key: "crews", label: "Crews" },
+    { key: "team", label: "Team" },
+    { key: "attendance", label: "Attendance" },
+    { key: "role-manager", label: "Role manager" },
+  ] } },
+  { group: { id: "docs", label: "Documents & reports", icon: FileText, items: [
+    { key: "reports", label: "Reports" },
+    { key: "documents", label: "Unfiled documents" },
+    { key: "company-docs", label: "Company documents" },
+    { key: "correspondence", label: "Correspondence" },
+    { key: "coordination", label: "Coordination issues" },
+  ] } },
 ];
+
+const OPEN_KEY = "buildsasa-sidebar-open";
 
 export function Sidebar({
   view,
@@ -131,24 +118,34 @@ export function Sidebar({
   open,
   onClose,
   role,
+  setRole,
   locked = false,
   starter = false,
+  activeProjectId,
+  onOpenProject,
 }: {
   view: View;
   setView: (v: View) => void;
   open: boolean;
   onClose: () => void;
   role: Role;
+  setRole?: (r: Role) => void;
   locked?: boolean;
   /** On the Starter plan: Business-only items show a lock. */
   starter?: boolean;
+  /** The project last opened, shown as a row under Projects. */
+  activeProjectId?: string | null;
+  onOpenProject?: (id: string) => void;
 }) {
   const perms = ROLES[role];
   const go = (v: View) => {
     setView(v);
     onClose();
   };
-  // "Unfiled Documents" is a queue, not a permanent home: project files live in
+  const { projects } = useProjects();
+  const current = activeProjectId ? projects.find((p) => p.id === activeProjectId) : undefined;
+
+  // "Unfiled documents" is a queue, not a permanent home: project files live in
   // each project's own folders. Show it only while documents without a project
   // still exist, so a tidy workspace never sees it.
   const [unfiledDocs, setUnfiledDocs] = useState(0);
@@ -165,10 +162,10 @@ export function Sidebar({
     return perms.views.includes(v) && isViewVisible(v);
   };
 
-  // Real logged-in user for the profile card (name, role, avatar). Refreshes
-  // when the profile is edited in Settings.
+  // Real logged-in user for the profile row. Refreshes when the profile is
+  // edited in Settings.
   const [me, setMe] = useState<UserProfile | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menu, setMenu] = useState<null | "user" | "workspace" | "role">(null);
   useEffect(() => {
     const load = () => apiClient.me().then(setMe).catch(() => {});
     load();
@@ -179,46 +176,45 @@ export function Sidebar({
     try { localStorage.removeItem("constructai-token"); localStorage.removeItem("constructai-user"); localStorage.removeItem("constructai-refresh"); } catch { /* noop */ }
     go("login");
   };
+  const openSettings = (tab?: string) => {
+    setMenu(null); onClose();
+    window.dispatchEvent(new CustomEvent("buildflex:open-settings", { detail: tab ? { tab } : undefined }));
+  };
   const displayName = me?.name || "Your profile";
   const displayRole = me?.role || role;
   const initials = (me?.name || "U").trim().split(/\s+/).map((s) => s[0]).slice(0, 2).join("").toUpperCase() || "U";
 
-  // Track which sections are expanded; all sections open by default
-  const activeGroup = NAV_GROUPS.find((g) => g.items.some((n) => n.key === view))?.label ?? null;
+  // Which groups are expanded. Remembered; the group holding the current page
+  // always opens.
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     try {
-      const saved = localStorage.getItem("constructai-sidebar-expanded");
+      const saved = localStorage.getItem(OPEN_KEY);
       if (saved) return new Set(JSON.parse(saved));
     } catch { /* noop */ }
-    return new Set(NAV_GROUPS.map((g) => g.label));
+    return new Set(TREE.flatMap((e) => ("group" in e && e.group.defaultOpen ? [e.group.id] : [])));
+  });
+  useEffect(() => {
+    try { localStorage.setItem(OPEN_KEY, JSON.stringify(Array.from(expanded))); } catch { /* noop */ }
+  }, [expanded]);
+  useEffect(() => {
+    const g = TREE.find((e) => "group" in e && (e.group.items.some((i) => i.key === view) || (e.group.id === "projects" && view === "project-detail")));
+    if (g && "group" in g) setExpanded((prev) => (prev.has(g.group.id) ? prev : new Set(prev).add(g.group.id)));
+  }, [view]);
+  const toggle = (id: string) => setExpanded((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
   });
 
-  useEffect(() => {
-    try {
-      localStorage.setItem("constructai-sidebar-expanded", JSON.stringify(Array.from(expanded)));
-    } catch { /* noop */ }
-  }, [expanded]);
+  const lock = (k: View) => starter && BUSINESS_VIEWS.includes(k) ? <Lock className="ws-chev" aria-label="Business plan" /> : null;
 
-  // Auto-expand the section containing the current view whenever it changes
-  useEffect(() => {
-    if (activeGroup) {
-      setExpanded((prev) => {
-        if (prev.has(activeGroup)) return prev;
-        const next = new Set(prev);
-        next.add(activeGroup);
-        return next;
-      });
-    }
-  }, [view, activeGroup]);
-
-  const toggleGroup = (label: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(label)) next.delete(label);
-      else next.add(label);
-      return next;
-    });
-  };
+  const row = (l: Leaf, sub = false) => (
+    <button key={l.key} type="button" className="ws-row" aria-current={view === l.key ? "page" : undefined} onClick={() => go(l.key)}>
+      {!sub && l.icon && <l.icon aria-hidden />}
+      <span className="ws-row-label">{l.label}</span>
+      {lock(l.key)}
+    </button>
+  );
 
   return (
     <>
@@ -227,110 +223,118 @@ export function Sidebar({
         className={`fixed inset-0 bg-black/60 z-40 lg:hidden transition-opacity ${open ? "opacity-100" : "opacity-0 pointer-events-none"}`}
       />
       <aside
-        className={`fixed lg:static z-50 w-[260px] lg:w-[240px] shrink-0 h-screen border-r border-[#222A35] bg-[#0A0E14] flex flex-col transition-transform duration-200 ${open ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
+        aria-label="Workspace navigation"
+        className={`ws-sidebar fixed lg:static z-50 shrink-0 transition-transform duration-200 ${open ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
       >
-        <div className="px-5 py-5 border-b border-[#222A35] flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center">
-            <img src="/Buildsasa.png" alt="Buildsasa" className="w-full h-full object-cover" />
-          </div>
-          <div className="flex-1">
-            <div className="text-[14px] text-white tracking-tight font-display">Buildsasa</div>
-            <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Pro Workspace</div>
-          </div>
-          <button onClick={onClose} className="lg:hidden text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button>
-        </div>
-
-        <div className="px-3 pt-3">
-          <div className="px-2.5 py-2 rounded-md bg-[#161C24] border border-[#222A35] flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full" style={{ background: ROLE_COLORS[role] }} />
-            <div className="min-w-0 flex-1">
-              <div className="text-[9px] text-[#5B6675] uppercase tracking-wider">Viewing as</div>
-              <div className="text-[12px] text-white truncate">{role}</div>
-            </div>
-          </div>
-        </div>
-
-        <nav className="flex-1 overflow-y-auto px-3 py-4">
-          {locked && (
-            <button
-              onClick={() => go("billing")}
-              className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13px] bg-[#FF6B1A]/15 text-[#FF6B1A] border border-[#FF6B1A]/30 mb-3 hover:bg-[#FF6B1A]/25 transition"
-            >
-              <CreditCard className="w-4 h-4" />
-              <span className="flex-1 text-left">Billing &amp; Plan</span>
-            </button>
-          )}
-
-          <div className={locked ? "blur-sm select-none pointer-events-none opacity-70" : ""} aria-hidden={locked || undefined}>
-          {NAV_GROUPS.map((group) => {
-            const visibleItems = group.items.filter((n) => allowed(n.key));
-            if (visibleItems.length === 0) return null;
-            const isExpanded = expanded.has(group.label);
-            return (
-              <div key={group.label} className="mb-2">
-                <button
-                  onClick={() => toggleGroup(group.label)}
-                  className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[10px] text-[#5B6675] uppercase tracking-wider hover:text-[#8A95A5] hover:bg-[#11161D]/50 transition"
-                >
-                  {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                  <span className="flex-1 text-left">{group.label}</span>
-                  <span className="text-[9px] px-1 py-0.5 rounded-full bg-[#222A35] text-[#5B6675]">{visibleItems.length}</span>
-                </button>
-                <div
-                  className={`overflow-hidden transition-all duration-200 ease-in-out ${
-                    isExpanded ? "max-h-[500px] opacity-100 mt-1" : "max-h-0 opacity-0"
-                  }`}
-                >
-                  <div className="space-y-0.5">
-                    {visibleItems.map((n) => {
-                      const active = view === n.key;
-                      return (
-                        <button
-                          key={n.key}
-                          onClick={() => go(n.key)}
-                          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13px] transition ${
-                            active ? "bg-[#161C24] text-white" : "text-[#8A95A5] hover:text-white hover:bg-[#11161D]"
-                          }`}
-                        >
-                          <n.icon className="w-4 h-4" />
-                          <span className="flex-1 text-left">{n.label}</span>
-                          {starter && BUSINESS_VIEWS.includes(n.key) && <Lock className="w-3 h-3 text-[#5B6675]" aria-label="Business plan" />}
-                          {active && <span className="ml-auto w-1 h-1 rounded-full bg-[#FF6B1A]" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-          </div>
-        </nav>
-
-        <div className="px-3 py-3 border-t border-[#222A35] relative">
-          {menuOpen && (
+        <div className="ws-sidebar-top relative">
+          <button type="button" className="ws-switcher" onClick={() => setMenu(menu === "workspace" ? null : "workspace")} aria-haspopup="menu" aria-expanded={menu === "workspace"}>
+            <img src="/Buildsasa.png" alt="" />
+            <span className="truncate">Buildsasa</span>
+            <ChevronDown className="w-3.5 h-3.5" style={{ color: "var(--ws-muted)" }} aria-hidden />
+          </button>
+          <button type="button" className="ws-icon-btn ws-ghost" style={{ width: 32, height: 32 }} aria-label="Search" onClick={() => { onClose(); window.dispatchEvent(new Event("buildsasa:focus-search")); }}><Search /></button>
+          <button type="button" className="ws-icon-btn ws-ghost" style={{ width: 32, height: 32 }} aria-label="Create new" onClick={() => { onClose(); window.dispatchEvent(new Event("buildsasa:open-new")); }}><SquarePen /></button>
+          <button type="button" className="ws-icon-btn ws-ghost lg:hidden" style={{ width: 32, height: 32 }} aria-label="Close menu" onClick={onClose}><X /></button>
+          {menu === "workspace" && (
             <>
-              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <div className="absolute z-20 left-3 right-3 bottom-[68px] rounded-lg border border-[#222A35] bg-[#11161D] shadow-2xl py-1">
-                <button onClick={() => { setMenuOpen(false); onClose(); window.dispatchEvent(new Event("buildflex:open-settings")); }} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[#8A95A5] hover:text-white hover:bg-[#161C24]"><Settings className="w-4 h-4" /> Settings</button>
-                <button onClick={() => { setMenuOpen(false); window.open("mailto:support@buildsasa.com?subject=Support%20Request", "_blank"); }} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[#8A95A5] hover:text-white hover:bg-[#161C24]"><LifeBuoy className="w-4 h-4" /> Help & Support</button>
-                <div className="my-1 border-t border-[#222A35]" />
-                <button onClick={signOut} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[#EF4444] hover:bg-[#EF4444]/10"><LogOut className="w-4 h-4" /> Sign out</button>
+              <div className="fixed inset-0 z-20" onClick={() => setMenu(null)} />
+              <div className="ws-menu" role="menu" style={{ left: 10, right: 10, top: 46 }}>
+                <button role="menuitem" className="ws-menu-item" onClick={() => openSettings("company")}><Building2 /> Company settings</button>
+                {allowed("billing") && <button role="menuitem" className="ws-menu-item" onClick={() => { setMenu(null); go("billing"); }}><CreditCard /> Billing &amp; plan</button>}
+                <button role="menuitem" className="ws-menu-item" onClick={() => { setMenu(null); go("projects"); }}><FolderOpen /> All projects</button>
               </div>
             </>
           )}
-          <button onClick={() => setMenuOpen((v) => !v)} title="Profile & settings" className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md bg-[#11161D] hover:bg-[#161C24] transition-colors">
-            {me?.avatar
-              ? <img src={me.avatar} alt="" className="w-7 h-7 rounded-full object-cover" />
-              : <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#FF6B1A] to-[#F5A623] flex items-center justify-center text-white text-[11px]">{initials}</div>}
-            <div className="min-w-0 flex-1 text-left">
-              <div className="text-[12px] text-white truncate">{displayName}</div>
-              <div className="text-[10px] text-[#5B6675] truncate">{displayRole}</div>
-            </div>
-            <ChevronDown className={`w-4 h-4 text-[#5B6675] transition-transform ${menuOpen ? "rotate-180" : ""}`} />
+        </div>
+
+        <nav className="ws-nav">
+          {locked && (
+            <button type="button" className="ws-row" aria-current="page" onClick={() => go("billing")} style={{ marginBottom: 8 }}>
+              <CreditCard aria-hidden /><span className="ws-row-label">Billing &amp; plan</span>
+            </button>
+          )}
+          <div className={locked ? "blur-sm select-none pointer-events-none opacity-70" : ""} aria-hidden={locked || undefined}>
+            {TREE.map((e, i) => {
+              if ("divider" in e) return <div key={`d${i}`} className="ws-divider" />;
+              if ("leaf" in e) return allowed(e.leaf.key) ? row(e.leaf) : null;
+              const g = e.group;
+              const items = g.items.filter((l) => allowed(l.key));
+              const showCurrent = g.id === "projects" && !!current;
+              if (items.length === 0 && !showCurrent) return null;
+              const isOpen = expanded.has(g.id);
+              return (
+                <div key={g.id}>
+                  <button type="button" className="ws-row" aria-expanded={isOpen} onClick={() => toggle(g.id)}>
+                    <g.icon aria-hidden />
+                    <span className="ws-row-label">{g.label}</span>
+                    {isOpen ? <ChevronDown className="ws-chev" aria-hidden /> : <ChevronRight className="ws-chev" aria-hidden />}
+                  </button>
+                  {isOpen && (
+                    <div className="ws-subtree">
+                      {items.map((l, idx) => (
+                        <div key={l.key}>
+                          {row(l, true)}
+                          {/* Current project sits right after "All projects". */}
+                          {idx === 0 && showCurrent && current && (
+                            <button type="button" className="ws-row" aria-current={view === "project-detail" ? "page" : undefined} onClick={() => { onOpenProject?.(current.id); onClose(); }} title={current.name}>
+                              <span className="ws-dot" style={{ color: TONE_DOT[projectTone(current.status)] }} aria-hidden />
+                              <span className="ws-row-label">{current.name}</span>
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </nav>
+
+        <div className="ws-viewing relative">
+          Viewing as <strong>{role}</strong>
+          {ROLE_TESTING && setRole && (
+            <>
+              <span aria-hidden>·</span>
+              <button type="button" className="ws-link" onClick={() => setMenu(menu === "role" ? null : "role")}>Switch</button>
+              {menu === "role" && (
+                <>
+                  <div className="fixed inset-0 z-20" onClick={() => setMenu(null)} />
+                  <div className="ws-menu" role="menu" style={{ left: 0, right: 0, bottom: 34 }}>
+                    {(Object.keys(ROLES) as Role[]).map((r) => (
+                      <button key={r} role="menuitemradio" aria-checked={r === role} className="ws-menu-item" onClick={() => { setRole(r); setMenu(null); }}>
+                        <Eye /> {r}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+        <div className="relative">
+          {menu === "user" && (
+            <>
+              <div className="fixed inset-0 z-20" onClick={() => setMenu(null)} />
+              <div className="ws-menu" role="menu" style={{ left: 10, right: 10, bottom: 52 }}>
+                <button role="menuitem" className="ws-menu-item" onClick={() => openSettings()}><Settings /> Settings</button>
+                <button role="menuitem" className="ws-menu-item" onClick={() => { setMenu(null); window.open("mailto:support@buildsasa.com?subject=Support%20Request", "_blank"); }}><LifeBuoy /> Help &amp; support</button>
+                <div className="ws-divider" style={{ margin: "4px 0" }} />
+                <button role="menuitem" className="ws-menu-item" style={{ color: "var(--ws-red)" }} onClick={signOut}><LogOut style={{ color: "var(--ws-red)" }} /> Sign out</button>
+              </div>
+            </>
+          )}
+          <button type="button" className="ws-user" onClick={() => setMenu(menu === "user" ? null : "user")} aria-haspopup="menu" aria-expanded={menu === "user"}>
+            {me?.avatar ? <img src={me.avatar} alt="" className="ws-avatar" /> : <span className="ws-avatar" aria-hidden>{initials}</span>}
+            <span className="min-w-0 flex-1">
+              <span className="block truncate" style={{ fontSize: 13.5, fontWeight: 500, color: "var(--ws-text)" }}>{displayName}</span>
+              <span className="block truncate" style={{ fontSize: 12, color: "var(--ws-muted)" }}>{displayRole}</span>
+            </span>
+            <ChevronDown className={`w-4 h-4 transition-transform ${menu === "user" ? "rotate-180" : ""}`} style={{ color: "var(--ws-muted)" }} aria-hidden />
           </button>
         </div>
       </aside>
     </>
   );
 }
+

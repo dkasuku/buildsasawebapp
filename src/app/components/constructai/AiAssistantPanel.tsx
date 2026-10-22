@@ -167,7 +167,7 @@ export function AiAssistantPanel({
       {/* backdrop (mobile) */}
       <div onClick={onClose} className={`fixed inset-0 z-[65] bg-black/40 sm:hidden transition-opacity ${open ? "opacity-100" : "opacity-0 pointer-events-none"}`} />
 
-      <aside className={`fixed inset-y-0 right-0 z-[70] w-full sm:w-[400px] bg-[#0A0E14] border-l border-[#222A35] flex flex-col shadow-2xl transition-transform duration-200 ${open ? "translate-x-0" : "translate-x-full"}`}>
+      <aside className={`fixed inset-y-0 right-0 z-[70] w-full sm:w-[400px] bg-[#0A0E14] border-l border-[#222A35] flex flex-col transition-[transform,visibility] duration-200 ${open ? "translate-x-0 visible shadow-2xl" : "translate-x-full invisible"}`}>
         <div className="shrink-0 px-4 py-3.5 border-b border-[#222A35] bg-[#11161D] flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-[#FF6B1A]/15 flex items-center justify-center"><Sparkles className="w-4 h-4 text-[#FF6B1A]" /></div>
           <div className="flex-1 min-w-0">
