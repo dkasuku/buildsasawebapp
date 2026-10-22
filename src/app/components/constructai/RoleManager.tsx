@@ -3,6 +3,7 @@ import { Shield, Eye, EyeOff, Users, DollarSign, FileText, CheckCircle, XCircle,
 import { toast } from "sonner";
 import type { Role, Permissions } from "./roles";
 import { ROLES, ROLE_COLORS, ROLE_DESCRIPTIONS } from "./roles";
+import { PageHeader } from "./PageShell";
 
 type EditableRole = Role & string;
 
@@ -61,18 +62,11 @@ export function RoleManager({ role = "Contractor" }: { role?: Role }) {
   };
 
   return (
-    <div className="px-4 sm:px-7 py-5 sm:py-6 max-w-[1100px]">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-        <div>
-          <div className="text-[15px] text-white font-display">Role & Permission Manager</div>
-          <div className="text-[11px] text-[#8A95A5]">
-            {isContractor
-              ? "Define what each team role can see and do. Changes apply immediately."
-              : "View-only. Only the Contractor can edit role permissions."}
-          </div>
-        </div>
-        {isContractor && hasChanges && (
+    <div>
+      <PageHeader
+        title="Role manager"
+        subtitle={isContractor ? "Choose what each role can see and do. Changes apply immediately." : "View only. Only the Contractor can change role permissions."}
+        actions={<>{isContractor && hasChanges && (
           <div className="flex gap-2">
             <button onClick={reset} className="h-8 px-3 rounded-md border border-[#222A35] text-[12px] text-[#8A95A5] hover:text-white">
               Reset
@@ -81,8 +75,9 @@ export function RoleManager({ role = "Contractor" }: { role?: Role }) {
               <CheckCircle className="w-3.5 h-3.5" /> Save Changes
             </button>
           </div>
-        )}
-      </div>
+        )}</>}
+      />
+      <div className="px-4 sm:px-8 py-5 sm:py-6 max-w-[1100px]">
 
       {/* Role hierarchy explainer */}
       <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-4 mb-5">
@@ -218,6 +213,7 @@ export function RoleManager({ role = "Contractor" }: { role?: Role }) {
           </div>
         </div>
       </div>
+          </div>
     </div>
   );
 }

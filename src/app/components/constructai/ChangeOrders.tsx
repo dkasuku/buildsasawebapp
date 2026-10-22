@@ -11,6 +11,7 @@ import {
   CheckSquare, Square, Loader2, DollarSign, CalendarClock, MessageSquare, Send,
 } from "lucide-react";
 import type { Role } from "./roles";
+import { PageHeader } from "./PageShell";
 import { ROLES } from "./roles";
 import { useTeam, resolveName } from "./useTeam";
 import { MultiAssign } from "./MultiAssign";
@@ -122,27 +123,28 @@ export default function ChangeOrders({ role, openId, onConsumeOpenId }: { role: 
   };
 
   return (
-    <div className="px-4 sm:px-7 py-5 sm:py-6 space-y-4">
-      {/* roll-up */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-4"><div className="text-[11px] text-[#8A95A5]">Total change orders</div><div className="text-[22px] text-white font-display">{filtered.length}</div></div>
-        <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-4"><div className="text-[11px] text-[#8A95A5] flex items-center gap-1"><DollarSign className="w-3 h-3" /> Net cost impact</div><div className="text-[22px] text-[#FF6B1A] font-display">{fmt(totals.cost)}</div></div>
-        <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-4"><div className="text-[11px] text-[#8A95A5] flex items-center gap-1"><CalendarClock className="w-3 h-3" /> Net schedule</div><div className="text-[22px] text-white font-display">{totals.days >= 0 ? "+" : ""}{totals.days}d</div></div>
-        <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-4"><div className="text-[11px] text-[#8A95A5]">Pending approval</div><div className="text-[22px] text-[#F5A623] font-display">{totals.pending}</div></div>
-      </div>
-
-      {/* controls */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[180px]">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#5B6675]" />
-          <input value={filters.q} onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} placeholder="Search number, title, trigger…" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-lg pl-9 pr-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
+    <div>
+      <PageHeader
+        title="Change orders"
+        subtitle={<>{filtered.length} change order{filtered.length === 1 ? "" : "s"} · net cost {fmt(totals.cost)} · schedule {totals.days >= 0 ? "+" : ""}{totals.days}d · {totals.pending} pending approval</>}
+        actions={<>
+          <button type="button" onClick={exportCSV} className="ws-btn"><Download aria-hidden /> CSV</button>
+          {canCreate && <button type="button" onClick={() => setShowForm({ id: "", projectId: projects[0]?.id || "", status: "drafted" } as ChangeOrder)} className="ws-btn-primary"><Plus aria-hidden /> New change order</button>}
+        </>}
+      >
+        <div className="ws-toolbar">
+          <div className="ws-search" style={{ margin: 0, maxWidth: 420, minWidth: 200 }}>
+            <Search aria-hidden />
+            <label htmlFor="co-q" className="sr-only">Search change orders</label>
+            <input id="co-q" value={filters.q} onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} placeholder="Search number, title, trigger…" style={{ paddingRight: 12 }} />
+          </div>
+          <label htmlFor="co-project" className="sr-only">Project</label>
+          <select id="co-project" className="ws-select" value={filters.projectId} onChange={(e) => setFilters((f) => ({ ...f, projectId: e.target.value }))}><option value="">All projects</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+          <label htmlFor="co-status" className="sr-only">Status</label>
+          <select id="co-status" className="ws-select" value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}><option value="">All statuses</option>{(Object.keys(STATUS_META) as COStatus[]).map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}</select>
         </div>
-        <select value={filters.projectId} onChange={(e) => setFilters((f) => ({ ...f, projectId: e.target.value }))} className="h-9 bg-[#11161D] border border-[#222A35] rounded-lg px-2 text-[12px] text-white"><option value="">All projects</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
-        <select value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))} className="h-9 bg-[#11161D] border border-[#222A35] rounded-lg px-2 text-[12px] text-white"><option value="">All statuses</option>{(Object.keys(STATUS_META) as COStatus[]).map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}</select>
-        <button onClick={exportCSV} className="h-9 px-2.5 rounded-md border border-[#222A35] text-[11px] text-[#8A95A5] hover:text-white flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> CSV</button>
-        {canCreate && <button onClick={() => setShowForm({ id: "", projectId: projects[0]?.id || "", status: "drafted" } as ChangeOrder)} className="h-9 px-4 bg-[#FF6B1A] text-white rounded-lg text-[12px] flex items-center gap-1.5 hover:bg-[#FF7E33]"><Plus className="w-3.5 h-3.5" /> Create Change Order</button>}
-      </div>
-
+      </PageHeader>
+      <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-4">
       {/* table */}
       <div className="rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden">
         <div className="overflow-x-auto">
@@ -177,6 +179,7 @@ export default function ChangeOrders({ role, openId, onConsumeOpenId }: { role: 
 
       {showForm && <COForm projects={projects} initial={showForm} canApprove={canApprove} onClose={() => setShowForm(null)} onSaved={() => { setShowForm(null); load(); }} />}
       {detail && <CODetail co={detail} projName={projName} canCreate={canCreate} canApprove={canApprove} approveLimit={approveLimit} role={role} onClose={() => setDetail(null)} onEdit={() => { setShowForm(detail); setDetail(null); }} onChanged={(updated) => { setDetail(updated); load(); }} />}
+      </div>
     </div>
   );
 }

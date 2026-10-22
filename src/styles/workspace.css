@@ -174,7 +174,9 @@
 .ws-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-top: 6px; font-size: 13px; color: var(--ws-muted); }
 .ws-meta span { display: inline-flex; align-items: center; gap: 5px; }
 .ws-meta svg { width: 14px; height: 14px; }
-.ws-tabs { display: flex; gap: 2px; margin-top: 14px; overflow-x: auto; scrollbar-width: none; }
+.ws-tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--ws-border); }
+/* Inside a header band the band's own bottom border is the line. */
+.ws-pagehead .ws-tabs, .ws-project-head .ws-tabs { border-bottom: 0; }
 .ws-tabs::-webkit-scrollbar { display: none; }
 .ws-tab { display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 10px; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--ws-muted); font-size: 13.5px; font-weight: 500; white-space: nowrap; cursor: pointer; margin-bottom: -1px; }
 .ws-tab:hover { color: var(--ws-text); }
@@ -182,6 +184,9 @@
 .ws-content { display: flex; flex-wrap: wrap; gap: 24px; padding: 24px 32px; align-items: flex-start; }
 .ws-main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 24px; }
 .ws-aside { flex: 1 1 300px; max-width: 340px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.ws-pagehead { background: var(--ws-card); border-bottom: 1px solid var(--ws-border); padding: 18px 32px 16px; display: flex; flex-direction: column; gap: 12px; }
+.ws-pagehead.ws-pagehead-tabs { padding-bottom: 0; }
+.ws-pagehead .ws-tabs { margin-top: 0; }
 .ws-page { padding: 24px 32px; display: flex; flex-direction: column; gap: 20px; }
 .ws-page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .ws-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -201,6 +206,8 @@
 @media (max-width: 760px) {
   .ws-grid-2, .ws-grid-3 { grid-template-columns: 1fr; }
   .ws-project-head { padding: 14px 16px 0; }
+  .ws-pagehead { padding: 14px 16px 14px; }
+  .ws-pagehead.ws-pagehead-tabs { padding-bottom: 0; }
   .ws-content, .ws-page { padding: 16px; gap: 16px; }
   .ws-aside { max-width: none; }
   .ws-topbar { padding: 0 12px; gap: 8px; }

@@ -19,6 +19,7 @@ import { useCurrency } from "./CurrencyContext";
 import { formatCompactCurrency, formatCurrency, USD_TO_KES } from "./currency";
 import { warnSaveFailed } from "./saveFeedback";
 import { clientApi } from "./client/clientData";
+import { PageHeader, Tabs } from "./PageShell";
 
 const $toKES = (dollars: number) => Math.round(dollars * 130);
 
@@ -618,40 +619,15 @@ export function Projects({
 
   return (
     <div
-      className="px-4 sm:px-7 py-5 sm:py-6 space-y-5"
       onClick={() => {
         setActionMenu(null);
         setFiltersOpen(false);
       }}
     >
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {[
-          { l: "Active Projects", v: String(activeProjectsCount), s: "sites & jobs in progress" },
-          { l: "Combined Value", v: combinedValueLabel, s: "in active contracts" },
-          { l: "Money at risk", v: coExposureLabel, s: "pending change orders, all projects", c: "text-[#FF6B1A]" },
-          { l: "Project Health", v: projectHealthLabel, s: "on or ahead of schedule", c: "text-[#22C55E]" },
-        ].map((s) => (
-          <div key={s.l} className="rounded-xl border border-[#222A35] bg-[#11161D] p-4">
-            <div className="text-[11px] text-[#8A95A5]">{s.l}</div>
-            <div className={`text-[20px] sm:text-[22px] mt-1 font-display ${s.c || "text-white"}`}>{s.v}</div>
-            <div className="text-[10px] text-[#5B6675] mt-0.5">{s.s}</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-        <div className="flex gap-1 overflow-x-auto pb-1">
-          {TABS.map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-3 h-8 rounded-md text-[12px] whitespace-nowrap ${tab === t ? "bg-[#161C24] text-white border border-[#222A35]" : "text-[#8A95A5] hover:text-white"}`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        title="Projects"
+        subtitle={<>{activeProjectsCount} active · {combinedValueLabel} in active contracts · {coExposureLabel} at risk in pending change orders</>}
+        actions={<div className="ws-toolbar" onClick={(e) => e.stopPropagation()}>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -766,8 +742,11 @@ export function Projects({
           <button onClick={() => { setCodeTouched(false); setShowNew(true); }} className="h-8 px-3 rounded-md bg-[#FF6B1A] text-white text-[12px] flex items-center gap-1.5">
             <Plus className="w-3.5 h-3.5" /> <span className="hidden sm:inline">New</span>
           </button>
-        </div>
-      </div>
+        </div>}
+        tabs={<Tabs label="Project status" value={tab} onChange={setTab} items={TABS.map((t) => ({ id: t, label: t }))} />}
+      />
+      <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-5">
+
 
       {!apiLoaded ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -935,7 +914,7 @@ export function Projects({
                   {showFin && (
                   <div>
                     <div className="text-[10px] text-[#5B6675] uppercase tracking-wider" title="Value of change orders not yet approved">At risk</div>
-                    <div className="text-[13px] text-[#FF6B1A] mt-0.5 flex items-center gap-1"><TrendingUp className="w-3 h-3" />{p.exposureKES ? formatCompactCurrency(p.exposureKES, currency) : p.exposure}</div>
+                    <div className="text-[13px] text-[#FF6B1A] mt-0.5 flex items-center gap-1"><TrendingUp className="w-3 h-3" />{formatCompactCurrency(p.exposureKES ?? 0, currency)}</div>
                   </div>
                   )}
                 </div>
@@ -1585,6 +1564,7 @@ export function Projects({
         </div>
       )}
       {lightbox && <ImageLightbox images={lightbox.images} startIndex={lightbox.index} onClose={() => setLightbox(null)} />}
+          </div>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import * as XLSX from "xlsx";
 import { Download, Calendar, Filter, TrendingUp, Plus, GripVertical, X, MapPin, Building2, Clock, AlertTriangle, CheckCircle2, Bell, Mail, Repeat, Trash2, Play } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, RadialBarChart, RadialBar, PieChart, Pie, Cell, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, AreaChart, Area } from "recharts";
 import { useCurrency } from "./CurrencyContext";
+import { PageHeader, Tabs } from "./PageShell";
 import { formatCompactCurrency, formatCurrency } from "./currency";
 
 const $toKES = (dollars: number) => Math.round(dollars * 130);
@@ -125,32 +126,19 @@ export function Reports() {
   const removeWidget = (w: string) => setCustomWidgets(customWidgets.filter((x) => x !== w));
 
   return (
-    <div className="px-4 sm:px-7 py-5 sm:py-6 space-y-5">
-      {/* Header bar */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-        <div className="flex gap-1.5 overflow-x-auto pb-1">
-          {TABS.map((t) => (
-            <button
-              key={t}
-              onClick={() => { setTab(t); toast(`Report: ${t}`); }}
-              className={`px-3 h-8 rounded-md text-[12px] whitespace-nowrap transition ${tab === t ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border border-[#FF6B1A]/30" : "bg-[#11161D] border border-[#222A35] text-[#8A95A5] hover:text-white"}`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          <select
-            value={range}
-            onChange={(e) => { setRange(e.target.value); toast(`Range: ${e.target.value}`); }}
-            className="h-8 px-3 rounded-md border border-[#222A35] bg-[#11161D] text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]"
-          >
+    <div>
+      <PageHeader
+        title="Reports"
+        subtitle="Financial and operational reporting across your projects."
+        actions={<>
+          <label className="sr-only" htmlFor="rep-range">Period</label>
+          <select id="rep-range" className="ws-select" value={range} onChange={(e) => setRange(e.target.value)}>
             {RANGES.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
-          <button onClick={() => setFilterOpen(true)} className="h-8 px-3 rounded-md border border-[#222A35] text-[12px] text-[#8A95A5] hover:text-white flex items-center gap-1.5">
-            <Filter className="w-3.5 h-3.5" /> Filters {filters.region !== "All" || filters.minValue > 0 ? `· ${[filters.region !== "All" && "region", filters.minValue > 0 && "min"].filter(Boolean).length}` : ""}
+          <button type="button" onClick={() => setFilterOpen(true)} className="ws-btn">
+            <Filter aria-hidden /> Filters {filters.region !== "All" || filters.minValue > 0 ? `· ${[filters.region !== "All" && "region", filters.minValue > 0 && "min"].filter(Boolean).length}` : ""}
           </button>
-          <button onClick={() => {
+          <button type="button" className="ws-btn" onClick={() => {
             const doc = new jsPDF();
             doc.setFontSize(16);
             doc.text(`${tab} Report`, 14, 20);
@@ -166,12 +154,11 @@ export function Reports() {
             });
             doc.save(`${tab}_Report_${range}_${new Date().toISOString().split("T")[0]}.pdf`);
             toast.success(`${tab} report exported as PDF`);
-          }} className="h-8 px-3 rounded-md bg-[#FF6B1A] text-white text-[12px] flex items-center gap-1.5">
-            <Download className="w-3.5 h-3.5" /> Export
-          </button>
-        </div>
-      </div>
-
+          }}><Download aria-hidden /> Export PDF</button>
+        </>}
+        tabs={<Tabs<Tab> label="Report type" value={tab} onChange={setTab} items={TABS.map((t) => ({ id: t, label: t }))} />}
+      />
+      <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-5">
       {tab === "Financial" && <FinancialPanel range={range} />}
       {tab === "Operational" && <OperationalPanel />}
       {tab === "By Project" && <ByProjectPanel filters={filters} />}
@@ -292,6 +279,7 @@ export function Reports() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

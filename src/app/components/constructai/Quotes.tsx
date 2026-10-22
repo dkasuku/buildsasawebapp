@@ -15,6 +15,7 @@ import {
   Plus, Search, X, Trash2, FileSignature, Share2, Download, Copy, Pencil, CheckCircle2, XCircle, FolderPlus, MessageCircle, Mail,
 } from "lucide-react";
 import type { Role } from "./roles";
+import { PageHeader } from "./PageShell";
 import { ROLES } from "./roles";
 import api, { absoluteFileUrl, type QuoteDto, type QuoteLine, type QuoteStatus, type QuoteInput, type CompanyPublic } from "../../services/api";
 import { companyLogoData, drawLetterhead } from "../../services/brandPdf";
@@ -363,48 +364,29 @@ export default function Quotes({ role = "Contractor" }: { role?: Role }) {
   );
 
   return (
-    <div className="px-4 sm:px-7 py-5 sm:py-6 space-y-5">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 text-[13px] text-white font-display"><FileSignature className="w-4 h-4 text-[#FF6B1A]" /> Quotes</div>
-          <div className="text-[11px] text-[#8A95A5] mt-0.5">Price a job, send it to the client to accept online, then turn it into a project</div>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
+    <div>
+      <PageHeader
+        title="Quotes"
+        subtitle="Price a job, send it to the client to accept online, then turn it into a project"
+        actions={<>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#5B6675]" />
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search quotes…" className="w-[180px] sm:w-[220px] h-9 bg-[#11161D] border border-[#222A35] rounded-md pl-8 pr-3 text-[12px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]" />
           </div>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="h-9 bg-[#11161D] border border-[#222A35] rounded-md px-2 text-white text-[12px]">
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="ws-select">
             <option value="All">All statuses</option>
             {(Object.keys(STATUS_LABEL) as QuoteStatus[]).map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
           </select>
           {canManage && (
-            <button onClick={openNew} className="h-9 px-3 rounded-md text-[12px] flex items-center gap-1.5 bg-[#FF6B1A] hover:bg-[#FF7E33] text-white">
-              <Plus className="w-3.5 h-3.5" /> New Quote
+            <button onClick={openNew} className="ws-btn-primary">
+              <Plus aria-hidden /> New Quote
             </button>
           )}
-        </div>
-      </div>
+        </>}
+      />
+      <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-5">
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-3">
-          <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Open quotes</div>
-          <div className="text-[18px] text-white font-display mt-1">{stats.open}</div>
-        </div>
-        <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-3">
-          <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Open value</div>
-          <div className="text-[16px] text-white font-display mt-1">{money(stats.openValue)}</div>
-        </div>
-        <div className="rounded-xl border border-[#22C55E]/40 bg-[#22C55E]/5 p-3">
-          <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Won · {stats.won}</div>
-          <div className="text-[16px] text-[#22C55E] font-display mt-1">{money(stats.wonValue)}</div>
-        </div>
-        <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-3">
-          <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Win rate</div>
-          <div className="text-[18px] text-white font-display mt-1">{stats.winRate == null ? "—" : `${stats.winRate}%`}</div>
-        </div>
-      </div>
-
+      
       {!loading && quotes.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[#222A35] bg-[#11161D] p-8 text-center">
           <FileSignature className="w-8 h-8 text-[#FF6B1A] mx-auto" />
@@ -586,6 +568,7 @@ export default function Quotes({ role = "Contractor" }: { role?: Role }) {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }

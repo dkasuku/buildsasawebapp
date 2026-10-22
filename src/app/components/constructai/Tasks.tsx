@@ -241,13 +241,7 @@ export function Tasks({ role = "Contractor" }: { role?: Role }) {
         </p>
       </div>
 
-      {/* Summary */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard label="Assignments in view" value={stats.total} icon={<ClipboardList className="w-4 h-4" />} tint="#8A95A5" />
-        <StatCard label="Out with the team" value={stats.awaiting} icon={<Clock className="w-4 h-4" />} tint="#3B82F6" />
-        <StatCard label="Waiting on your review" value={stats.review} icon={<AlertTriangle className="w-4 h-4" />} tint="#8B5CF6" />
-        <StatCard label="Avg answered" value={`${stats.avg}%`} icon={<CheckCircle2 className="w-4 h-4" />} tint="#22C55E" />
-      </div>
+      <p className="ws-sub"><strong style={{ color: "var(--ws-text)" }}>{stats.total}</strong> assignments in view · {stats.awaiting} out with the team · {stats.review} waiting on your review · {stats.avg}% answered on average</p>
 
       {/* Orphans are silently excluded from the roll-up below, so say so. Work
           reported on a checklist with no project reaches nothing, and previously

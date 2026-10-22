@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import { Plus, Search, X, UsersRound, HardHat, MapPin, Trash2, UserPlus, ChevronDown, ChevronRight } from "lucide-react";
 import type { Role } from "./roles";
+import { PageHeader } from "./PageShell";
 import api from "../../services/api";
 import { EmptyState, ListSkeleton } from "./EmptyState";
 import { ProjectSelect } from "./ProjectSelect";
@@ -96,29 +97,18 @@ export default function Crews({ role }: { role: Role }) {
   };
 
   return (
-    <div className="px-4 sm:px-7 py-6">
-      <div className="grid grid-cols-3 gap-3 mb-5">
-        <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-4">
-          <div className="text-[11px] text-[#8A95A5] uppercase tracking-wider">Crews</div>
-          <div className="text-[22px] text-white mt-1">{crews.length}</div>
-        </div>
-        <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-4">
-          <div className="text-[11px] text-[#8A95A5] uppercase tracking-wider">Total Workers</div>
-          <div className="text-[22px] text-white mt-1">{totalWorkers}</div>
-        </div>
-        <div className="rounded-xl border border-[#222A35] bg-[#11161D] p-4">
-          <div className="text-[11px] text-[#8A95A5] uppercase tracking-wider">On Site Now</div>
-          <div className="text-[22px] text-[#22C55E] mt-1">{onSiteCount}</div>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 mb-4">
+    <div>
+      <PageHeader title="Crews" subtitle="Crew rosters, trades and who is on site.">
+        <div className="ws-toolbar">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#5B6675]" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search crews…" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-lg pl-9 pr-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
         </div>
-        <button onClick={() => setShowNew(true)} className="h-9 px-4 bg-[#FF6B1A] text-black rounded-lg text-[12px] font-medium flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> New Crew</button>
+        <button onClick={() => setShowNew(true)} className="ws-btn-primary"><Plus className="w-3.5 h-3.5" /> New Crew</button>
       </div>
+      </PageHeader>
+      <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-4">
+
 
       <div className="space-y-3">
         {!loaded && <ListSkeleton />}
@@ -199,6 +189,7 @@ export default function Crews({ role }: { role: Role }) {
           toast.error(`Crew not saved to the server — ${e?.message || "unknown error"}`, { duration: 8000 });
         }
       }} />}
+    </div>
     </div>
   );
 }

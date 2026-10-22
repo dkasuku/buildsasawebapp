@@ -9,6 +9,7 @@ import { ROLE_COLORS } from "./roles";
 // the add-member picker, so the Inbox showed colleagues who do not exist.
 import { useTeam } from "./useTeam";
 import api from "../../services/api";
+import { PageHeader } from "./PageShell";
 
 type Attachment = {
   id: string;
@@ -543,14 +544,11 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
   }, [showAttachMenu]);
 
   return (
-    <div className="px-3 sm:px-7 py-4 sm:py-6 h-[calc(100dvh-64px)] min-h-[420px] flex flex-col">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0 mb-4">
-        <div>
-          <div className="text-[15px] text-white font-display flex items-center gap-2">Team Inbox <span className={`w-2 h-2 rounded-full ${connected ? "bg-[#22C55E]" : "bg-[#EF4444]"}`} title={connected ? "Connected" : "Disconnected"} /></div>
-          <div className="text-[11px] text-[#8A95A5]">{team.length} teammate{team.length === 1 ? "" : "s"} · {conversations.length} conversation{conversations.length === 1 ? "" : "s"}</div>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
+    <div className="h-[calc(100dvh-56px)] min-h-[420px] flex flex-col">
+      <PageHeader
+        title={<span className="inline-flex items-center gap-2">Team inbox <span className={`w-2 h-2 rounded-full ${connected ? "bg-[#22C55E]" : "bg-[#EF4444]"}`} title={connected ? "Connected" : "Disconnected"} /></span>}
+        subtitle={<>{team.length} teammate{team.length === 1 ? "" : "s"} · {conversations.length} conversation{conversations.length === 1 ? "" : "s"}</>}
+        actions={<>
           <div className="relative flex-1 min-w-[140px] sm:flex-none">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#5B6675]" />
             <input
@@ -561,18 +559,19 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
             />
           </div>
           {isContractor && (
-            <button onClick={() => setShowNewGroup(true)} className="h-8 px-3 rounded-md bg-[#FF6B1A] text-white text-[12px] flex items-center gap-1.5">
-              <Plus className="w-3.5 h-3.5" /> New Group
+            <button onClick={() => setShowNewGroup(true)} className="ws-btn-primary">
+              <Plus aria-hidden /> New group
             </button>
           )}
           <button
             onClick={() => setShowMembers((s) => !s)}
-            className={`h-8 px-3 rounded-md border text-[12px] flex items-center gap-1.5 ${showMembers ? "bg-[#161C24] border-[#FF6B1A] text-white" : "border-[#222A35] text-[#8A95A5] hover:text-white"}`}
+            className="ws-btn" aria-pressed={showMembers}
           >
             <Users className="w-3.5 h-3.5" /> Team
           </button>
-        </div>
-      </div>
+        </>}
+      />
+      <div className="flex-1 min-h-0 px-3 sm:px-8 py-4 sm:py-5 flex flex-col">
 
       <div className="flex-1 flex gap-0 lg:gap-4 min-h-0">
         {/* Conversations list */}
@@ -1190,6 +1189,7 @@ export function Inbox({ role = "Contractor" }: { role?: Role }) {
           </div>
         </div>
       )}
+          </div>
     </div>
   );
 }

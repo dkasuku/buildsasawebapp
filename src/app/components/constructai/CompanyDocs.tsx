@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import { Plus, Search, X, FolderOpen, FileText, Download, Trash2, UploadCloud, File, FileSpreadsheet, FileImage, Shield, BookOpen, Award } from "lucide-react";
 import type { Role } from "./roles";
+import { PageHeader, Tabs } from "./PageShell";
 import api, { absoluteFileUrl } from "../../services/api";
 import { warnSaveFailed } from "./saveFeedback";
 import { useFileUpload } from "./useFileUpload";
@@ -102,24 +103,18 @@ export default function CompanyDocs({ role }: { role: Role }) {
   };
 
   return (
-    <div className="px-4 sm:px-7 py-6">
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-5">
-        {CATEGORIES.map(({ key, icon: Icon }) => (
-          <button key={key} onClick={() => setCatFilter(catFilter === key ? "all" : key)} className={`rounded-xl border p-3 text-left transition ${catFilter === key ? "border-[#FF6B1A] bg-[#FF6B1A]/5" : "border-[#222A35] bg-[#11161D] hover:border-[#2E3947]"}`}>
-            <Icon className="w-4 h-4 text-[#FF6B1A]" />
-            <div className="text-[11px] text-white mt-1.5">{key}</div>
-            <div className="text-[10px] text-[#5B6675]">{catCounts[key] || 0} files</div>
-          </button>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 mb-4">
+    <div>
+      <PageHeader title="Company documents" subtitle="Policies, templates, certificates and other company-wide files." tabs={<Tabs label="Document category" value={catFilter} onChange={setCatFilter} items={[{ id: "all", label: "All", count: docs.length }, ...CATEGORIES.map(({ key }) => ({ id: key, label: key, count: catCounts[key] || 0 }))]} />}>
+        <div className="ws-toolbar">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#5B6675]" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search company documents…" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-lg pl-9 pr-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
         </div>
-        <button onClick={() => setShowUpload(true)} className="h-9 px-4 bg-[#FF6B1A] text-black rounded-lg text-[12px] font-medium flex items-center gap-1.5"><UploadCloud className="w-3.5 h-3.5" /> Upload</button>
+        <button onClick={() => setShowUpload(true)} className="ws-btn-primary"><UploadCloud className="w-3.5 h-3.5" /> Upload</button>
       </div>
+      </PageHeader>
+      <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-4">
+
 
       {uploader.pending.length > 0 && <div className="mb-3"><UploadTray state={uploader} /></div>}
 
@@ -181,6 +176,7 @@ export default function CompanyDocs({ role }: { role: Role }) {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }

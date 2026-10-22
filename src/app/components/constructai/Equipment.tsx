@@ -3,6 +3,7 @@ import { MapPicker } from "./MapPicker";
 import { toast } from "sonner";
 import { Plus, Search, X, Trash2, Truck, Pencil, Upload, FileText, AlertTriangle, Wrench } from "lucide-react";
 import type { Role } from "./roles";
+import { PageHeader } from "./PageShell";
 import { ROLES } from "./roles";
 import api, { type EquipmentDto, type ProjectDto } from "../../services/api";
 
@@ -173,7 +174,7 @@ const Section = ({ title, children }: { title: string; children: ReactNode }) =>
   </div>
 );
 
-export default function Equipment({ role = "Contractor" }: { role?: Role }) {
+export default function Equipment({ role = "Contractor", embedded = false }: { role?: Role; /** Shown inside Inventory, under its header and tabs. */ embedded?: boolean }) {
   const perms = ROLES[role];
   const [equipment, setEquipment] = useState<EquipmentDto[]>([]);
   const [projects, setProjects] = useState<ProjectDto[]>([]);
@@ -375,38 +376,29 @@ export default function Equipment({ role = "Contractor" }: { role?: Role }) {
   const labelCls = "text-[11px] uppercase text-[#8A95A5] mb-1 block";
 
   return (
-    <div className="px-4 sm:px-7 py-5 sm:py-6 space-y-5">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 text-[13px] text-white font-display"><Truck className="w-4 h-4 text-[#FF6B1A]" /> Equipment Inventory</div>
-          <div className="text-[11px] text-[#8A95A5] mt-0.5">Track machinery, fleet, hire, costs, service &amp; compliance</div>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
+    <div>
+      <PageHeader
+        bare={embedded}
+        title="Equipment"
+        subtitle="Machinery, fleet, hire, costs, service and compliance."
+        actions={<>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#5B6675]" />
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search equipment…" className="w-[180px] sm:w-[220px] h-9 bg-[#11161D] border border-[#222A35] rounded-md pl-8 pr-3 text-[12px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]" />
           </div>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 bg-[#11161D] border border-[#222A35] rounded-md px-2 text-white text-[12px]">
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="ws-select">
             <option value="All">All statuses</option>
-            {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+            {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]} ({equipment.filter((e) => e.status === s).length})</option>)}
           </select>
           {perms.manageTeam && (
-            <button onClick={openCreate} className="h-9 px-3 rounded-md text-[12px] flex items-center gap-1.5 bg-[#FF6B1A] hover:bg-[#FF7E33] text-white">
-              <Plus className="w-3.5 h-3.5" /> Add Equipment
+            <button onClick={openCreate} className="ws-btn-primary">
+              <Plus aria-hidden /> Add Equipment
             </button>
           )}
-        </div>
-      </div>
+        </>}
+      />
+      <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-5">
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-        {STATUSES.map((s) => (
-          <div key={s} className="rounded-xl border border-[#222A35] bg-[#11161D] p-3">
-            <div className="text-[10px] text-[#5B6675] uppercase tracking-wider truncate">{STATUS_LABELS[s]}</div>
-            <div className="text-[18px] text-white font-display mt-1" style={{ color: STATUS_COLOR[s] }}>{equipment.filter((e) => e.status === s).length}</div>
-          </div>
-        ))}
-      </div>
       {serviceDueCount > 0 && (
         <div className="rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 p-3 flex items-center gap-2">
           <Wrench className="w-4 h-4 text-[#EF4444]" />
@@ -743,6 +735,7 @@ export default function Equipment({ role = "Contractor" }: { role?: Role }) {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }

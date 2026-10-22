@@ -9,6 +9,7 @@ import { EmptyState } from "./EmptyState";
 import { useProjects } from "./useProjects";
 import { SiteWeather } from "./SiteWeather";
 import { ImageLightbox } from "./ImageLightbox";
+import { PageHeader } from "./PageShell";
 import { DailyLogEditor, DailyLogFeed, parseUrls, useDailyLogs } from "./daily-log/DailyLogParts";
 
 const iso = (d: Date) => {
@@ -48,13 +49,11 @@ export function DailyLog() {
   const older = logs.filter((l) => dayOf(l) < days[0]);
 
   return (
-    <div className="ws-page">
-      <div className="ws-page-head">
-        <div>
-          <h1 className="ws-h1">Daily log</h1>
-          <div className="ws-sub">Day-by-day site record — your evidence for claims, delays and disputes.</div>
-        </div>
-        <div className="ws-toolbar">
+    <div>
+      <PageHeader
+        title="Daily log"
+        subtitle="Day-by-day site record — your evidence for claims, delays and disputes."
+        actions={<>
           <label className="sr-only" htmlFor="dl-project">Project</label>
           <select id="dl-project" className="ws-select" style={{ minWidth: 200 }} value={projectId} onChange={(e) => setPicked(e.target.value)} disabled={projectsLoading || projects.length === 0}>
             {projectsLoading && <option value="">Loading projects…</option>}
@@ -67,8 +66,9 @@ export function DailyLog() {
             <option value={14}>Last 2 weeks</option>
           </select>
           {projectId && <button type="button" className="ws-btn-primary" onClick={() => setEditing("new")}><Plus aria-hidden /> New daily log</button>}
-        </div>
-      </div>
+        </>}
+      />
+      <div className="ws-page">
 
       {projects.length === 0 && !projectsLoading ? (
         <div className="ws-card">
@@ -161,6 +161,7 @@ export function DailyLog() {
           onSaved={(row) => { upsert(row); setEditing(null); }}
         />
       )}
+      </div>
     </div>
   );
 }

@@ -89,12 +89,11 @@ export default function ActionPlans({ role }: { role: Role }) {
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#5B6675]" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search corrective actions…" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-lg pl-9 pr-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
         </div>
-        <div className="flex gap-1">
-          {["all", "active", "overdue", "completed"].map((f) => (
-            <button key={f} onClick={() => setFilter(f)} className={`h-9 px-3 rounded-lg text-[12px] capitalize transition ${filter === f ? "bg-[#FF6B1A] text-black font-medium" : "bg-[#11161D] border border-[#222A35] text-[#8A95A5] hover:text-white"}`}>{f}</button>
-          ))}
-        </div>
-        <button onClick={() => setShowNew(true)} className="h-9 px-4 bg-[#FF6B1A] text-black rounded-lg text-[12px] font-medium flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> New corrective action</button>
+        <label htmlFor="ap-status" className="sr-only">Status</label>
+        <select id="ap-status" className="ws-select" value={filter} onChange={(e) => setFilter(e.target.value)}>
+          {["all", "active", "overdue", "completed"].map((f) => <option key={f} value={f}>{f === "all" ? "All statuses" : f[0].toUpperCase() + f.slice(1)}</option>)}
+        </select>
+        <button onClick={() => setShowNew(true)} className="ws-btn-primary"><Plus className="w-3.5 h-3.5" /> New corrective action</button>
       </div>
 
       <div className="space-y-3">

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { UserPlus, Trash2, Copy, X, ShieldCheck, Loader2, Mail } from "lucide-react";
 import type { Role } from "./roles";
 import { ROLES, ROLE_COLORS, ROLE_DESCRIPTIONS } from "./roles";
+import { PageHeader } from "./PageShell";
 
 const ALL_ROLES = Object.keys(ROLES) as Role[];
 // Clients aren't team members: they get their own account via a project's Client tab.
@@ -54,14 +55,13 @@ export default function TeamMembers({ role }: { role: Role }) {
   };
 
   return (
-    <div className="px-4 sm:px-7 py-6 max-w-4xl">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <div className="text-[14px] text-white font-display">Team members</div>
-          <div className="text-[11px] text-[#8A95A5]">Invite teammates and assign their role. They log in with that role.</div>
-        </div>
-        {canManage && <button onClick={() => { setShowInvite(true); setCreated(null); }} className="h-9 px-4 bg-[#FF6B1A] text-white rounded-lg text-[12px] flex items-center gap-1.5 hover:bg-[#FF7E33]"><UserPlus className="w-3.5 h-3.5" /> Invite member</button>}
-      </div>
+    <div>
+      <PageHeader
+        title="Team"
+        subtitle={"Invite teammates and give each a role. They sign in with that role."}
+        actions={<>{canManage && <button onClick={() => { setShowInvite(true); setCreated(null); }} className="ws-btn-primary"><UserPlus className="w-3.5 h-3.5" /> Invite member</button>}</>}
+      />
+      <div className="px-4 sm:px-8 py-5 sm:py-6 max-w-4xl">
 
       <div className="rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden">
         {loading ? <div className="p-8 text-center text-[#5B6675] text-[13px]"><Loader2 className="w-4 h-4 animate-spin inline" /> Loading…</div> : (
@@ -128,6 +128,7 @@ export default function TeamMembers({ role }: { role: Role }) {
           </div>
         </div>
       )}
+          </div>
     </div>
   );
 }

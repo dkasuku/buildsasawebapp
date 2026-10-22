@@ -24,6 +24,7 @@ import { DailyLogEditor, DailyLogFeed, useDailyLogs } from "../daily-log/DailyLo
 import { MultiAssign } from "../MultiAssign";
 import { DocumentFolder } from "./DocumentFolder";
 import { Bar, Empty, Field, Kpi, Modal, Panel, Pill, btnGhost, btnPrimary, fmtDate, input, statusLabel, statusTone, textarea } from "./shared";
+import { Tabs } from "../PageShell";
 
 type SubTab = "diary" | "progress" | "defects" | "safety";
 
@@ -51,14 +52,7 @@ export function SiteFolder({
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-1 overflow-x-auto rounded-xl border border-[#222A35] bg-[#11161D] p-1">
-        {TABS.map((t) => (
-          <button key={t.key} onClick={() => setTab(t.key)} className={`flex-1 min-w-max h-9 px-3 rounded-lg text-[12px] flex items-center justify-center gap-1.5 transition ${tab === t.key ? "bg-[#FF6B1A] text-white" : "text-[#8A95A5] hover:text-white hover:bg-[#161C24]"}`}>
-            <t.icon className="w-3.5 h-3.5" /> {t.label}
-            {t.count != null && <span className={`text-[10px] px-1.5 rounded-full ${tab === t.key ? "bg-white/20" : t.tone === "bad" ? "bg-[#EF4444]/20 text-[#EF4444]" : t.tone === "warn" ? "bg-[#F5A623]/20 text-[#F5A623]" : "bg-[#222A35]"}`}>{t.count}</span>}
-          </button>
-        ))}
-      </div>
+      <Tabs<SubTab> label="Site sections" value={tab} onChange={setTab} items={TABS.map((t) => ({ id: t.key, label: t.label, count: t.count }))} />
 
       {tab === "diary" && <Diary projectId={projectId} logs={site.dailyLogs} canEdit={canEdit} onChanged={onChanged} />}
       {tab === "progress" && <Progress progress={progress} schedule={schedule} />}

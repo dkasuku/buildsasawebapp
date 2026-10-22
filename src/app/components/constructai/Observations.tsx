@@ -90,6 +90,8 @@ export default function Observations({ role, initialTab = "observations" }: { ro
     <div>
       {canSeeActions && (
         <SectionTabs<"observations" | "actions">
+          title="Observations"
+          subtitle="Quality and safety issues on site, and the actions that fix them."
           tabs={[{ key: "observations", label: "Observations" }, { key: "actions", label: "Corrective actions" }]}
           value={tab}
           onChange={setTab}
@@ -147,23 +149,16 @@ function ObservationList({ role, canSeeActions }: { role: Role; canSeeActions: b
 
   return (
     <div className="px-4 sm:px-7 py-6">
-      <div className="grid grid-cols-3 gap-3 mb-5">
-        {(["open", "in_review", "closed"] as const).map((s) => {
-          const M = STATUS_META[s];
-          return (
-            <button key={s} onClick={() => setStatusFilter(statusFilter === s ? "all" : s)} className={`rounded-xl border p-4 text-left transition ${statusFilter === s ? "border-[#FF6B1A] bg-[#FF6B1A]/5" : "border-[#222A35] bg-[#11161D] hover:border-[#2E3947]"}`}>
-              <div className="flex items-center gap-2"><M.icon className="w-4 h-4 text-[#8A95A5]" /><span className="text-[11px] text-[#8A95A5] uppercase tracking-wider">{M.label}</span></div>
-              <div className="text-[22px] text-white mt-1">{counts[s]}</div>
-            </button>
-          );
-        })}
-      </div>
-
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#5B6675]" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search observations…" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-lg pl-9 pr-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
         </div>
+        <label htmlFor="obs-status" className="sr-only">Status</label>
+        <select id="obs-status" className="ws-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="all">All statuses</option>
+          {(["open", "in_review", "closed"] as const).map((st) => <option key={st} value={st}>{STATUS_META[st].label} ({counts[st]})</option>)}
+        </select>
         <div className="flex items-center gap-1.5 h-9 px-3 bg-[#11161D] border border-[#222A35] rounded-lg">
           <Filter className="w-3.5 h-3.5 text-[#5B6675]" />
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="bg-transparent text-[12px] text-white focus:outline-none">

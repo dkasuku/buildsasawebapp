@@ -7,6 +7,7 @@ import {
 import type { Role } from "./roles";
 import { ROLES } from "./roles";
 import api, { type AttendanceDto } from "../../services/api";
+import { PageHeader, Tabs } from "./PageShell";
 
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string; icon: typeof LogIn }> = {
   present: { label: "Present", color: "#22C55E", bg: "#22C55E20", icon: UserCheck },
@@ -204,39 +205,17 @@ export default function Attendance({ role = "Worker" }: { role?: Role }) {
   const statusInfo = todayRecord ? STATUS_LABELS[todayRecord.status] : null;
 
   return (
-    <div className="px-4 sm:px-7 py-5 sm:py-6 space-y-5">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 text-[13px] text-white font-display">
-            <Clock className="w-4 h-4 text-[#FF6B1A]" /> Attendance & Time Tracking
-          </div>
-          <div className="text-[11px] text-[#8A95A5] mt-0.5">
-            {role === "Worker" || role === "Trade Lead"
-              ? "Check in/out, breaks, and report leaves"
-              : "View team attendance and time records"}
-          </div>
-        </div>
-        <div className="flex gap-2">
-          {[
+    <div>
+      <PageHeader
+        title="Attendance"
+        subtitle={role === "Worker" || role === "Trade Lead" ? "Check in and out, take breaks and report leave." : "Team attendance and time records."}
+        tabs={<Tabs label="Attendance view" value={view} onChange={setView} items={[
             { key: "today" as const, label: "Today", icon: Clock },
             { key: "history" as const, label: "History", icon: Calendar },
-            ...(canSeeAccess ? [{ key: "team" as const, label: "Team History", icon: Calendar }, { key: "access" as const, label: "Access Log", icon: MapPin }] : []),
-          ].map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setView(t.key)}
-              className={`h-8 px-3 rounded-md text-[11px] flex items-center gap-1.5 ${
-                view === t.key
-                  ? "bg-[#FF6B1A] text-white"
-                  : "bg-[#11161D] border border-[#222A35] text-[#8A95A5]"
-              }`}
-            >
-              <t.icon className="w-3.5 h-3.5" /> {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
+            ...(canSeeAccess ? [{ key: "team" as const, label: "Team history", icon: Calendar }, { key: "access" as const, label: "Access log", icon: MapPin }] : []),
+          ].map((t) => ({ id: t.key, label: t.label }))} />}
+      />
+      <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-5">
 
       {canSeeAccess && (
         <div className="flex justify-end mb-3">
@@ -646,6 +625,7 @@ export default function Attendance({ role = "Worker" }: { role?: Role }) {
           </div>
         </div>
       )}
+          </div>
     </div>
   );
 }

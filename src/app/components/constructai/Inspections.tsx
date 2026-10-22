@@ -7,6 +7,7 @@ import {
   Download, RotateCcw, Eye, ImagePlus, Sparkles
 } from "lucide-react";
 import type { Role } from "./roles";
+import { PageHeader } from "./PageShell";
 import { ROLES } from "./roles";
 import api, { type InspectionDto } from "../../services/api";
 import jsPDF from "jspdf";
@@ -301,41 +302,32 @@ export default function Inspections({ role = "Contractor" }: { role?: Role }) {
   };
 
   return (
-    <div className="px-4 sm:px-7 py-5 sm:py-6 space-y-5">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 text-[13px] text-white font-display"><ClipboardCheck className="w-4 h-4 text-[#FF6B1A]" /> Inspections</div>
-          <div className="text-[11px] text-[#8A95A5] mt-0.5">Template-driven QA/QC inspections with consultant approval workflow</div>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="h-9 bg-[#11161D] border border-[#222A35] rounded-md px-2 text-white text-[12px]">
+    <div>
+      <PageHeader
+        title="Inspections"
+        subtitle="Template-driven QA/QC inspections with consultant approval workflow"
+        actions={<>
+          <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="ws-select">
             {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#5B6675]" />
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search inspections…" className="w-[180px] sm:w-[220px] h-9 bg-[#11161D] border border-[#222A35] rounded-md pl-8 pr-3 text-[12px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]" />
           </div>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 bg-[#11161D] border border-[#222A35] rounded-md px-2 text-white text-[12px]">
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="ws-select">
             <option value="All">All statuses</option>
             {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
           </select>
           {perms.canCreateInspection && (
-            <button onClick={() => setShowNew(true)} className="h-9 px-3 rounded-md text-[12px] flex items-center gap-1.5 bg-[#FF6B1A] hover:bg-[#FF7E33] text-white">
-              <Plus className="w-3.5 h-3.5" /> New Request
+            <button onClick={() => setShowNew(true)} className="ws-btn-primary">
+              <Plus aria-hidden /> New Request
             </button>
           )}
-        </div>
-      </div>
+        </>}
+      />
+      <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-5">
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-        {STATUSES.map((s) => (
-          <div key={s} className="rounded-xl border border-[#222A35] bg-[#11161D] p-3 cursor-pointer hover:border-[#FF6B1A]/30" onClick={() => setStatusFilter(s === statusFilter ? "All" : s)}>
-            <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">{STATUS_LABEL[s]}</div>
-            <div className="text-[18px] font-display mt-1" style={{ color: STATUS_COLOR[s] }}>{inspections.filter((i) => i.status === s).length}</div>
-          </div>
-        ))}
-      </div>
-
+      
       <div className="rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden">
         <div className="overflow-x-auto hidden sm:block">
           <table className="w-full min-w-[900px] text-[12px]">
@@ -651,6 +643,7 @@ export default function Inspections({ role = "Contractor" }: { role?: Role }) {
         </div>
       )}
       {lightbox && <ImageLightbox images={lightbox.images} startIndex={lightbox.index} videoUrls={lightbox.videoUrls} onClose={() => setLightbox(null)} />}
+    </div>
     </div>
   );
 }

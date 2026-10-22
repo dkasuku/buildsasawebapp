@@ -33,6 +33,7 @@ import { ROLES, canManageBids } from "./roles";
 import { ProjectCloseout } from "./ProjectCloseout";
 import { clientApi } from "./client/clientData";
 import { projectTone, statusText } from "./wsStatus";
+import { Tabs } from "./PageShell";
 import { ProjectAnalytics } from "./project-hub/ProjectAnalytics";
 import { ActivityCard, AttentionCard, ReadinessCard } from "./project-hub/ProjectAside";
 import { DocumentFolder } from "./project-hub/DocumentFolder";
@@ -195,14 +196,7 @@ export function ProjectDetail({
           </div>
         </div>
 
-        <nav className="ws-tabs" aria-label="Project sections">
-          {folders.map((f) => (
-            <button key={f.key} type="button" className="ws-tab" aria-current={folder === f.key ? "page" : undefined} onClick={() => setFolder(f.key)}>
-              {f.label}
-              {f.count != null && f.count > 0 && <span className="ws-count">{f.count}</span>}
-            </button>
-          ))}
-        </nav>
+        <Tabs<Folder> label="Project sections" className="mt-[14px]" value={folder} onChange={setFolder} items={folders.map((f) => ({ id: f.key, label: f.label, count: f.count }))} />
       </div>
       {portalOpen && (
         <ClientPortalDialog

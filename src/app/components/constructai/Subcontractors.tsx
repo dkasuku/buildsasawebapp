@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { Banknote, Building2, Check, ChevronDown, ChevronRight, Loader2, Mail, Phone, Plus, Search, Truck, Users, Wallet } from "lucide-react";
 import api, { type SubcontractorRowDto } from "../../services/api";
 import type { Role } from "./roles";
+import { PageHeader } from "./PageShell";
 import { ROLES, canManageBids } from "./roles";
 import { Empty, Field, Kpi, Modal, Panel, Pill, btnGhost, btnPrimary, fmtDate, input, statusLabel, statusTone, textarea, useMoney } from "./project-hub/shared";
 
@@ -65,13 +66,12 @@ export default function Subcontractors({ role }: { role: Role }) {
   const keyOf = (r: SubcontractorRowDto) => r.contact?.id || `vendor:${r.vendor}`;
 
   return (
-    <div className="px-4 sm:px-7 py-5 sm:py-6 space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Kpi label="Subcontractors & suppliers" value={String(totals.contacts)} sub={`${totals.subs} subcontract${totals.subs === 1 ? "" : "s"} / order${totals.subs === 1 ? "" : "s"}`} />
-        {canPay && <Kpi label="Committed" value={compact(totals.contractValue)} sub="all subcontracts incl. approved variations" />}
-        {canPay && <Kpi label="Paid to date" value={compact(totals.paidToDate)} tone="good" sub={`${compact(totals.retention)} retention held`} />}
-        {canPay && <Kpi label="Balance to pay" value={compact(totals.balance)} tone={totals.balance > 0 ? "warn" : undefined} sub="committed less paid" />}
-      </div>
+    <div>
+      <PageHeader
+        title="Subcontractors"
+        subtitle={<>{totals.contacts} subcontractor{totals.contacts === 1 ? "" : "s"} and suppliers{canPay ? <> · {compact(totals.contractValue)} committed · {compact(totals.paidToDate)} paid · {compact(totals.balance)} to pay</> : null}</>}
+      />
+      <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-4">
 
       <Panel
         title="Subcontractor & supplier database"
@@ -187,6 +187,7 @@ export default function Subcontractors({ role }: { role: Role }) {
 
       {adding && <ContactForm onClose={() => setAdding(false)} onDone={async () => { setAdding(false); await load(); }} />}
       {paying && <PaymentForm row={paying.row} onClose={() => setPaying(null)} onDone={async () => { setPaying(null); await load(); }} />}
+      </div>
     </div>
   );
 }

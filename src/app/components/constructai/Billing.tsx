@@ -11,6 +11,7 @@ import { CheckCircle2, Sparkles, ShieldCheck, Loader2, CreditCard, FileText, Dow
 import { jsPDF } from "jspdf";
 import type { Role } from "./roles";
 import api, { type BillingInvoiceDto, type UserProfile } from "../../services/api";
+import { PageHeader } from "./PageShell";
 
 type Plan = { id: string; name: string; cycle: string; usd: number; kes: number; note?: string; features?: string[]; aiCredits?: number; includedUsers?: number; perUserUsd?: number; perUserKes?: number };
 
@@ -254,7 +255,9 @@ export default function Billing({ role }: { role: Role }) {
   }
 
   return (
-    <div className="px-4 sm:px-7 py-6 max-w-4xl">
+    <div>
+      <PageHeader title="Billing & plan" subtitle="Your subscription, payments and invoices." />
+      <div className="px-4 sm:px-8 py-5 sm:py-6 max-w-4xl">
       {/* Current status. Rendered only once the real subscription state is known —
           otherwise it briefly flashes "No active subscription" at paying customers. */}
       {loading ? (
@@ -365,6 +368,7 @@ export default function Billing({ role }: { role: Role }) {
       )}
 
       {!comped && <div className="text-[11px] text-[#5B6675] mt-5">Secure payments via Paystack · M-Pesa, card & bank · cancel anytime. Prices billed in {currency}.</div>}
+    </div>
     </div>
   );
 }

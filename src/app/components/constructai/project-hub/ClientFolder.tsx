@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Copy, Eye, Loader2, Lock, Mail, MessageCircle, Send, Trash2, UserPlus, Users } from "lucide-react";
 import { ChatThread, CommentThread, MediaPicker, UpdateFeed } from "../client/ClientParts";
 import { clientApi, STAGES, UPDATE_KINDS, when, type ClientComment, type ClientUpdate, type Media } from "../client/clientData";
+import { Tabs } from "../PageShell";
 
 const input = "w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-[12.5px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]/60";
 const card = "rounded-xl border border-[#222A35] bg-[#11161D]";
@@ -118,11 +119,7 @@ export function ClientFolder({ projectId, canInvite, onOpenPortal }: { projectId
       {clients?.length ? (
         <p className="text-[11.5px] text-[#8A95A5]">Sharing with {clients.map((c) => c.name || c.email).join(", ")}{clients.some((c) => !c.joined) ? " (invited clients see everything once they create their account)" : ""}.</p>
       ) : null}
-      <div className="flex gap-1.5">
-        <button onClick={() => setTab("updates")} className={`h-9 px-3 rounded-lg text-[12.5px] border ${tab === "updates" ? "bg-[#FF6B1A] border-[#FF6B1A] text-white" : "border-[#222A35] text-[#C2CAD6]"}`}>Progress updates{updates?.length ? ` · ${updates.length}` : ""}</button>
-        <button onClick={() => setTab("chat")} className={`h-9 px-3 rounded-lg text-[12.5px] border inline-flex items-center gap-1.5 ${tab === "chat" ? "bg-[#FF6B1A] border-[#FF6B1A] text-white" : "border-[#222A35] text-[#C2CAD6]"}`}><MessageCircle className="w-4 h-4" /> Chat with client</button>
-        <button onClick={() => setTab("feedback")} className={`h-9 px-3 rounded-lg text-[12.5px] border ${tab === "feedback" ? "bg-[#FF6B1A] border-[#FF6B1A] text-white" : "border-[#222A35] text-[#C2CAD6]"}`}>Client feedback{clientComments.length ? ` · ${clientComments.length}` : ""}</button>
-      </div>
+      <Tabs label="Client sections" value={tab} onChange={setTab} items={[{ id: "updates", label: "Progress updates", count: updates?.length }, { id: "chat", label: "Chat with client" }, { id: "feedback", label: "Client feedback", count: clientComments.length }]} />
 
       {tab === "updates" && (
         <>

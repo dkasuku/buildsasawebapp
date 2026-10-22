@@ -10,6 +10,7 @@ import { EmptyState, ListSkeleton } from "./EmptyState";
 import { useProjects } from "./useProjects";
 import { useTeam } from "./useTeam";
 import { warnSaveFailed } from "./saveFeedback";
+import { PageHeader, Tabs } from "./PageShell";
 
 // The signed-in user, for attributing what they post. Announcements were being
 // stored with a hardcoded author of "Marcus Rivera · Contractor" regardless of
@@ -216,30 +217,14 @@ export function Announcements() {
   };
 
   return (
-    <div className="px-4 sm:px-7 py-5 sm:py-6 space-y-5 max-w-[900px]">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <div className="text-[15px] text-white font-display">Announcements</div>
-          <div className="text-[11px] text-[#8A95A5]">{announcements.length} total · {announcements.filter((a) => a.pinned).length} pinned · {announcements.filter((a) => a.priority === "urgent").length} urgent</div>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex border border-[#222A35] rounded-md overflow-hidden">
-            {(["all", "pinned", "urgent"] as const).map((f) => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={`h-8 px-3 text-[11px] capitalize ${filter === f ? "bg-[#161C24] text-white" : "text-[#8A95A5] hover:text-white"}`}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
-          <button onClick={() => setShowNew(true)} className="h-8 px-3 rounded-md bg-[#FF6B1A] text-white text-[12px] flex items-center gap-1.5">
-            <Plus className="w-3.5 h-3.5" /> New
-          </button>
-        </div>
-      </div>
-
+    <div>
+      <PageHeader
+        title="Announcements"
+        subtitle={<>{announcements.length} total · {announcements.filter((a) => a.pinned).length} pinned · {announcements.filter((a) => a.priority === "urgent").length} urgent</>}
+        actions={<button type="button" onClick={() => setShowNew(true)} className="ws-btn-primary"><Plus aria-hidden /> New announcement</button>}
+        tabs={<Tabs label="Show" value={filter} onChange={setFilter} items={[{ id: "all", label: "All" }, { id: "pinned", label: "Pinned" }, { id: "urgent", label: "Urgent" }]} />}
+      />
+      <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-5 max-w-[900px]">
       {/* Search + audience filter */}
       <div className="flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1">
@@ -467,6 +452,7 @@ export function Announcements() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

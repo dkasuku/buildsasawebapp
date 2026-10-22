@@ -13,6 +13,7 @@ import type { Role } from "./roles";
 import { ROLES } from "./roles";
 import { useTeam } from "./useTeam";
 import { warnSaveFailed } from "./saveFeedback";
+import { PageHeader, Tabs } from "./PageShell";
 
 type Drawing = {
   /** The sheet NUMBER (e.g. "A-101"). Markups and versions are correlated by
@@ -416,7 +417,9 @@ export function Plans({ role }: { role: Role }) {
   };
 
   return (
-    <div className="px-4 sm:px-6 lg:px-7 py-4 sm:py-5 lg:py-6 space-y-4 sm:space-y-5">
+    <div>
+      <PageHeader title="Plans & drawings" subtitle={<>{drawings.length} drawing{drawings.length === 1 ? "" : "s"} across {projectCount} project{projectCount === 1 ? "" : "s"}</>} />
+      <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-4 sm:space-y-5">
       {/* hidden file input */}
       <input
         ref={fileRef}
@@ -427,22 +430,6 @@ export function Plans({ role }: { role: Role }) {
         onChange={(e) => onPickFiles(e.target.files)}
       />
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {[
-          { i: FileStack, l: "Active drawings", v: String(drawings.length), s: `across ${projectCount} project${projectCount === 1 ? "" : "s"}` },
-          { i: Layers, l: "Disciplines", v: String(DISCIPLINES.length - 1), s: "Arch · Mech · Struct · Elec · Civ" },
-          { i: UsersIcon, l: "Field recipients", v: "0", s: "synced in last 24h" },
-          { i: Clock, l: "Avg. distribution", v: "—", s: "from publish → field" },
-        ].map((k) => (
-          <div key={k.l} className="rounded-xl border border-[#222A35] bg-[#11161D] p-3 sm:p-4">
-            <div className="w-8 h-8 rounded-md bg-[#FF6B1A]/15 text-[#FF6B1A] flex items-center justify-center"><k.i className="w-4 h-4" /></div>
-            <div className="text-[18px] sm:text-[22px] text-white mt-2 sm:mt-3 font-display">{k.v}</div>
-            <div className="text-[11px] text-[#8A95A5]">{k.l}</div>
-            <div className="text-[10px] text-[#5B6675] mt-1.5 pt-2 border-t border-[#222A35] line-clamp-1">{k.s}</div>
-          </div>
-        ))}
-      </div>
 
       {/* Controls */}
       <div className="flex flex-col gap-3">
@@ -532,17 +519,7 @@ export function Plans({ role }: { role: Role }) {
             )}
           </div>
         </div>
-        <div className="flex gap-1.5 overflow-x-auto -mx-1 px-1">
-          {DISCIPLINES.map((d) => (
-            <button
-              key={d}
-              onClick={() => setDiscipline(d)}
-              className={`px-3 h-9 rounded-md text-[12px] whitespace-nowrap shrink-0 ${discipline === d ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border border-[#FF6B1A]/30" : "bg-[#11161D] border border-[#222A35] text-[#8A95A5] hover:text-white"}`}
-            >
-              {d}
-            </button>
-          ))}
-        </div>
+        <Tabs label="Discipline" value={discipline} onChange={setDiscipline} items={DISCIPLINES.map((d) => ({ id: d, label: d }))} />
       </div>
 
       {/* Drawings grid */}
@@ -800,6 +777,7 @@ export function Plans({ role }: { role: Role }) {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }

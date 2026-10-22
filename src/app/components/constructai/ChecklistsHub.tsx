@@ -23,6 +23,8 @@ export function ChecklistsHub({ role, initialTab = "checklists", aiDraft, onCons
     <div>
       {canSeeAssignments && (
         <SectionTabs<Tab>
+          title="Checklists"
+          subtitle="Templates, assignments and digital submissions."
           tabs={[{ key: "checklists", label: "Checklists" }, { key: "assignments", label: "Assignments by trade" }]}
           value={tab}
           onChange={setTab}

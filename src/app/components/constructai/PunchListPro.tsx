@@ -14,6 +14,7 @@ import {
   ImageIcon, Send, ChevronDown, Users,
 } from "lucide-react";
 import type { Role } from "./roles";
+import { PageHeader } from "./PageShell";
 import { ROLES, TRADE_NAMES } from "./roles";
 import { useTeam, resolveName } from "./useTeam";
 import { MultiAssign } from "./MultiAssign";
@@ -157,31 +158,23 @@ export default function PunchListPro({ role }: { role: Role }) {
   };
 
   return (
-    <div className="px-4 sm:px-7 py-5 sm:py-6 space-y-4">
-      {/* status summary */}
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-        {(Object.keys(STATUS_META) as PunchStatus[]).map((s) => (
-          <div key={s} className="rounded-lg border border-[#222A35] bg-[#11161D] p-2.5 text-left">
-            <div className="text-[18px] text-white font-display">{counts[s] || 0}</div>
-            <div className="text-[10px] text-[#8A95A5]">{STATUS_META[s].label}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* controls */}
-      <div className="flex flex-wrap items-center gap-2">
+    <div>
+      <PageHeader title="Punch list" subtitle="Defects and snags, from logging to close-out.">
+        <div className="ws-toolbar">
         <div className="relative flex-1 min-w-[180px]">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#5B6675]" />
           <input value={filters.q} onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} placeholder="Search title, description, code, reference…" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-lg pl-9 pr-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
         </div>
-        <select value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))} className="h-9 bg-[#11161D] border border-[#222A35] rounded-lg px-2 text-[12px] text-white"><option value="">All statuses</option>{(Object.keys(STATUS_META) as PunchStatus[]).map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}</select>
-        <select value={filters.trade} onChange={(e) => setFilters((f) => ({ ...f, trade: e.target.value }))} className="h-9 bg-[#11161D] border border-[#222A35] rounded-lg px-2 text-[12px] text-white"><option value="">All trades</option>{TRADES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
-        <select value={filters.priority} onChange={(e) => setFilters((f) => ({ ...f, priority: e.target.value }))} className="h-9 bg-[#11161D] border border-[#222A35] rounded-lg px-2 text-[12px] text-white"><option value="">All priorities</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>
-        <select value={filters.assignee} onChange={(e) => setFilters((f) => ({ ...f, assignee: e.target.value }))} className="h-9 bg-[#11161D] border border-[#222A35] rounded-lg px-2 text-[12px] text-white"><option value="">Any assignee</option>{people.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
-        <button onClick={() => exportCSV(filtered)} className="h-9 px-2.5 rounded-md border border-[#222A35] text-[11px] text-[#8A95A5] hover:text-white flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> CSV</button>
-        <button onClick={() => exportLogPDF(filtered)} className="h-9 px-2.5 rounded-md border border-[#222A35] text-[11px] text-[#8A95A5] hover:text-white flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> PDF</button>
-        <button onClick={() => setShowForm({ id: "", projectId: projects[0]?.id || "", status: "open", priority: "medium" } as PunchItem)} className="h-9 px-4 bg-[#FF6B1A] text-white rounded-lg text-[12px] flex items-center gap-1.5 hover:bg-[#FF7E33]"><Plus className="w-3.5 h-3.5" /> Create Punch Item</button>
+        <select value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))} className="ws-select"><option value="">All statuses</option>{(Object.keys(STATUS_META) as PunchStatus[]).map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}</select>
+        <select value={filters.trade} onChange={(e) => setFilters((f) => ({ ...f, trade: e.target.value }))} className="ws-select"><option value="">All trades</option>{TRADES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+        <select value={filters.priority} onChange={(e) => setFilters((f) => ({ ...f, priority: e.target.value }))} className="ws-select"><option value="">All priorities</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>
+        <select value={filters.assignee} onChange={(e) => setFilters((f) => ({ ...f, assignee: e.target.value }))} className="ws-select"><option value="">Any assignee</option>{people.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
+        <button onClick={() => exportCSV(filtered)} className="ws-btn"><Download className="w-3.5 h-3.5" /> CSV</button>
+        <button onClick={() => exportLogPDF(filtered)} className="ws-btn"><Download className="w-3.5 h-3.5" /> PDF</button>
+        <button onClick={() => setShowForm({ id: "", projectId: projects[0]?.id || "", status: "open", priority: "medium" } as PunchItem)} className="ws-btn-primary"><Plus className="w-3.5 h-3.5" /> Create Punch Item</button>
       </div>
+      </PageHeader>
+      <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-4">      {/* controls */}
 
       {/* bulk bar */}
       {selected.size > 0 && (
@@ -267,6 +260,7 @@ export default function PunchListPro({ role }: { role: Role }) {
 
       {showForm && <PunchForm role={role} projects={projects} initial={showForm} onClose={() => setShowForm(null)} onSaved={() => { setShowForm(null); load(); }} />}
       {detailId && <PunchDetail id={detailId} role={role} onClose={() => setDetailId(null)} onChange={load} />}
+    </div>
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { useCurrency } from "./CurrencyContext";
 import { formatCompactCurrency, formatCurrency } from "./currency";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import api from "../../services/api";
+import { PageHeader } from "./PageShell";
 
 // Pricing base is KES; change-order amounts are stored in USD.
 const USD_TO_KES = 130;
@@ -111,7 +112,9 @@ export function Dashboard({
   ];
 
   return (
-    <div className="px-4 sm:px-7 py-5 sm:py-6 space-y-5 sm:space-y-6">
+    <div>
+      <PageHeader title="Dashboard" subtitle="Your projects, money and site activity at a glance." />
+      <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-5 sm:space-y-6">
       {!emptyWorkspace && <SiteWeather />}
       {emptyWorkspace && (
         <div className="rounded-xl border border-[#FF6B1A]/30 bg-[#FF6B1A]/5 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -269,6 +272,7 @@ export function Dashboard({
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }

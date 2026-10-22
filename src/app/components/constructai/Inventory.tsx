@@ -8,6 +8,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Plus, X, Trash2, Boxes, Package, ArrowDownToLine, ArrowUpFromLine, Pencil, AlertTriangle } from "lucide-react";
 import type { Role } from "./roles";
+import { PageHeader, Tabs } from "./PageShell";
 import { ROLES } from "./roles";
 import api, { type WastageReportDto, type InventoryItemDto, type InventoryMovementDto, type ProjectDto } from "../../services/api";
 import { EmptyState } from "./EmptyState";
@@ -56,35 +57,20 @@ export default function Inventory({ role = "Contractor" }: { role?: Role }) {
   const [tab, setTab] = useState<"materials" | "equipment">("materials");
 
   return (
-    <div className="px-4 sm:px-7 py-5 sm:py-6 space-y-5">
-      {/* Tab bar */}
-      <div className="flex flex-nowrap items-center gap-1 border-b border-[#222A35] overflow-x-auto whitespace-nowrap">
-        <TabButton active={tab === "materials"} onClick={() => setTab("materials")} icon={Boxes} label="Materials" />
-        <TabButton active={tab === "equipment"} onClick={() => setTab("equipment")} icon={Package} label="Equipment" />
-      </div>
-
+    <div>
+      <PageHeader
+        title="Inventory"
+        subtitle="Materials, equipment and tools across your sites."
+        tabs={<Tabs label="Inventory sections" value={tab} onChange={setTab} items={[{ id: "materials", label: "Materials" }, { id: "equipment", label: "Equipment" }]} />}
+      />
       {tab === "materials" ? (
-        <Materials canManage={canManage} role={role} />
-      ) : (
-        // Reuse the existing Equipment component, unmodified.
-        <div className="-mx-4 sm:-mx-7 -my-5 sm:-my-6">
-          <Equipment role={role} />
+        <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-5">
+          <Materials canManage={canManage} role={role} />
         </div>
+      ) : (
+        <Equipment role={role} embedded />
       )}
     </div>
-  );
-}
-
-function TabButton({ active, onClick, icon: Icon, label }: { active: boolean; onClick: () => void; icon: any; label: string }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex items-center gap-1.5 px-3.5 h-9 text-[13px] border-b-2 -mb-px transition-colors ${
-        active ? "border-[#FF6B1A] text-white" : "border-transparent text-[#8A95A5] hover:text-white"
-      }`}
-    >
-      <Icon className="w-4 h-4" /> {label}
-    </button>
   );
 }
 

@@ -16,6 +16,7 @@ import { ShareDialog } from "./ShareDialog";
 import { ResponsesPanel } from "./ResponsesPanel";
 import api, { type ChecklistTemplateDto, type ChecklistDto, type ChecklistQuestionDto } from "../../services/api";
 import * as XLSX from "xlsx";
+import { Tabs } from "./PageShell";
 
 // ---- Predefined upload-template contract (keeps imports from corrupting data) ----
 const TEMPLATE_COLUMNS = ["order_index","question_group","checklist_item_caption","question_type","default_answer","photo_available","answer_options","corrective_option","corrective_actions","policy"] as const;
@@ -339,18 +340,8 @@ export default function Checklists({ role, aiDraft, onConsumeAiDraft }: { role: 
   }
 
   return (
-    <div className="px-5 sm:px-7 py-6 max-w-[1400px] mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-        <div>
-          <h2 className="text-xl font-semibold text-white flex items-center gap-2"><ClipboardList className="w-5 h-5 text-[#FF6B1A]" /> Checklists</h2>
-          <p className="text-[12px] text-[#8A95A5] mt-0.5">Templates, assignments, and digital submissions</p>
-        </div>
-        <div className="flex bg-[#11161D] rounded-lg border border-[#222A35] p-0.5">
-          <button onClick={() => setTab("templates")} className={`px-3 py-1.5 text-[12px] rounded-md ${tab==="templates"?"bg-[#222A35] text-white":"text-[#8A95A5] hover:text-white"}`}>Templates</button>
-          <button onClick={() => setTab("checklists")} className={`px-3 py-1.5 text-[12px] rounded-md ${tab==="checklists"?"bg-[#222A35] text-white":"text-[#8A95A5] hover:text-white"}`}>My Checklists</button>
-        </div>
-      </div>
+    <div className="px-4 sm:px-8 py-5 sm:py-6 max-w-[1400px]">
+      <Tabs label="Checklist views" className="mb-5" value={tab} onChange={setTab} items={[{ id: "templates", label: "Templates" }, { id: "checklists", label: "My checklists" }]} />
 
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row gap-3 mb-5">

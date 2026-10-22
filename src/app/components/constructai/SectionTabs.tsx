@@ -1,26 +1,19 @@
-// Small tab bar for pages that hold two closely related views (Checklists +
-// trade assignments, Observations + corrective actions), so related records
-// live behind one sidebar entry instead of two.
+// Top-of-page section switcher (e.g. Observations / Corrective actions). Built
+// on the shared header band and tab strip so every page's tabs look the same.
+import { PageHeader, Tabs } from "./PageShell";
 
-export function SectionTabs<T extends string>({ tabs, value, onChange }: {
+export function SectionTabs<T extends string>({ tabs, value, onChange, title, subtitle }: {
   tabs: { key: T; label: string; count?: number }[];
   value: T;
   onChange: (key: T) => void;
+  title?: string;
+  subtitle?: string;
 }) {
   return (
-    <div className="px-4 sm:px-7 pt-5">
-      <div className="inline-flex gap-1 p-1 rounded-lg border border-[#222A35] bg-[#11161D]">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => onChange(t.key)}
-            className={`h-8 px-3.5 rounded-md text-[12px] flex items-center gap-1.5 transition ${value === t.key ? "bg-[#FF6B1A] text-white" : "text-[#8A95A5] hover:text-white"}`}
-          >
-            {t.label}
-            {t.count ? <span className={`text-[10px] px-1.5 rounded-full ${value === t.key ? "bg-white/20" : "bg-[#222A35]"}`}>{t.count}</span> : null}
-          </button>
-        ))}
-      </div>
-    </div>
+    <PageHeader
+      title={title}
+      subtitle={subtitle}
+      tabs={<Tabs<T> label={title ? `${title} sections` : "Sections"} value={value} onChange={onChange} items={tabs.map((t) => ({ id: t.key, label: t.label, count: t.count }))} />}
+    />
   );
 }

@@ -13,6 +13,7 @@ import { ROLES, TRADES } from "./roles";
 import { useTeam, resolveName } from "./useTeam";
 import api, { type ScheduleItemDto, type ProjectDto, type ChecklistDto } from "../../services/api";
 import { checklistProgress } from "./Checklists";
+import { PageHeader, Tabs } from "./PageShell";
 
 const DAY = 86400000;
 const STATUS: Record<string, { label: string; bar: string }> = {
@@ -142,13 +143,11 @@ export function Schedule({ role = "Contractor" }: { role?: Role }) {
 
   const ROW_H = 44;
   return (
-    <div className="ws-page">
-      <div className="ws-page-head">
-        <div>
-          <h1 className="ws-h1">Schedule</h1>
-          <div className="ws-sub">The project programme: activities, phases and milestones against the calendar.</div>
-        </div>
-        <div className="ws-toolbar">
+    <div>
+      <PageHeader
+        title="Schedule"
+        subtitle="The project programme: activities, phases and milestones against the calendar."
+        actions={<>
           <label className="sr-only" htmlFor="sch-project">Project</label>
           <select id="sch-project" className="ws-select" style={{ minWidth: 200 }} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
             {projects.length === 0 && <option value="">No projects</option>}
@@ -156,16 +155,12 @@ export function Schedule({ role = "Contractor" }: { role?: Role }) {
           </select>
           {canManage && projectId && <button type="button" className="ws-btn" onClick={() => setGenOpen(true)}><Sparkles aria-hidden /> AI schedule</button>}
           {canManage && projectId && <button type="button" className="ws-btn-primary" onClick={() => setEditing("new")}><Plus aria-hidden /> Add activity</button>}
-        </div>
-      </div>
+        </>}
+        tabs={<Tabs label="Schedule view" value={mode} onChange={setMode} items={[{ id: "gantt", label: "Gantt" }, { id: "list", label: "List" }, { id: "milestones", label: "Milestones" }]} />}
+      />
+      <div className="ws-page">
 
       <div className="flex flex-wrap items-center gap-2">
-        <div role="group" aria-label="View" className="inline-flex rounded-lg p-0.5" style={{ border: "1px solid var(--ws-btn-border)", background: "var(--ws-card)" }}>
-          {(["gantt", "list", "milestones"] as const).map((m) => (
-            <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)} className="h-8 px-3 rounded-md text-[13px] font-medium capitalize"
-              style={mode === m ? { background: "var(--ws-ink)", color: "var(--ws-ink-text)" } : { color: "var(--ws-text-2)" }}>{m === "gantt" ? "Gantt" : m}</button>
-          ))}
-        </div>
         {mode === "gantt" && (
           <>
             <label className="sr-only" htmlFor="sch-zoom">Scale</label>
@@ -334,6 +329,7 @@ export function Schedule({ role = "Contractor" }: { role?: Role }) {
       {genOpen && projectId && (
         <GenerateModal projectId={projectId} onClose={() => setGenOpen(false)} onDone={() => { setGenOpen(false); load(); }} />
       )}
+      </div>
     </div>
   );
 }

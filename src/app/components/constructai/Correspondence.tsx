@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import { Plus, Search, X, MessageSquare, FileText, Send, Download, ArrowUpRight, ArrowDownLeft, Paperclip } from "lucide-react";
 import type { Role } from "./roles";
+import { PageHeader } from "./PageShell";
 import api from "../../services/api";
 import { EmptyState, ListSkeleton } from "./EmptyState";
 import { ProjectSelect } from "./ProjectSelect";
@@ -82,18 +83,21 @@ export default function CorrespondenceModule({ role }: { role: Role }) {
   };
 
   return (
-    <div className="px-4 sm:px-7 py-6">
-      <div className="flex flex-wrap items-center gap-2 mb-4">
+    <div>
+      <PageHeader title="Correspondence" subtitle="Letters, submittals, transmittals and notices.">
+        <div className="ws-toolbar">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#5B6675]" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search correspondence…" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-lg pl-9 pr-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]" />
         </div>
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="h-9 bg-[#11161D] border border-[#222A35] rounded-lg px-2 text-[12px] text-white">
+        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="ws-select">
           <option value="all">All Types</option>
           <option>Letter</option><option>Submittal</option><option>Transmittal</option><option>Notice</option>
         </select>
-        <button onClick={() => setShowNew(true)} className="h-9 px-4 bg-[#FF6B1A] text-black rounded-lg text-[12px] font-medium flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> New Correspondence</button>
+        <button onClick={() => setShowNew(true)} className="ws-btn-primary"><Plus className="w-3.5 h-3.5" /> New Correspondence</button>
       </div>
+      </PageHeader>
+      <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-4">
 
       <div className="space-y-2">
         {!loaded && <ListSkeleton />}
@@ -177,6 +181,7 @@ export default function CorrespondenceModule({ role }: { role: Role }) {
           toast.error(`Saved locally only — ${e?.message || "the server rejected it"}`, { duration: 8000 });
         }
       }} />}
+    </div>
     </div>
   );
 }

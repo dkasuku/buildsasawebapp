@@ -6,6 +6,7 @@ import { ROLES } from "./roles";
 import { AI_GREETING, looksLikeFormRequest, inferTradeCategory, aiErrorText, type Msg, type AiFormDraft } from "./AiAssistantPanel";
 import api, { type ProjectOverviewDto } from "../../services/api";
 import { useProjects } from "./useProjects";
+import { PageHeader, Tabs } from "./PageShell";
 
 function aiReply(q: string): string {
   const l = q.toLowerCase();
@@ -178,12 +179,13 @@ export default function BuildflexAI({ role, messages, setMessages, onOpenForm }:
   const BTN = (t: string) => `h-9 px-3 text-[12px] flex items-center gap-1.5 ${tab===t?"bg-[#161C24] text-white":"text-[#8A95A5]"}`;
 
   return (
-    <div className="px-4 sm:px-7 py-6 space-y-6">
-      <div><div className="flex items-center gap-2 text-[14px] text-white font-display"><Sparkles className="w-5 h-5 text-[#FF6B1A]" /> Buildsasa AI</div><div className="text-[11px] text-[#8A95A5] mt-0.5">AI assistant for financial reports and building expertise</div></div>
-      <div className="flex border border-[#222A35] rounded-md overflow-hidden w-fit">
-        <button onClick={()=>setTab("ask")} className={BTN("ask")}><MessageSquare className="w-3 h-3" /> Ask AI</button>
-        {perms.financials && <button onClick={()=>setTab("financials")} className={BTN("financials")}><TrendingUp className="w-3 h-3" /> Financial Reports</button>}
-      </div>
+    <div>
+      <PageHeader
+        title="Buildsasa AI"
+        subtitle="Ask about your projects, money and building practice, or draft reports."
+        tabs={<Tabs label="AI tools" value={tab} onChange={setTab} items={[{ id: "ask", label: "Ask AI" }, { id: "financials", label: "Financial reports", hidden: !perms.financials }]} />}
+      />
+      <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-6">
 
       {tab==="ask"&&(
         <div className="rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden flex flex-col" style={{height:"calc(100vh - 260px)",minHeight:360}}>
@@ -235,6 +237,7 @@ export default function BuildflexAI({ role, messages, setMessages, onOpenForm }:
           )}
         </div>
       )}
+          </div>
     </div>
   );
 }
