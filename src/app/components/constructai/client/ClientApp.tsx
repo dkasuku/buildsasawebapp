@@ -2,16 +2,18 @@
 // abroad) following their sites. Everything a contractor, an inspector they
 // assigned, or Buildsasa's own site reporters share arrives here, and the
 // client handles approvals, invoices, jobs and chats from one place.
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Bell, Briefcase, ChevronDown, FileSignature, Building2, CalendarDays, Camera, ChevronRight, ClipboardCheck, Eye, Home, Loader2,
+  ArrowLeft, Bell, Briefcase, ChevronDown, FileSignature, Building2, CalendarDays, Camera, ChevronRight, ClipboardCheck, Compass, Eye, Home, Loader2,
   LogOut, MapPin, MessageCircle, Moon, Phone, Search, ShieldCheck, Sun, User, Users, Wallet,
 } from "lucide-react";
 import { ChatThread, Chip, CommentThread, MediaGrid, MediaPicker, UpdateFeed } from "./ClientParts";
 import { PublicQuoteView } from "../PublicQuoteView";
 import { PublicPortalView } from "../PublicPortalView";
 import { RateDialog, Stars, TrustBadge } from "./Trust";
+// The 360° viewer pulls in three.js; load it only when a tour is opened.
+const TourGallery = lazy(() => import("./VirtualTour").then((m) => ({ default: m.TourGallery })));
 import { MapPicker } from "../MapPicker";
 import { useWelcome, WelcomeModal } from "../Welcome";
 import { clientApi, kes, SERVICES, STAGES, stageLabel, toMedia, when, type ClientComment, type ClientHome, type ProjectRequestRow, type ClientQuote, type Company, type Media, type Reporting } from "./clientData";
@@ -312,6 +314,7 @@ function SiteView({ id, initialTab, go }: { id: string; initialTab?: string; go:
   const pending = (d.changeOrders || []).filter((c: any) => c.status === "owner_approval").length + (d.selections || []).filter((s: any) => s.status === "awaiting_client").length;
   const tabs = [
     { key: "progress", label: "Progress", icon: Camera, n: d.updates.length },
+    { key: "tours", label: "360° tour", icon: Compass, n: d.tours?.length },
     { key: "logs", label: "Daily logs", icon: CalendarDays, n: d.dailyLogs.length },
     { key: "inspections", label: "Inspections", icon: ClipboardCheck, n: d.inspections.length },
     { key: "approvals", label: "Approvals & invoices", icon: Wallet, n: pending, alert: pending > 0 },
@@ -347,6 +350,7 @@ function SiteView({ id, initialTab, go }: { id: string; initialTab?: string; go:
           {d.photos?.length > 0 && <div className="mt-5"><div className="text-[13px] font-medium mb-2">Site photos from daily logs</div><MediaGrid media={d.photos.flatMap((l: any) => [...toMedia(l.photos), ...l.videos.map((u: string) => ({ url: u, type: "video" as const }))])} max={16} /></div>}
         </>
       )}
+      {tab === "tours" && <Suspense fallback={<div className="py-10 text-center text-[13px] text-[#8A95A5]"><Loader2 className="w-4 h-4 animate-spin inline mr-1" />Loading…</div>}><TourGallery tours={d.tours || []} renderComments={(t: any) => thr("tour", t.id)} /></Suspense>}
       {tab === "logs" && (d.dailyLogs.length === 0 ? <Empty text="No daily logs shared yet. When the site team records a day's work, it shows here with photos, weather and how many people were on site." /> : (
         <div className="space-y-3">{d.dailyLogs.map((l: any) => (
           <div key={l.id} className={`${card} p-4`}>

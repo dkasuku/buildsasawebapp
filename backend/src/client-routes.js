@@ -15,7 +15,7 @@ const STAGES = [
   'services', 'finishes', 'solar', 'cctv', 'landscaping', 'garbage', 'handover', 'other',
 ];
 const UPDATE_KINDS = ['progress', 'inspection', 'milestone', 'issue', 'report', 'document'];
-const COMMENT_TARGETS = ['update', 'inspection', 'dailylog', 'quote', 'changeorder', 'selection', 'invoice'];
+const COMMENT_TARGETS = ['update', 'inspection', 'dailylog', 'quote', 'changeorder', 'selection', 'invoice', 'tour'];
 const REPORTING_FEE_PERCENT = 10;
 
 module.exports = function clientRoutes(app, d) {
@@ -35,6 +35,24 @@ module.exports = function clientRoutes(app, d) {
   };
   const updateDto = (u) => ({ ...u, media: parse(u.media) });
   const msgDto = (m) => ({ ...m, media: parse(m.media) });
+  // Tour scenes: at most 60, each a durable 360° photo URL; hotspots point at
+  // another scene in the same tour (angles in radians, as the viewer reports them).
+  const num = (v, lo, hi) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : 0; };
+  const cleanScenes = (v) => {
+    const arr = (Array.isArray(v) ? v : parse(v))
+      .filter((s) => s && typeof s.url === 'string' && /^https?:\/\//i.test(s.url) && s.id)
+      .slice(0, 60);
+    const ids = new Set(arr.map((s) => String(s.id)));
+    const out = arr.map((s) => ({
+      id: String(s.id).slice(0, 40), name: text(s.name, 80) || 'Scene', url: s.url, yaw: num(s.yaw, -7, 7),
+      hotspots: (Array.isArray(s.hotspots) ? s.hotspots : [])
+        .filter((h) => h && ids.has(String(h.target)) && String(h.target) !== String(s.id))
+        .slice(0, 30)
+        .map((h) => ({ id: String(h.id || Math.random().toString(36).slice(2, 10)).slice(0, 40), yaw: num(h.yaw, -7, 7), pitch: num(h.pitch, -1.6, 1.6), target: String(h.target), label: text(h.label, 80) })),
+    }));
+    return out.length ? JSON.stringify(out) : null;
+  };
+  const tourDto = (t) => ({ ...t, scenes: parse(t.scenes) });
   const kes = (n) => `KES ${Math.round(Number(n) || 0).toLocaleString('en-KE')}`;
 
   const requireClient = (req, res, next) => (req.user && req.user.role === 'Client' ? next() : res.status(403).json({ error: 'This page is for client accounts.' }));
@@ -223,11 +241,12 @@ module.exports = function clientRoutes(app, d) {
         token = require('crypto').randomBytes(12).toString('base64url');
         await prismaBase.project.update({ where: { id: p.id }, data: { portalToken: token, portalSharedAt: new Date() } });
       }
-      const [portal, updates, logs, inspections] = await Promise.all([
+      const [portal, updates, logs, inspections, tours] = await Promise.all([
         portalPayload({ ...p, portalToken: token }),
         prismaBase.clientUpdate.findMany({ where: { projectId: p.id }, orderBy: { createdAt: 'desc' }, take: 200 }),
         prismaBase.dailyLog.findMany({ where: { projectId: p.id, clientVisible: true }, orderBy: { date: 'desc' }, take: 90 }),
         prismaBase.inspection.findMany({ where: { projectId: p.id, clientVisible: true }, orderBy: { createdAt: 'desc' }, take: 100 }),
+        prismaBase.virtualTour.findMany({ where: { projectId: p.id, sharedAt: { not: null } }, orderBy: { sharedAt: 'desc' }, take: 50 }),
       ]);
       const urls = (raw) => parse(raw).filter((x) => typeof x === 'string' && /^https?:\/\//i.test(x));
       res.json({
@@ -236,6 +255,7 @@ module.exports = function clientRoutes(app, d) {
         // slow to reply and why new updates may pause.
         id: p.id, companyId: p.workspaceId, companyActive: (await activeWorkspaceIds()).includes(p.workspaceId), portalToken: token, ...portal,
         updates: updates.map(updateDto),
+        tours: tours.map((t) => ({ id: t.id, title: t.title, description: t.description, stage: t.stage, createdBy: t.createdBy, sharedAt: t.sharedAt, scenes: parse(t.scenes) })),
         // Daily logs ARE shared (a client abroad wants to know the site was worked
         // on, by how many people, in what weather) but the free-text notes are
         // written for the site team, so only the summary fields leave.
@@ -310,7 +330,7 @@ module.exports = function clientRoutes(app, d) {
       const body = text(b.body, 3000); const media = cleanMedia(b.media);
       if (!body && !media) return res.status(400).json({ error: 'Write a comment or attach a photo.' });
       const row = await prismaBase.clientComment.create({ data: { workspaceId: hit.p.workspaceId, projectId: hit.p.id, targetType: b.targetType, targetId: String(b.targetId), authorType: 'client', authorId: hit.u.id, authorName: hit.u.name, body, media } });
-      emailTeam(hit.p.workspaceId, `Your client commented on ${hit.p.name}`, `<b>${hit.u.name}</b> commented on a shared ${b.targetType === 'dailylog' ? 'daily log' : b.targetType === 'changeorder' ? 'change order' : b.targetType}: “${(body || 'sent photos').slice(0, 300)}”. Reply from the project's Client tab, Client feedback.`);
+      emailTeam(hit.p.workspaceId, `Your client commented on ${hit.p.name}`, `<b>${hit.u.name}</b> commented on a shared ${b.targetType === 'dailylog' ? 'daily log' : b.targetType === 'changeorder' ? 'change order' : b.targetType === 'tour' ? '360° tour' : b.targetType}: “${(body || 'sent photos').slice(0, 300)}”. Reply from the project's Client tab, Client feedback.`);
       res.json(msgDto(row));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -698,6 +718,76 @@ module.exports = function clientRoutes(app, d) {
       if (!u || u.projectId !== p.id) return res.status(404).json({ error: 'Update not found' });
       if (u.authorId !== req.user.sub && !hasRole(req, CAN_SHARE_PORTAL)) return res.status(403).json({ error: 'Only the author or a manager can remove this update.' });
       await prismaBase.clientUpdate.delete({ where: { id: u.id } });
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // 360° virtual tours. A draft stays with the team while scenes are uploaded
+  // and hotspots placed; "share" makes it visible to the client and emails them.
+  app.get('/api/projects/:projectId/tours', auth, async (req, res) => {
+    try {
+      const p = await ownProject(req.params.projectId);
+      if (!p) return res.status(404).json({ error: 'Project not found' });
+      res.json((await prismaBase.virtualTour.findMany({ where: { projectId: p.id }, orderBy: { createdAt: 'desc' }, take: 100 })).map(tourDto));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/projects/:projectId/tours', auth, async (req, res) => {
+    try {
+      const p = await ownProject(req.params.projectId);
+      if (!p) return res.status(404).json({ error: 'Project not found' });
+      const b = req.body || {};
+      const title = text(b.title, 200);
+      if (!title) return res.status(400).json({ error: 'Give the tour a name, e.g. "Show house walk-through".' });
+      const row = await prismaBase.virtualTour.create({ data: {
+        workspaceId: p.workspaceId, projectId: p.id, title, description: text(b.description, 4000),
+        stage: STAGES.includes(b.stage) ? b.stage : 'other', scenes: cleanScenes(b.scenes),
+        createdById: req.user.sub, createdBy: req.user.name || null,
+      } });
+      res.json(tourDto(row));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.put('/api/projects/:projectId/tours/:id', auth, async (req, res) => {
+    try {
+      const p = await ownProject(req.params.projectId);
+      if (!p) return res.status(404).json({ error: 'Project not found' });
+      const t = await prismaBase.virtualTour.findUnique({ where: { id: req.params.id } });
+      if (!t || t.projectId !== p.id) return res.status(404).json({ error: 'Tour not found' });
+      const b = req.body || {};
+      const data = {};
+      if (b.title !== undefined) { if (!text(b.title, 200)) return res.status(400).json({ error: 'The tour needs a name.' }); data.title = text(b.title, 200); }
+      if (b.description !== undefined) data.description = text(b.description, 4000);
+      if (b.stage !== undefined) data.stage = STAGES.includes(b.stage) ? b.stage : 'other';
+      if (b.scenes !== undefined) data.scenes = cleanScenes(b.scenes);
+      res.json(tourDto(await prismaBase.virtualTour.update({ where: { id: t.id }, data })));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/projects/:projectId/tours/:id/share', auth, async (req, res) => {
+    try {
+      if (!hasRole(req, CAN_SHARE_PORTAL)) return res.status(403).json({ error: 'Your role cannot share with clients.' });
+      const p = await ownProject(req.params.projectId);
+      if (!p) return res.status(404).json({ error: 'Project not found' });
+      const t = await prismaBase.virtualTour.findUnique({ where: { id: req.params.id } });
+      if (!t || t.projectId !== p.id) return res.status(404).json({ error: 'Tour not found' });
+      const share = req.body?.shared !== false;
+      if (share && !(await hasClient(p.id))) return res.status(409).json({ error: NO_CLIENT });
+      if (share && !parse(t.scenes).length) return res.status(400).json({ error: 'Add at least one 360° photo before sharing the tour.' });
+      const row = await prismaBase.virtualTour.update({ where: { id: t.id }, data: { sharedAt: share ? (t.sharedAt || new Date()) : null } });
+      if (share && !t.sharedAt) emailClients(p.id, `360° tour of ${p.name}: ${t.title}`, `<b>${req.user.name || 'Your contractor'}</b> shared a 360° virtual tour of <b>${p.name}</b>: “${t.title}” (${parse(t.scenes).length} scene${parse(t.scenes).length > 1 ? 's' : ''}). Look around every room as if you were standing there.`);
+      res.json(tourDto(row));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete('/api/projects/:projectId/tours/:id', auth, async (req, res) => {
+    try {
+      const p = await ownProject(req.params.projectId);
+      if (!p) return res.status(404).json({ error: 'Project not found' });
+      const t = await prismaBase.virtualTour.findUnique({ where: { id: req.params.id } });
+      if (!t || t.projectId !== p.id) return res.status(404).json({ error: 'Tour not found' });
+      if (t.createdById !== req.user.sub && !hasRole(req, CAN_SHARE_PORTAL)) return res.status(403).json({ error: 'Only the author or a manager can delete this tour.' });
+      await prismaBase.virtualTour.delete({ where: { id: t.id } });
       res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });

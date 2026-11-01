@@ -2,12 +2,14 @@
 // two ways to keep them informed — progress updates tagged to a stage (with
 // bulk photos and short videos) and a chat. Built for clients abroad who need
 // to trust what is happening on a site they cannot visit.
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Copy, Eye, Loader2, Lock, Mail, MessageCircle, Send, Trash2, UserPlus, Users } from "lucide-react";
 import { ChatThread, CommentThread, MediaPicker, UpdateFeed } from "../client/ClientParts";
 import { clientApi, STAGES, UPDATE_KINDS, when, type ClientComment, type ClientUpdate, type Media } from "../client/clientData";
 import { Tabs } from "../PageShell";
+// The 360° viewer pulls in three.js; load it only when the tours tab opens.
+const TourBuilder = lazy(() => import("../client/VirtualTour").then((m) => ({ default: m.TourBuilder })));
 
 const input = "w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-[12.5px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]/60";
 const card = "rounded-xl border border-[#222A35] bg-[#11161D]";
@@ -15,7 +17,7 @@ const card = "rounded-xl border border-[#222A35] bg-[#11161D]";
 export function ClientFolder({ projectId, canInvite, onOpenPortal }: { projectId: string; canInvite: boolean; /** The older view-only link, for clients who won't create an account. */ onOpenPortal?: () => void }) {
   const [clients, setClients] = useState<{ id: string; email: string; name?: string | null; joined: boolean }[] | null>(null);
   const [updates, setUpdates] = useState<ClientUpdate[] | null>(null);
-  const [tab, setTab] = useState<"updates" | "chat" | "feedback">("updates");
+  const [tab, setTab] = useState<"updates" | "tours" | "chat" | "feedback">("updates");
   const [priv, setPriv] = useState(false);
   const [comments, setComments] = useState<ClientComment[]>([]);
   const [inv, setInv] = useState({ email: "", name: "" });
@@ -119,7 +121,7 @@ export function ClientFolder({ projectId, canInvite, onOpenPortal }: { projectId
       {clients?.length ? (
         <p className="text-[11.5px] text-[#8A95A5]">Sharing with {clients.map((c) => c.name || c.email).join(", ")}{clients.some((c) => !c.joined) ? " (invited clients see everything once they create their account)" : ""}.</p>
       ) : null}
-      <Tabs label="Client sections" value={tab} onChange={setTab} items={[{ id: "updates", label: "Progress updates", count: updates?.length }, { id: "chat", label: "Chat with client" }, { id: "feedback", label: "Client feedback", count: clientComments.length }]} />
+      <Tabs label="Client sections" value={tab} onChange={setTab} items={[{ id: "updates", label: "Progress updates", count: updates?.length }, { id: "tours", label: "360° tours" }, { id: "chat", label: "Chat with client" }, { id: "feedback", label: "Client feedback", count: clientComments.length }]} />
 
       {tab === "updates" && (
         <>
@@ -143,6 +145,7 @@ export function ClientFolder({ projectId, canInvite, onOpenPortal }: { projectId
             : <UpdateFeed updates={updates} onDelete={del} renderComments={(u) => reply("update", u.id)} empty="Nothing shared yet. Post photos of each stage (land clearing, fencing, foundation, roofing…) so the client sees the work as it happens." />}
         </>
       )}
+      {tab === "tours" && <Suspense fallback={<div className="text-[12px] text-[#5B6675]"><Loader2 className="w-3.5 h-3.5 animate-spin inline mr-1" />Loading…</div>}><TourBuilder projectId={projectId} canShare={canInvite} hasClient={!!clients?.length} /></Suspense>}
       {tab === "chat" && (
         <>
           <div className="flex gap-1.5">
@@ -158,7 +161,7 @@ export function ClientFolder({ projectId, canInvite, onOpenPortal }: { projectId
           <div className="space-y-3">
             {[...new Map(clientComments.slice().reverse().map((c) => [c.targetType + c.targetId, c])).values()].map((c) => (
               <div key={c.targetType + c.targetId} className={`${card} p-4`}>
-                <div className="text-[11px] text-[#8A95A5]">On a {c.targetType === "dailylog" ? "daily log" : c.targetType === "changeorder" ? "change order" : c.targetType === "update" ? "progress update" : c.targetType} · latest {when(c.createdAt)}</div>
+                <div className="text-[11px] text-[#8A95A5]">On a {c.targetType === "dailylog" ? "daily log" : c.targetType === "changeorder" ? "change order" : c.targetType === "update" ? "progress update" : c.targetType === "tour" ? "360° tour" : c.targetType} · latest {when(c.createdAt)}</div>
                 <div className="text-[13px] text-white mt-0.5">{(updates || []).find((u) => u.id === c.targetId)?.title || c.body || "Photos from the client"}</div>
                 {reply(c.targetType, c.targetId)}
               </div>

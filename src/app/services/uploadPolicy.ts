@@ -21,16 +21,21 @@ export function batchRejectReason(files: File[]): string | null {
 }
 const IMAGE_SHRINK_ABOVE_BYTES = 1.5 * 1024 * 1024;
 const IMAGE_MAX_EDGE = 2048;
+// 360° panoramas are stretched across the whole field of view, so 2048px wide
+// looks blurry. They keep up to 6144px (the viewer downsizes further on phones
+// whose GPU can't hold that) and may be as large as a document before shrinking.
+export const PANORAMA_MAX_EDGE = 6144;
+export type UploadOpts = { panorama?: boolean };
 const IMAGE_QUALITY = 0.82;
 
 /** Downscale a large photo to a JPEG no wider than 2048px. Non-images, small
  *  images, and anything the browser cannot decode are returned untouched. */
-export async function shrinkImage(file: File): Promise<File> {
+export async function shrinkImage(file: File, opts: UploadOpts = {}): Promise<File> {
   if (!file.type.startsWith("image/") || file.type === "image/gif" || file.type === "image/svg+xml") return file;
   if (file.size <= IMAGE_SHRINK_ABOVE_BYTES) return file;
   try {
     const bitmap = await createImageBitmap(file);
-    const scale = Math.min(1, IMAGE_MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+    const scale = Math.min(1, (opts.panorama ? PANORAMA_MAX_EDGE : IMAGE_MAX_EDGE) / Math.max(bitmap.width, bitmap.height));
     const w = Math.round(bitmap.width * scale), h = Math.round(bitmap.height * scale);
     const canvas = document.createElement("canvas");
     canvas.width = w; canvas.height = h;
@@ -47,10 +52,11 @@ export async function shrinkImage(file: File): Promise<File> {
 }
 
 /** The reason a file must not be uploaded, or null if it is fine. */
-export function rejectReason(file: File): string | null {
+export function rejectReason(file: File, opts: UploadOpts = {}): string | null {
   const mb = file.size / 1024 / 1024;
   if (file.type.startsWith("image/")) {
-    if (mb > MAX_IMAGE_MB) return `${file.name} is ${mb.toFixed(0)} MB — photos must be under ${MAX_IMAGE_MB} MB`;
+    const max = opts.panorama ? MAX_DOCUMENT_MB : MAX_IMAGE_MB;
+    if (mb > max) return `${file.name} is ${mb.toFixed(0)} MB — ${opts.panorama ? "360° photos" : "photos"} must be under ${max} MB`;
     return null;
   }
   if (file.type.startsWith("video/")) {

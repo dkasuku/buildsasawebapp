@@ -1694,3 +1694,25 @@ model ClientComment {
   @@index([workspaceId, targetType, targetId])
   @@index([projectId, createdAt])
 }
+
+// A 360° virtual tour of a building, compound or house: scenes (one
+// equirectangular photo each, from a 360 camera or a phone's panorama mode)
+// joined by hotspots the viewer clicks to walk from room to room. Built by the
+// contractor's team; the client sees it once it is shared (sharedAt set).
+model VirtualTour {
+  id          String    @id @default(cuid())
+  workspaceId String
+  projectId   String
+  title       String
+  description String?
+  stage       String    @default("other")
+  // JSON [{ id, name, url, yaw?, hotspots: [{ id, yaw, pitch, target, label? }] }]
+  scenes      String?
+  createdById String?
+  createdBy   String?
+  sharedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([projectId, createdAt])
+}

@@ -1,4 +1,4 @@
-import { rejectReason, shrinkImage } from "./uploadPolicy";
+import { rejectReason, shrinkImage, type UploadOpts } from "./uploadPolicy";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
@@ -1177,16 +1177,16 @@ export const api = {
   // Upload several files in one request. Returns the URLs that stored plus the
   // names that failed, so a caller can save what worked and name what didn't
   // rather than throwing the whole batch away.
-  uploadFiles: async (files: File[], onProgress?: (pct: number) => void): Promise<{ urls: string[]; failed: { name: string; error: string }[] }> => {
+  uploadFiles: async (files: File[], onProgress?: (pct: number) => void, opts: UploadOpts = {}): Promise<{ urls: string[]; failed: { name: string; error: string }[] }> => {
     const list = Array.from(files || []);
     if (!list.length) return { urls: [], failed: [] };
     const failed: { name: string; error: string }[] = [];
     const usable: File[] = [];
     for (const f of list) {
       if (f.size === 0) { failed.push({ name: f.name, error: "the file is empty (0 bytes)" }); continue; }
-      const why = rejectReason(f);
+      const why = rejectReason(f, opts);
       if (why) { failed.push({ name: f.name, error: why }); continue; }
-      usable.push(await shrinkImage(f));
+      usable.push(await shrinkImage(f, opts));
     }
     if (!usable.length) return { urls: [], failed };
     const fd = new FormData();
