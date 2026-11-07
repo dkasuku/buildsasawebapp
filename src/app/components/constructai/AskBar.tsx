@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { ArrowUp, Loader2, Plus, X } from "lucide-react";
 import api from "../../services/api";
 
-export function AskBar({ hint, onAsk }: { hint: string; onAsk: (text: string, images: string[]) => void }) {
+export function AskBar({ title, hint, onAsk }: { title: string; hint: string; onAsk: (text: string, images: string[]) => void }) {
   const [q, setQ] = useState("");
   const [img, setImg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -30,7 +30,7 @@ export function AskBar({ hint, onAsk }: { hint: string; onAsk: (text: string, im
   return (
     <div className="px-4 sm:px-7 pt-5 pb-1">
       <div className="max-w-2xl mx-auto">
-        <div className="text-center text-[17px] sm:text-[19px] text-white font-display mb-2.5">What would you like to create?</div>
+        <div className="text-center text-[17px] sm:text-[19px] text-white font-display mb-2.5">{title}</div>
         <div className="flex items-center gap-2 h-12 pl-2 pr-1.5 rounded-full border border-[#222A35] bg-[#11161D] shadow-[0_4px_18px_rgba(0,0,0,0.10)] focus-within:border-[#FF6B1A]/60 transition-colors">
           <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => attach(e.target.files)} />
           <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} title="Attach a photo (e.g. a raw room to redesign)" aria-label="Attach a photo"

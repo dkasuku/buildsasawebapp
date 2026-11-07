@@ -54,7 +54,7 @@ import { CurrencyProvider } from "./components/constructai/CurrencyContext";
 import { visibleViewsFor } from "./config/features";
 import { ModuleTabs } from "./components/constructai/ModuleTabs";
 import { AskBar } from "./components/constructai/AskBar";
-import { moduleOf } from "./components/constructai/modules";
+import { askFor, moduleOf } from "./components/constructai/modules";
 import { Onboarding } from "./components/constructai/Onboarding";
 import { ProfileSettings } from "./components/constructai/ProfileSettings";
 import { CreditCard } from "lucide-react";
@@ -120,8 +120,9 @@ export default function App() {
       // payment is verified there (Billing reads the query param).
       const payRef = params.get("reference") || params.get("trxref");
       if (payRef && localStorage.getItem("constructai-token")) return "billing";
-      // Login is required: start on the login screen unless a session token exists.
-      return localStorage.getItem("constructai-token") ? "dashboard" : "login";
+      // Login is required: start on the login screen unless a session token
+      // exists. Signed in, the workspace opens on Buildsasa AI.
+      return localStorage.getItem("constructai-token") ? "buildflex-ai" : "login";
     } catch { return "login"; }
   });
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -191,7 +192,7 @@ export default function App() {
   const [navCollapsed, setNavCollapsed] = useState(() => { try { return localStorage.getItem("buildsasa-nav-collapsed") === "1"; } catch { return false; } });
   const [aiNavOpen, setAiNavOpen] = useState(false);
   // A question typed in a module page's ask bar, waiting for the AI page.
-  const [aiStart, setAiStart] = useState<{ text: string; images: string[]; key: number } | null>(null);
+  const [aiStart, setAiStart] = useState<{ text: string; images: string[]; key: number; page?: string } | null>(null);
   // A checklist the AI drafted in chat, queued to open in the Form Builder
   // (inside the Checklists view) as a new, unsaved form.
   const [aiFormDraft, setAiFormDraft] = useState<any | null>(null);
@@ -357,7 +358,7 @@ export default function App() {
           if (res.user) localStorage.setItem("constructai-user", JSON.stringify(res.user));
         } catch { /* noop */ }
         if (res.user?.role && ROLES[res.user.role as Role]) setRole(res.user.role as Role);
-        setView("dashboard");
+        setView("buildflex-ai");
       })
       .catch((e: any) => {
         toast.error(e?.message || "Google sign-in could not be completed. Please try again.");
@@ -437,7 +438,7 @@ export default function App() {
   if (view === "login" || !authed || (wantsClient && !signedInAsClient)) {
     return (
       <div className={`h-screen w-full ${theme === "light" ? "theme-light" : ""}`}>
-        <Login onContinue={(user) => { if (user && user.role && ROLES[user.role as Role]) setRole(user.role as Role); let next: string | null = null; try { next = sessionStorage.getItem("pending-next"); sessionStorage.removeItem("pending-next"); } catch { /* noop */ } void next; setView(sessionStorage.getItem("pending-drawing") ? "plans" : "dashboard"); }} theme={theme} setTheme={setTheme} />
+        <Login onContinue={(user) => { if (user && user.role && ROLES[user.role as Role]) setRole(user.role as Role); let next: string | null = null; try { next = sessionStorage.getItem("pending-next"); sessionStorage.removeItem("pending-next"); } catch { /* noop */ } void next; setView(sessionStorage.getItem("pending-drawing") ? "plans" : "buildflex-ai"); }} theme={theme} setTheme={setTheme} />
         <Toaster theme={theme} position="top-right" />
       </div>
     );
@@ -535,9 +536,9 @@ export default function App() {
             {!paywalled && (
               <ModuleTabs view={effectiveView} allowed={(v) => allowed.includes(v)} starter={starter} onNavigate={navigate} />
             )}
-            {!paywalled && effectiveView !== "buildflex-ai" && moduleOf(effectiveView) && (
-              <AskBar key={moduleOf(effectiveView)!.id} hint={moduleOf(effectiveView)!.ask}
-                onAsk={(text, images) => { setAiStart({ text: text || (images.length ? "Turn this into a modern, finished interior" : ""), images, key: Date.now() }); navigate("buildflex-ai"); }} />
+            {!paywalled && effectiveView !== "buildflex-ai" && moduleOf(effectiveView) && moduleOf(effectiveView)!.id !== "home" && (
+              <AskBar key={effectiveView} title={askFor(effectiveView).q} hint={askFor(effectiveView).hint}
+                onAsk={(text, images) => { setAiStart({ text: text || (images.length ? "Turn this into a modern, finished interior" : ""), images, key: Date.now(), page: meta?.title }); navigate("buildflex-ai"); }} />
             )}
             {paywalled && effectiveView !== "billing" && (
               <div className="fixed inset-0 z-[70] backdrop-blur-lg bg-[#0A0E14]/70 flex items-center justify-center p-6 text-center">

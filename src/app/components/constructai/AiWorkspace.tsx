@@ -55,7 +55,7 @@ const dayGroup = (iso: string) => {
 export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, onOpenForm, start, onStarted }: {
   session: AiSession; canSeeMoney: boolean;
   /** A question typed in a module page's ask bar: start a new chat with it. */
-  start?: { text: string; images: string[]; key: number } | null; onStarted?: () => void;
+  start?: { text: string; images: string[]; key: number; page?: string } | null; onStarted?: () => void;
   onNavigate: (view: string) => void; onOpenProject: (id: string) => void; onOpenForm?: (form: AiFormDraft) => void;
 }) {
   const { messages, setMessages, category, setCategory, history, convId, reset, open, remove } = session;
@@ -105,7 +105,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const reply = await askAi(text, before, { signal: controller.signal, category: images.length ? "design" : fresh ? "general" : category, page: "Buildsasa AI", images });
+      const reply = await askAi(text, before, { signal: controller.signal, category: images.length ? "design" : fresh ? "general" : category, page: (fresh && pageRef.current) || "Buildsasa AI", images });
       setMessages((m) => [...m, reply]);
       if (reply.form) setPreview({ kind: "form", form: reply.form });
       if (reply.design && window.innerWidth >= 1280) setPreview({ kind: "design", d: reply.design });
@@ -124,9 +124,12 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
   };
   // Arriving from an ask bar: a fresh chat with that question already asked.
   const startedKey = useRef(0);
+  // The page an ask-bar question came from, so "this" and "here" mean that page.
+  const pageRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (!start || startedKey.current === start.key) return;
     startedKey.current = start.key;
+    pageRef.current = start.page;
     abortRef.current?.abort(); reset(start.images.length ? "design" : "general"); setPreview(null); setQ(""); setFiles([]);
     send(start.text, start.images, true);
     onStarted?.();
