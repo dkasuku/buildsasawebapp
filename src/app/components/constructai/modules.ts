@@ -5,15 +5,15 @@ import { FolderKanban, FileText, HardHat, LayoutDashboard, Users, Wallet } from 
 import type { View } from "./Sidebar";
 
 export type ModuleTab = { key: View; label: string };
-export type Module = { id: string; label: string; icon: any; hint: string; tabs: ModuleTab[] };
+export type Module = { id: string; label: string; icon: any; hint: string; /** Placeholder for the ask-AI bar. */ ask: string; tabs: ModuleTab[] };
 
 export const MODULES: Module[] = [
-  { id: "home", label: "Home", icon: LayoutDashboard, hint: "Dashboard, inbox and announcements", tabs: [
+  { id: "home", label: "Home", icon: LayoutDashboard, hint: "Dashboard, inbox and announcements", ask: "Ask how your projects are doing, or what needs you today…", tabs: [
     { key: "dashboard", label: "Dashboard" },
     { key: "inbox", label: "Inbox" },
     { key: "announcements", label: "Announcements" },
   ] },
-  { id: "projects", label: "Projects", icon: FolderKanban, hint: "Projects, schedule, drawings and changes", tabs: [
+  { id: "projects", label: "Projects", icon: FolderKanban, hint: "Projects, schedule, drawings and changes", ask: "Plan a project, draft a programme, summarise a change order…", tabs: [
     { key: "projects", label: "All projects" },
     { key: "schedule", label: "Schedule" },
     { key: "plans", label: "Plans & drawings" },
@@ -21,7 +21,7 @@ export const MODULES: Module[] = [
     { key: "coordination", label: "Coordination" },
     { key: "correspondence", label: "Correspondence" },
   ] },
-  { id: "site", label: "Site", icon: HardHat, hint: "Daily logs, checks, quality and safety", tabs: [
+  { id: "site", label: "Site", icon: HardHat, hint: "Daily logs, checks, quality and safety", ask: "Write today's daily log, build a checklist, open the punch list…", tabs: [
     { key: "daily-log", label: "Daily log" },
     { key: "checklists", label: "Checklists" },
     { key: "tasks", label: "Assignments" },
@@ -33,7 +33,7 @@ export const MODULES: Module[] = [
     { key: "attendance", label: "Attendance" },
     { key: "field-view", label: "Field view" },
   ] },
-  { id: "money", label: "Money", icon: Wallet, hint: "Financials, quotes, invoices and stock", tabs: [
+  { id: "money", label: "Money", icon: Wallet, hint: "Financials, quotes, invoices and stock", ask: "Estimate a job in KES, find overdue invoices…", tabs: [
     { key: "financials", label: "Financials" },
     { key: "commitments", label: "Commitments" },
     { key: "quotes", label: "Quotes" },
@@ -41,14 +41,14 @@ export const MODULES: Module[] = [
     { key: "equipment", label: "Inventory" },
     { key: "billing", label: "Billing & plan" },
   ] },
-  { id: "people", label: "People", icon: Users, hint: "Team, crews, subcontractors and contacts", tabs: [
+  { id: "people", label: "People", icon: Users, hint: "Team, crews, subcontractors and contacts", ask: "Find a subcontractor, check who was on site…", tabs: [
     { key: "team", label: "Team" },
     { key: "crews", label: "Crews" },
     { key: "subcontractors", label: "Subcontractors" },
     { key: "directory", label: "Directory" },
     { key: "role-manager", label: "Roles" },
   ] },
-  { id: "files", label: "Files & reports", icon: FileText, hint: "Reports and documents", tabs: [
+  { id: "files", label: "Files & reports", icon: FileText, hint: "Reports and documents", ask: "Write a progress report, summarise a document…", tabs: [
     { key: "reports", label: "Reports" },
     { key: "company-docs", label: "Company documents" },
     { key: "documents", label: "Unfiled documents" },

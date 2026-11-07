@@ -186,7 +186,7 @@ export function Sidebar({
               {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
             </button>
           )}
-          <button type="button" className="ws-icon-btn ws-ghost ws-hide-collapsed" style={{ width: 32, height: 32 }} aria-label="Search" onClick={() => { onClose(); window.dispatchEvent(new Event("buildsasa:focus-search")); }}><Search /></button>
+          <button type="button" className="ws-icon-btn ws-ghost ws-hide-collapsed lg:hidden" style={{ width: 32, height: 32 }} aria-label="Search" onClick={() => { onClose(); window.dispatchEvent(new Event("buildsasa:focus-search")); }}><Search /></button>
           <button type="button" className="ws-icon-btn ws-ghost ws-hide-collapsed" style={{ width: 32, height: 32 }} aria-label="Create new" onClick={() => { onClose(); window.dispatchEvent(new Event("buildsasa:open-new")); }}><SquarePen /></button>
           <button type="button" className="ws-icon-btn ws-ghost lg:hidden" style={{ width: 32, height: 32 }} aria-label="Close menu" onClick={onClose}><X /></button>
           {menu === "workspace" && (
@@ -208,7 +208,7 @@ export function Sidebar({
             </button>
           )}
           <div className={locked ? "blur-sm select-none pointer-events-none opacity-70" : ""} aria-hidden={locked || undefined}>
-            <button type="button" className="ws-row" onClick={openAi} title="Ask Buildsasa AI" aria-current={view === "buildflex-ai" ? "page" : undefined} style={{ marginBottom: 6, color: "#FF8A45" }}>
+            <button type="button" className="ws-row" onClick={openAi} aria-label="Ask Buildsasa AI" title="Ask Buildsasa AI" aria-current={view === "buildflex-ai" ? "page" : undefined} style={{ marginBottom: 6, color: "#FF8A45" }}>
               <Sparkles aria-hidden style={{ color: "#FF6B1A" }} />
               <span className="ws-row-label">Ask Buildsasa AI</span>
             </button>
@@ -217,7 +217,7 @@ export function Sidebar({
               const on = active?.id === m.id;
               return (
                 <div key={m.id}>
-                  <button type="button" className="ws-row" aria-current={on ? "page" : undefined} onClick={() => openModule(m)} title={collapsed ? `${m.label}: ${m.hint}` : m.hint}>
+                  <button type="button" className="ws-row" aria-current={on ? "page" : undefined} onClick={() => openModule(m)} aria-label={m.label} title={collapsed ? `${m.label}: ${m.hint}` : m.hint}>
                     <m.icon aria-hidden />
                     <span className="ws-row-label">{m.label}</span>
                     {locked1(m) && <Lock className="ws-chev" aria-label="Business plan" />}
@@ -225,7 +225,7 @@ export function Sidebar({
                   {/* The project last opened stays one click away under Projects. */}
                   {m.id === "projects" && current && !collapsed && (
                     <div className="ws-subtree">
-                      <button type="button" className="ws-row" aria-current={view === "project-detail" ? "page" : undefined} onClick={() => { onOpenProject?.(current.id); onClose(); }} title={current.name}>
+                      <button type="button" className="ws-row" aria-current={view === "project-detail" ? "page" : undefined} onClick={() => { onOpenProject?.(current.id); onClose(); }} aria-label={current.name} title={current.name}>
                         <span className="ws-dot" style={{ color: TONE_DOT[projectTone(current.status)] }} aria-hidden />
                         <span className="ws-row-label">{current.name}</span>
                       </button>

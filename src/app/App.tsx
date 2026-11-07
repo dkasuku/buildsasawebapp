@@ -53,6 +53,8 @@ import { ROLES } from "./components/constructai/roles";
 import { CurrencyProvider } from "./components/constructai/CurrencyContext";
 import { visibleViewsFor } from "./config/features";
 import { ModuleTabs } from "./components/constructai/ModuleTabs";
+import { AskBar } from "./components/constructai/AskBar";
+import { moduleOf } from "./components/constructai/modules";
 import { Onboarding } from "./components/constructai/Onboarding";
 import { ProfileSettings } from "./components/constructai/ProfileSettings";
 import { CreditCard } from "lucide-react";
@@ -188,6 +190,8 @@ export default function App() {
   // chat gets the room; expanding it there only lasts for that visit.
   const [navCollapsed, setNavCollapsed] = useState(() => { try { return localStorage.getItem("buildsasa-nav-collapsed") === "1"; } catch { return false; } });
   const [aiNavOpen, setAiNavOpen] = useState(false);
+  // A question typed in a module page's ask bar, waiting for the AI page.
+  const [aiStart, setAiStart] = useState<{ text: string; images: string[]; key: number } | null>(null);
   // A checklist the AI drafted in chat, queued to open in the Form Builder
   // (inside the Checklists view) as a new, unsaved form.
   const [aiFormDraft, setAiFormDraft] = useState<any | null>(null);
@@ -529,8 +533,11 @@ export default function App() {
           />
           <div className={`flex-1 overflow-x-hidden relative ${effectiveView === "buildflex-ai" ? "overflow-hidden" : "overflow-y-auto"}`}>
             {!paywalled && (
-              <ModuleTabs view={effectiveView} allowed={(v) => allowed.includes(v)} starter={starter} onNavigate={navigate}
-                onAskAi={() => { setAiPanelOpen(true); setAiPrefill(`About ${meta?.title || "this page"}: `); }} />
+              <ModuleTabs view={effectiveView} allowed={(v) => allowed.includes(v)} starter={starter} onNavigate={navigate} />
+            )}
+            {!paywalled && effectiveView !== "buildflex-ai" && moduleOf(effectiveView) && (
+              <AskBar key={moduleOf(effectiveView)!.id} hint={moduleOf(effectiveView)!.ask}
+                onAsk={(text, images) => { setAiStart({ text: text || (images.length ? "Turn this into a modern, finished interior" : ""), images, key: Date.now() }); navigate("buildflex-ai"); }} />
             )}
             {paywalled && effectiveView !== "billing" && (
               <div className="fixed inset-0 z-[70] backdrop-blur-lg bg-[#0A0E14]/70 flex items-center justify-center p-6 text-center">
@@ -643,7 +650,7 @@ export default function App() {
             {effectiveView === "safety-incidents" && <SafetyIncidents role={role} />}
             {effectiveView === "equipment" && <Inventory role={role} />}
             {effectiveView === "attendance" && <Attendance role={role} />}
-            {effectiveView === "buildflex-ai" && <AiWorkspace session={aiSession} canSeeMoney={!!ROLES[role].financials} onNavigate={(v) => allowed.includes(v as View) && navigate(v as View)} onOpenProject={openProject} onOpenForm={openAiForm} />}
+            {effectiveView === "buildflex-ai" && <AiWorkspace session={aiSession} canSeeMoney={!!ROLES[role].financials} start={aiStart} onStarted={() => setAiStart(null)} onNavigate={(v) => allowed.includes(v as View) && navigate(v as View)} onOpenProject={openProject} onOpenForm={openAiForm} />}
             </ErrorBoundary>
             )}
           </div>

@@ -52,8 +52,10 @@ const dayGroup = (iso: string) => {
   return days <= 0 ? "Today" : days === 1 ? "Yesterday" : days < 7 ? "Previous 7 days" : days < 30 ? "Previous 30 days" : "Older";
 };
 
-export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, onOpenForm }: {
+export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, onOpenForm, start, onStarted }: {
   session: AiSession; canSeeMoney: boolean;
+  /** A question typed in a module page's ask bar: start a new chat with it. */
+  start?: { text: string; images: string[]; key: number } | null; onStarted?: () => void;
   onNavigate: (view: string) => void; onOpenProject: (id: string) => void; onOpenForm?: (form: AiFormDraft) => void;
 }) {
   const { messages, setMessages, category, setCategory, history, convId, reset, open, remove } = session;
@@ -93,17 +95,17 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
   useEffect(() => { const el = inputRef.current; if (el) { el.style.height = "auto"; el.style.height = Math.min(220, el.scrollHeight) + "px"; } }, [q]);
 
   const run = (a: AiAction) => (a.kind === "open" ? onNavigate(a.view) : onOpenProject(a.id));
-  const send = async (raw?: string) => {
-    const images = raw === undefined ? files : [];
+  const send = async (raw?: string, imgs?: string[], fresh = false) => {
+    const images = raw === undefined ? files : (imgs || []);
     const text = (raw ?? q).trim() || (images.length ? "Turn this into a modern, finished interior" : "");
     if (!text || busy || uploading) return;
-    const before = messages;
+    const before = fresh ? [] : messages;
     setMessages((m) => [...m, { role: "user", text, ...(images.length ? { images } : {}) }]);
     setQ(""); setFiles([]); setBusy(true);
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const reply = await askAi(text, before, { signal: controller.signal, category: images.length ? "design" : category, page: "Buildsasa AI", images });
+      const reply = await askAi(text, before, { signal: controller.signal, category: images.length ? "design" : fresh ? "general" : category, page: "Buildsasa AI", images });
       setMessages((m) => [...m, reply]);
       if (reply.form) setPreview({ kind: "form", form: reply.form });
       if (reply.design && window.innerWidth >= 1280) setPreview({ kind: "design", d: reply.design });
@@ -120,6 +122,16 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
     setQ(messages[i].text); setMessages((m) => m.slice(0, i));
     requestAnimationFrame(() => inputRef.current?.focus());
   };
+  // Arriving from an ask bar: a fresh chat with that question already asked.
+  const startedKey = useRef(0);
+  useEffect(() => {
+    if (!start || startedKey.current === start.key) return;
+    startedKey.current = start.key;
+    abortRef.current?.abort(); reset(start.images.length ? "design" : "general"); setPreview(null); setQ(""); setFiles([]);
+    send(start.text, start.images, true);
+    onStarted?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [start?.key]);
   const newChat = (c = "general") => { abortRef.current?.abort(); reset(c); setPreview(null); setQ(""); requestAnimationFrame(() => inputRef.current?.focus()); };
   const pick = (c: Category) => { if (started) newChat(c.id); else setCategory(category === c.id ? "general" : c.id); };
   const useTool = (t: Tool) => { if (t.kind === "design") setDesignOpen(true); else if (t.kind === "financial") setPreview({ kind: "financial" }); else if (t.view) onNavigate(t.view); };
