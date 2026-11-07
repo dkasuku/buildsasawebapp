@@ -596,6 +596,7 @@ export type BidPackageDto = {
 };
 
 /** The company's own branding, printed on quotes and invoices and shown to clients. */
+export type AiBriefItem = { id: string; tone: "red" | "amber" | "blue"; icon: string; title: string; detail: string; ask: string };
 export type CompanyPublic = { name: string; logoUrl?: string | null; phone?: string | null; email?: string | null; address?: string | null; kraPin?: string | null; paymentDetails?: string | null };
 export type CompanyDto = CompanyPublic & { quoteTerms?: string | null; canEdit: boolean };
 
@@ -1491,6 +1492,8 @@ export const api = {
   // AI
   aiChat: (question: string) => http<{ answer: string }>("/api/ai/chat", { method: "POST", body: JSON.stringify({ question }) }),
   supportChat: (messages: { role: string; content: string }[]) => http<{ reply: string }>("/api/support/chat", { method: "POST", body: JSON.stringify({ messages }) }),
+  /** What needs attention today, worked out from the workspace data (free). */
+  aiBrief: () => http<{ items: AiBriefItem[]; projects: number }>("/api/ai/brief"),
   aiAssistant: (question: string, history?: { role: string; content: string }[], signal?: AbortSignal, page?: string, category?: string) => http<{ answer: string }>("/api/ai/assistant", { method: "POST", body: JSON.stringify({ question, history, page, category }), signal }),
   // Saved AI chats, private to the signed-in user (the AI page's history).
   aiConversations: () => http<AiConversationRow[]>("/api/ai/conversations"),

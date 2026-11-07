@@ -6036,6 +6036,61 @@ const AI_CATEGORY_GUIDE = {
   planning: 'Planning and scheduling: stage-by-stage programmes, durations, sequencing, critical path and lead times, as a table of tasks with durations.',
 };
 
+// What Buildsasa is and where things live, so the assistant can answer "how do
+// I…" questions about the software itself and send people to the right page.
+const SOFTWARE_GUIDE = `ABOUT BUILDSASA (answer "how do I…" questions about the software from this):
+Buildsasa is construction management software for contractors in Kenya and East Africa. The sidebar has six modules, each with tabs:
+- Home: dashboard (portfolio at a glance), inbox, announcements.
+- Projects: project list and each project's hub (overview, drawings, 360° virtual tours, client portal, team, documents), schedule (Gantt programme), plans & drawings (revisions, markups), change orders (variations with cost and time impact, approval workflow), coordination issues, correspondence (letters, notices).
+- Site: daily log (crew, headcount, weather, labour, plant, materials, photos), checklists & Form Builder, tasks, punch list (snags with photos, assignees, workflow to closed), inspections (with consultant approvals), observations, action plans, safety incidents, attendance, field view (mobile view for the site).
+- Money: financials (budget vs actual, cash flow), commitments (subcontracts and purchase orders), quotes (priced quotations with a client link to accept online, deposit, VAT, convert to a project), invoicing (invoices and payments), inventory / equipment (stock, wastage), billing (the Buildsasa plan and Sasa Credits).
+- People: team and invitations, crews, subcontractors and bids, directory of contacts, role manager (who can see what).
+- Files & reports: reports (PDF reports), company documents (licences such as NCA, expiry dates), document inbox.
+Clients get a client portal link per project (progress, photos, shared 360° tours, invoices, quotes to accept). Company details and logo (printed on quotes and invoices) are in Settings. AI features cost Sasa Credits: a chat answer 1, a design image 20, a design from a photo 30; trial workspaces get 50 a month.
+Buildsasa AI (this chat) can: answer from the workspace data, price jobs and write quotes, write daily logs, reports, letters and client updates, build checklists, generate interior designs (with or without a photo, shown right here in the chat with a costed materials list), open any page, and save records after the user confirms. Every answer can be downloaded as a PDF, Word or Excel document, and any table can be saved as a quote in Quotes.`;
+
+// ── Daily brief ── what needs attention today, worked out from the data (no AI
+// call, so it is free and instant). The AI page shows these as cards; tapping
+// one asks the assistant about it.
+app.get('/api/ai/brief', auth, async (req, res) => {
+  try {
+    const me = await prisma.user.findUnique({ where: { id: req.user.sub }, select: { role: true } });
+    const money = !['Worker', 'Trade Lead'].includes(me?.role || '');
+    const today = new Date().toISOString().slice(0, 10);
+    const since = new Date(); since.setHours(0, 0, 0, 0);
+    const safe = (p) => p.catch(() => []);
+    const [projects, invoices, quotes, cos, punch, incidents, inspections, logsToday] = await Promise.all([
+      safe(prisma.project.findMany({ select: { id: true, name: true, status: true, progress: true } })),
+      money ? safe(prisma.invoice.findMany({ where: { status: { notIn: ['paid', 'draft'] } }, select: { invoiceNumber: true, clientName: true, amount: true, dueDate: true } })) : [],
+      money ? safe(prisma.quote.findMany({ where: { status: 'sent' }, select: { quoteNumber: true, clientName: true, title: true, total: true, sentAt: true, viewedAt: true } })) : [],
+      money ? safe(prisma.changeOrder.findMany({ where: { status: { in: ['drafted', 'pm_review', 'owner_approval'] } }, select: { number: true, title: true } })) : [],
+      safe(prisma.punchItem.findMany({ where: { status: { in: ['open', 'in_progress', 'rejected'] } }, select: { priority: true, dueDate: true } })),
+      safe(prisma.safetyIncident.findMany({ where: { status: { in: ['open', 'investigating'] } }, select: { severity: true } })),
+      safe(prisma.inspection.findMany({ where: { date: { gte: today } }, select: { type: true, date: true }, orderBy: { date: 'asc' }, take: 5 })),
+      safe(prisma.dailyLog.findMany({ where: { date: { gte: since } }, select: { projectId: true } })),
+    ]);
+    const kes = (n) => 'KES ' + Math.round(n || 0).toLocaleString('en-KE');
+    const out = [];
+    const overdue = invoices.filter((i) => i.dueDate && i.dueDate < today);
+    if (overdue.length) out.push({ id: 'overdue', tone: 'red', icon: 'wallet', title: `${overdue.length} overdue invoice${overdue.length > 1 ? 's' : ''}`, detail: `${kes(overdue.reduce((s, i) => s + (i.amount || 0), 0))} owed by ${[...new Set(overdue.map((i) => i.clientName))].slice(0, 2).join(', ')}${overdue.length > 2 ? '…' : ''}`, ask: 'Which invoices are overdue? Draft a polite but firm WhatsApp reminder for each client.' });
+    const stale = quotes.filter((q) => q.sentAt && Date.now() - new Date(q.sentAt).getTime() > 3 * 864e5);
+    if (stale.length) out.push({ id: 'quotes', tone: 'amber', icon: 'calculator', title: `${stale.length} quote${stale.length > 1 ? 's' : ''} waiting on the client`, detail: `${kes(stale.reduce((s, q) => s + (q.total || 0), 0))} sent over 3 days ago${stale.some((q) => q.viewedAt) ? ', some already viewed' : ''}`, ask: 'Which quotes have been sent but not answered? Draft a short follow-up message for each client.' });
+    const active = projects.filter((p) => !/complete|closed|archived|cancel/i.test(p.status || ''));
+    const logged = new Set(logsToday.map((l) => l.projectId));
+    const unlogged = active.filter((p) => !logged.has(p.id));
+    if (unlogged.length && new Date().getHours() >= 12) out.push({ id: 'logs', tone: 'blue', icon: 'hardhat', title: `No site log today on ${unlogged.length} project${unlogged.length > 1 ? 's' : ''}`, detail: unlogged.slice(0, 3).map((p) => p.name).join(', '), ask: `Help me write today's daily log for ${unlogged[0].name}. Ask me what happened on site.` });
+    const pending = cos;
+    if (pending.length) out.push({ id: 'cos', tone: 'amber', icon: 'file', title: `${pending.length} change order${pending.length > 1 ? 's' : ''} awaiting approval`, detail: pending.slice(0, 2).map((c) => c.title).join(', '), ask: 'Summarise the change orders awaiting approval, with their cost and time impact, and what I should do next.' });
+    const hot = punch.filter((p) => p.priority === 'high' || (p.dueDate && p.dueDate < today));
+    if (punch.length) out.push({ id: 'punch', tone: hot.length ? 'red' : 'blue', icon: 'list', title: `${punch.length} open snag${punch.length > 1 ? 's' : ''}`, detail: hot.length ? `${hot.length} high priority or overdue` : 'None overdue', ask: 'Summarise the open punch list by project and trade, and tell me which snags to chase first.' });
+    if (incidents.length) out.push({ id: 'safety', tone: 'red', icon: 'shield', title: `${incidents.length} safety incident${incidents.length > 1 ? 's' : ''} still open`, detail: incidents.some((i) => ['major', 'fatality'].includes(i.severity)) ? 'Includes a major incident' : 'Close them out once investigated', ask: 'List the open safety incidents and what is needed to close each one.' });
+    if (inspections.length) out.push({ id: 'insp', tone: 'blue', icon: 'check', title: `Next inspection: ${inspections[0].type}`, detail: `On ${inspections[0].date}${inspections.length > 1 ? ` · ${inspections.length - 1} more coming up` : ''}`, ask: `Prepare me for the upcoming ${inspections[0].type} inspection: what will the inspector check, and a checklist to get ready.` });
+    const behind = active.filter((p) => (p.progress || 0) < 100).sort((a, b) => (a.progress || 0) - (b.progress || 0))[0];
+    if (!out.length && behind) out.push({ id: 'proj', tone: 'blue', icon: 'building', title: `${behind.name} is ${behind.progress || 0}% complete`, detail: 'Ask for a status report or a client update', ask: `Write a short progress update for the client on ${behind.name}.` });
+    res.json({ items: out.slice(0, 6), projects: active.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Saved AI chats (history) ── private to their owner.
 const aiConvDto = (c, full) => ({ id: c.id, title: c.title, category: c.category, updatedAt: c.updatedAt, ...(full ? { messages: (() => { try { return JSON.parse(c.messages); } catch { return []; } })() } : {}) });
 const aiConvMessages = (v) => JSON.stringify((Array.isArray(v) ? v : []).slice(-200).map((m) => ({
@@ -6106,6 +6161,7 @@ app.post('/api/ai/assistant', auth, withCredits('assistant'), async (req, res) =
       prisma.bid.findMany({ orderBy: { createdAt: 'desc' }, take: 60, select: { subcontractor: true, trade: true, amount: true, status: true, projectId: true } }),
       (prisma.changeOrder ? prisma.changeOrder.findMany({ orderBy: { createdAt: 'desc' }, take: 40, select: { number: true, title: true, status: true, trigger: true, costUSD: true, scheduleImpactDays: true, projectId: true } }).catch(() => []) : Promise.resolve([])),
     ]);
+    const quotes = await prisma.quote.findMany({ orderBy: { createdAt: 'desc' }, take: 15, select: { quoteNumber: true, title: true, clientName: true, total: true, status: true, sentAt: true, viewedAt: true } }).catch(() => []);
 
     const fmt = (n) => '$' + Math.round(n || 0).toLocaleString('en-US');
     const group = (arr) => { const m = {}; (arr || []).forEach((r) => { (m[r.projectId] = m[r.projectId] || []).push(r); }); return m; };
@@ -6155,6 +6211,8 @@ app.post('/api/ai/assistant', auth, withCredits('assistant'), async (req, res) =
       finLines.push('CHANGE ORDERS: none recorded yet.');
     }
 
+    if (quotes.length) finLines.push('QUOTES (KES):\n' + quotes.map((q) => `  - ${q.quoteNumber} | ${q.title} | ${q.clientName} | KES ${Math.round(q.total || 0).toLocaleString('en-KE')} | ${q.status}${q.sentAt ? ` | sent ${q.sentAt.toISOString().slice(0, 10)}` : ''}${q.viewedAt ? ' | viewed by client' : ''}`).join('\n'));
+
     const userRole = user?.role || 'Unknown';
     const isWorker = userRole === 'Worker' || userRole === 'Trade Lead';
 
@@ -6167,8 +6225,17 @@ ACTING IN THE APP: People use you instead of clicking through tabs. When the use
   [[open:<page>]] where <page> is one of: dashboard, inbox, announcements, projects, schedule, plans, change-orders, coordination, correspondence, daily-log, checklists, tasks, punch-list, inspections, observations, action-plans, safety-incidents, attendance, field-view, financials, commitments, quotes, invoicing, equipment (inventory), billing, team, crews, subcontractors, directory, role-manager, reports, company-docs.
   [[project:<id>|<project name>]] to open one project (use the id from PROJECTS).
 Only add a tag when the user wants to go somewhere or do something; never for a plain question. Never show the tag syntax otherwise.
+SAVING RECORDS: You can save records for the user. The app shows a card the user confirms, so draft confidently. When the user describes something that belongs in a record (what happened on site today, a snag, an observation), or asks you to log/record/save it, write it up neatly AND end with ONE save tag holding compact JSON on a single line:
+  [[save:daily-log|{"projectId":"<id from PROJECTS>","crew":"<crew or trades>","headcount":<number>,"weather":"...","notes":"<work done, progress, delays>","labour":"...","plant":"...","materials":"<deliveries>"}]]
+  [[save:punch|{"projectId":"<id>","title":"<short>","area":"<location>","desc":"<what is wrong and the fix>","trade":"...","priority":"low|medium|high"}]]
+  [[save:observation|{"projectId":"<id>","title":"<short>","type":"Quality|Safety|Environmental|Commissioning","priority":"low|medium|high","location":"...","description":"..."}]]
+  [[save:quote|{"title":"<the job>","clientName":"<client>","taxRate":16,"notes":"<scope, inclusions, exclusions>"}]] — only together with a priced markdown table in the same reply; the table rows become the quote's lines.
+If you don't know which project, ask before saving (or use the only project if there is one). Never invent a projectId. Don't add a save tag together with an open tag.
+DOCUMENTS: Every answer has buttons to download it as PDF, Word or Excel, and tables can be saved as quotes. When asked for a quote, BOQ, report, letter or log "in PDF/Excel/Word", just write the content well (the app downloads it in that format automatically); never say you can't create files. For a QUOTE: a markdown table with columns | Item | Description | Quantity | Unit | Rate (KES) | Amount (KES) |, one line per item (group by stage in the Item names where useful: Substructure, Walling, Roofing, Finishes, Labour…), then a bold subtotal, VAT 16% if appropriate and a bold total, then assumptions and exclusions. Offer to save it in Quotes for the client.
 ESTIMATES AND LISTS: For material estimates, bills of quantities, schedules, comparisons or any list of figures, answer with a markdown table (| Item | Description | Quantity | Unit | Rate (KES) | Amount (KES) |) followed by a bold total line. Use current Kenyan market rates in KES unless the user names another currency, and say they are estimates to confirm with suppliers. The user can export any table to CSV.
 ${page ? `The user is currently on the "${String(page).slice(0, 60)}" page; "this" or "here" refers to it.` : ''}
+Today is ${new Date().toISOString().slice(0, 10)}.
+${SOFTWARE_GUIDE}
 ${AI_CATEGORY_GUIDE[category] ? `FOCUS FOR THIS CHAT: ${AI_CATEGORY_GUIDE[category]}` : ''}`;
 
     let systemPrompt;
@@ -6200,12 +6267,13 @@ ${actionGuide}`;
     const hist = (Array.isArray(history) ? history : [])
       .filter((h) => h && h.content)
       .slice(-10)
-      .map((h) => ({ role: (h.role === 'assistant' || h.role === 'ai') ? 'assistant' : 'user', content: String(h.content).slice(0, 1500) }));
+      // Long enough to carry a whole quote table forward ("now add VAT", "save it").
+      .map((h) => ({ role: (h.role === 'assistant' || h.role === 'ai') ? 'assistant' : 'user', content: String(h.content).slice(0, 6000) }));
     const answer = await callAi([
       { role: 'system', content: systemPrompt },
       ...hist,
       { role: 'user', content: question }
-    ], { temperature: 0.5 });
+    ], { temperature: 0.4, max_tokens: 3500 });
     res.json({ answer });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

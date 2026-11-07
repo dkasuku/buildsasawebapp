@@ -14,12 +14,16 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
 import { Sparkles, X, Send, Square, Loader2, Maximize2, SquarePen, Pencil, ClipboardList, ArrowUpRight, Download } from "lucide-react";
 import { AI_VIEWS } from "./modules";
 import api from "../../services/api";
+import { SaveCard } from "./AiTools";
 
 // A checklist/form the AI drafted from a chat prompt. Attached to the AI message
 // so the chat can offer to open it in the full Form Builder.
 export type AiFormDraft = { title: string; trade: string; category: string; items: any[] };
 // A step the AI asked the app to take: open a page or a project.
-export type AiAction = { kind: "open"; view: string; label: string } | { kind: "project"; id: string; label: string };
+export type SaveKind = "daily-log" | "punch" | "observation" | "quote";
+export type AiAction = { kind: "open"; view: string; label: string } | { kind: "project"; id: string; label: string }
+  // A record the AI drafted; the user confirms it before it is saved.
+  | { kind: "save"; type: SaveKind; data: Record<string, any>; label: string; savedId?: string };
 // An interior design the Visualizer generated from the user's photo.
 export type AiDesignResult = { id: string; before?: string; after: string; prompt: string; estimate?: import("../../services/api").DesignEstimate | null };
 export type Msg = { role: "user" | "ai"; text: string; form?: AiFormDraft; actions?: AiAction[]; design?: AiDesignResult; images?: string[] };
@@ -27,8 +31,14 @@ export type Msg = { role: "user" | "ai"; text: string; form?: AiFormDraft; actio
 // The assistant ends a reply with [[open:daily-log]] or [[project:<id>|Name]]
 // when the user asked to go somewhere or do something there. Pull those out of
 // the text and turn them into buttons (the first one also runs straight away).
+const SAVE_LABEL: Record<SaveKind, string> = { "daily-log": "daily log", punch: "punch item", observation: "observation", quote: "quote" };
 export const parseActions = (raw: string): { text: string; actions: AiAction[] } => {
   const actions: AiAction[] = [];
+  // [[save:daily-log|{...json...}]]: a draft record to confirm.
+  raw = raw.replace(/\[\[save:(daily-log|punch|observation|quote)\|(\{[\s\S]*?\})\]\]/g, (_m, type: SaveKind, json: string) => {
+    try { const data = JSON.parse(json); if (data && typeof data === "object") actions.push({ kind: "save", type, data, label: SAVE_LABEL[type] }); } catch { /* malformed: drop it */ }
+    return "";
+  });
   const text = raw.replace(/\[\[(open|project):([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, kind: string, arg: string, label?: string) => {
     const key = String(arg).trim();
     if (kind === "open") { const v = AI_VIEWS.find((x) => x.key === key); if (v) actions.push({ kind: "open", view: v.key, label: v.label }); }
@@ -192,7 +202,7 @@ export function AiAssistantPanel({
     setQ(prefill); onConsumePrefill?.();
     requestAnimationFrame(() => { const el = inputRef.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
   }, [prefill, onConsumePrefill]);
-  const run = (a: AiAction) => (a.kind === "open" ? onNavigate?.(a.view) : onOpenProject?.(a.id));
+  const run = (a: AiAction) => { if (a.kind === "open") onNavigate?.(a.view); else if (a.kind === "project") onOpenProject?.(a.id); };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && open && !(docked && window.innerWidth >= 1280)) onClose(); };
@@ -228,7 +238,7 @@ export function AiAssistantPanel({
         const res = await api.aiAssistant(text, history, controller.signal, pageTitle);
         const { text: answer, actions } = parseActions(res.answer || "No answer.");
         setMessages((m) => [...m, { role: "ai", text: answer || "Done.", actions }]);
-        if (actions[0]) run(actions[0]);
+        if (actions[0] && actions[0].kind !== "save") run(actions[0]);
       }
     } catch (err: any) {
       if (err?.name === "AbortError" || controller.signal.aborted) {
@@ -294,7 +304,11 @@ export function AiAssistantPanel({
                 <div className={`rounded-lg px-3 py-2 text-[12.5px] leading-relaxed ${m.role === "user" ? "bg-[#FF6B1A] text-white whitespace-pre-wrap" : "bg-[#11161D] border border-[#222A35] text-[#C2CAD6] w-full"}`}>{m.role === "ai" ? <AiRichText text={m.text} /> : m.text}
                   {m.design && <img src={m.design.after} alt="AI design" className="mt-2 w-full rounded-md border border-[#222A35]" />}
                   {m.role === "ai" && m.design && onExpand && <button onClick={onExpand} className="mt-2 text-[11.5px] text-[#FF8A47] hover:underline">Compare before and after, and see the estimate →</button>}</div>
-                {m.role === "ai" && m.actions?.map((a, k) => (
+                {m.role === "ai" && m.actions?.map((a, k) => a.kind === "save" && (
+                  <div key={`s${k}`} className="w-full"><SaveCard action={a} text={m.text} onOpen={(v) => onNavigate?.(v)}
+                    onSaved={(id) => setMessages((ms) => ms.map((x, n) => (n === i ? { ...x, actions: (x.actions || []).map((y, j) => (j === k && y.kind === "save" ? { ...y, savedId: id } : y)) } : x)))} /></div>
+                ))}
+                {m.role === "ai" && m.actions?.filter((a) => a.kind !== "save").map((a, k) => (
                   <button key={k} onClick={() => run(a)} className="inline-flex items-center gap-1.5 rounded-md bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 text-[#FF8A47] hover:bg-[#FF6B1A]/25 px-2.5 py-1.5 text-[11.5px] font-medium">
                     <ArrowUpRight className="w-3.5 h-3.5" /> Open {a.label}
                   </button>

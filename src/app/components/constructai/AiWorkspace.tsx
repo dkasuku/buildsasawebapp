@@ -8,25 +8,27 @@ import { toast } from "sonner";
 import {
   ArrowUp, ArrowUpRight, Calculator, CalendarRange, ClipboardCheck, ClipboardList, Download, HardHat, History,
   Loader2, MessageSquare, Palette, PanelLeftClose, PanelLeftOpen, Pencil, Search, Sparkles, Square, SquarePen,
-  Trash2, Wallet, X, ImagePlus,
+  Trash2, Wallet, X, ImagePlus, AlertTriangle, Building2, CheckCircle2, FileText, ListChecks, ShieldAlert, Camera, FileSpreadsheet,
 } from "lucide-react";
-import api from "../../services/api";
+import api, { type AiBriefItem } from "../../services/api";
+import { AnswerTools, SaveCard } from "./AiTools";
+import { askedFormat, docTitle, exportAnswer, tableMarkdown } from "./aiDocs";
 import { AiRichText, exportCsv, type AiAction, type AiDesignResult, type AiFormDraft, type Msg } from "./AiAssistantPanel";
 import { DesignCard, DesignPreview } from "./Visualizer";
 import { askAi, type AiSession } from "./aiSession";
 import { FinancialReports } from "./BuildflexAI";
 import { DesignStudio } from "./DesignStudio";
 
-type Tool = { label: string; view?: string; kind?: "design" | "financial" };
+type Tool = { label: string; view?: string; kind?: "design" | "financial" | "photo" };
 type Category = { id: string; label: string; icon: any; blurb: string; prompts: string[]; tool?: Tool; money?: boolean };
 
 // Kept in step with AI_CATEGORY_GUIDE in backend/src/server.js.
 export const AI_CATEGORIES: Category[] = [
   { id: "design", label: "Interior design", icon: Palette, blurb: "Attach a photo of a raw space to see it finished, with a costed materials list. Or ask for layouts and finishes.",
-    prompts: ["Design a modern living room for a 4 m × 5 m space, with a materials list", "Suggest a colour palette and finishes for a 3-bedroom bungalow"],
-    tool: { label: "Generate images in Design studio", kind: "design" } },
+    prompts: ["Design a modern living room for a 4 m × 5 m space with warm lighting", "Render a 3-bedroom bungalow facade with a hipped roof and stone cladding"],
+    tool: { label: "Design from a photo", kind: "photo" } },
   { id: "quotes", label: "Quotes & estimates", icon: Calculator, blurb: "Material estimates and bills of quantities priced in KES.",
-    prompts: ["Estimate materials for a 3-bedroom bungalow, about 120 m²", "Price a 50 m perimeter wall in machine-cut stone"],
+    prompts: ["Quote a 3-bedroom bungalow, about 120 m², as a PDF", "Price a 50 m perimeter wall in machine-cut stone, in Excel"],
     tool: { label: "Open Quotes", view: "quotes" } },
   { id: "site", label: "Site & daily logs", icon: HardHat, blurb: "What happened on site, write-ups of the day, delays and safety.",
     prompts: ["What happened on my sites this week?", "Write today's daily log: 12 workers, first-floor slab formwork, cement delivered"],
@@ -42,6 +44,26 @@ export const AI_CATEGORIES: Category[] = [
     tool: { label: "Open Schedule", view: "schedule" } },
 ];
 const catOf = (id?: string) => AI_CATEGORIES.find((c) => c.id === id);
+
+// Shortcuts under the composer. `fill` puts a starter in the box for the user to
+// finish; `ask` sends straight away; `photo` opens the photo picker.
+const QUICK: { label: string; icon: any; ask?: string; fill?: string; photo?: boolean; money?: boolean }[] = [
+  { label: "Write a quote", icon: Calculator, fill: "Write a quote for " },
+  { label: "Log today's site work", icon: HardHat, fill: "Log today's site work: " },
+  { label: "Redesign a room from a photo", icon: Camera, photo: true },
+  { label: "Weekly client update", icon: FileText, ask: "Write this week's progress update for each of my active projects, ready to send to the clients." },
+  { label: "Chase overdue invoices", icon: Wallet, money: true, ask: "Which invoices are overdue? Draft a polite but firm WhatsApp reminder for each client." },
+];
+// A design's costed materials as a quote table, so it can be downloaded or saved as a quote.
+const estimateText = (m: Msg) => {
+  const e = m.design?.estimate;
+  if (!e?.items?.length) return m.text;
+  const n = (v: number) => Math.round(v).toLocaleString("en-KE");
+  return [`Design brief: ${m.design!.prompt}`, "", "| Item | Description | Quantity | Unit | Rate (KES) | Amount (KES) |", "|---|---|---|---|---|---|",
+    ...e.items.map((it) => `| ${it.item} | ${it.description} | ${it.quantity} | ${it.unit} | ${n(it.rate)} | ${n(it.amount)} |`),
+    `| **Total** | | | | | **${n(e.total)}** |`, "", e.assumptions ? `Assumptions: ${e.assumptions}` : "", e.notes || ""].join("\n").trim();
+};
+const BRIEF_ICON: Record<string, any> = { wallet: Wallet, calculator: Calculator, hardhat: HardHat, file: FileText, list: ListChecks, shield: ShieldAlert, check: CheckCircle2, building: Building2 };
 
 type Preview = { kind: "table"; title: string; head: string[]; rows: string[][] } | { kind: "form"; form: AiFormDraft } | { kind: "financial" } | { kind: "design"; d: AiDesignResult };
 
@@ -89,12 +111,17 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
   const started = messages.some((m) => m.role === "user");
 
   useEffect(() => { api.me().then((u) => setName((u?.name || "").trim().split(/\s+/)[0] || "")).catch(() => {}); }, []);
+  // Today's brief: what needs attention, from the workspace data.
+  const [brief, setBrief] = useState<AiBriefItem[] | null>(null);
+  useEffect(() => { if (!started) api.aiBrief().then((r) => setBrief(r.items)).catch(() => setBrief([])); }, [started]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, busy]);
   useEffect(() => { try { localStorage.setItem("buildsasa-ai-history", showHistory ? "1" : "0"); } catch { /* noop */ } }, [showHistory]);
   // Grow the composer with its text, up to a limit.
   useEffect(() => { const el = inputRef.current; if (el) { el.style.height = "auto"; el.style.height = Math.min(220, el.scrollHeight) + "px"; } }, [q]);
 
-  const run = (a: AiAction) => (a.kind === "open" ? onNavigate(a.view) : onOpenProject(a.id));
+  const run = (a: AiAction) => { if (a.kind === "open") onNavigate(a.view); else if (a.kind === "project") onOpenProject(a.id); };
+  // Update one action on one message (a draft saved, a quote card added).
+  const patchActions = (i: number, f: (a: AiAction[]) => AiAction[]) => setMessages((m) => m.map((x, k) => (k === i ? { ...x, actions: f(x.actions || []) } : x)));
   const send = async (raw?: string, imgs?: string[], fresh = false) => {
     const images = raw === undefined ? files : (imgs || []);
     const text = (raw ?? q).trim() || (images.length ? "Turn this into a modern, finished interior" : "");
@@ -109,8 +136,11 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
       setMessages((m) => [...m, reply]);
       if (reply.form) setPreview({ kind: "form", form: reply.form });
       if (reply.design && window.innerWidth >= 1280) setPreview({ kind: "design", d: reply.design });
+      // "…as a PDF / in Excel": hand over the file straight away.
+      const fmt = askedFormat(text);
+      if (fmt && !reply.design && !reply.form && reply.text.length > 40) exportAnswer(reply.text, fmt, docTitle(text)).catch(() => {});
       // "Open the punch list": go there. The chat carries on in the docked panel.
-      if (reply.actions?.[0]) run(reply.actions[0]);
+      if (reply.actions?.[0] && reply.actions[0].kind !== "save") run(reply.actions[0]);
     } catch {
       setMessages((m) => [...m, { role: "ai", text: "Stopped." }]);
     }
@@ -137,7 +167,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
   }, [start?.key]);
   const newChat = (c = "general") => { abortRef.current?.abort(); reset(c); setPreview(null); setQ(""); requestAnimationFrame(() => inputRef.current?.focus()); };
   const pick = (c: Category) => { if (started) newChat(c.id); else setCategory(category === c.id ? "general" : c.id); };
-  const useTool = (t: Tool) => { if (t.kind === "design") setDesignOpen(true); else if (t.kind === "financial") setPreview({ kind: "financial" }); else if (t.view) onNavigate(t.view); };
+  const useTool = (t: Tool) => { if (t.kind === "design") setDesignOpen(true); else if (t.kind === "photo") fileRef.current?.click(); else if (t.kind === "financial") setPreview({ kind: "financial" }); else if (t.view) onNavigate(t.view); };
   const openChat = async (id: string) => {
     try { await open(id); setPreview(null); if (window.innerWidth < 1024) setShowHistory(false); }
     catch (e: any) { toast.error(e?.message || "Couldn't open that chat."); }
@@ -250,6 +280,33 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
               </h1>
               <p className="text-center text-[13.5px] text-[#8A95A5] mt-2">Ask about your projects, price a job, design a room or plan the work. I can open any page for you.</p>
               <div className="mt-7">{composer(true)}</div>
+              {/* One tap to the jobs contractors do every day. */}
+              <div className="flex flex-wrap justify-center gap-2 mt-4">
+                {QUICK.filter((x) => canSeeMoney || !x.money).map((x) => (
+                  <button key={x.label} onClick={() => (x.photo ? fileRef.current?.click() : x.fill ? (setQ(x.fill), requestAnimationFrame(() => { const el = inputRef.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } })) : send(x.ask!))}
+                    className="h-8 px-3 rounded-full border border-[#222A35] bg-[#11161D] hover:border-[#FF6B1A]/50 hover:text-white text-[12.5px] text-[#C2CAD6] inline-flex items-center gap-1.5">
+                    <x.icon className="w-3.5 h-3.5 text-[#FF8A47]" /> {x.label}
+                  </button>
+                ))}
+              </div>
+              {/* Today's brief: what needs attention, worked out from the data. */}
+              {brief && brief.length > 0 && (
+                <div className="mt-7">
+                  <div className="text-[11px] uppercase tracking-wider text-[#5B6675] mb-2 flex items-center gap-1.5"><Sparkles className="w-3 h-3 text-[#FF6B1A]" /> Needs your attention today</div>
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    {brief.map((b) => { const I = BRIEF_ICON[b.icon] || AlertTriangle; return (
+                      <button key={b.id} onClick={() => send(b.ask)} className="group text-left rounded-xl border border-[#222A35] bg-[#11161D] hover:border-[#2C3744] p-3 flex gap-3">
+                        <span className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center ${b.tone === "red" ? "bg-[#EF4444]/10 text-[#EF4444]" : b.tone === "amber" ? "bg-[#F59E0B]/10 text-[#F59E0B]" : "bg-[#3B82F6]/10 text-[#3B82F6]"}`}><I className="w-4 h-4" /></span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13px] text-white">{b.title}</span>
+                          <span className="block text-[11.5px] text-[#8A95A5] truncate">{b.detail}</span>
+                        </span>
+                        <ArrowUpRight className="w-4 h-4 text-[#5B6675] group-hover:text-[#FF8A47] shrink-0" />
+                      </button>
+                    ); })}
+                  </div>
+                </div>
+              )}
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2.5 mt-6">
                 {cats.map((c) => (
                   <div key={c.id} className={`rounded-xl border p-3.5 transition-colors ${category === c.id ? "border-[#FF6B1A]/50 bg-[#FF6B1A]/5" : "border-[#222A35] bg-[#11161D] hover:border-[#2C3744]"}`}>
@@ -283,10 +340,19 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
                     <div className="min-w-0 flex-1 pt-1 text-[14px] leading-relaxed text-[#D5DBE3]">
                       <AiRichText text={m.text} onPreview={(head, rows) => setPreview({ kind: "table", title: messages[i - 1]?.text.slice(0, 80) || "Table", head, rows })} />
                       {m.design && <div className="mt-3"><DesignCard d={m.design} onPreview={() => setPreview({ kind: "design", d: m.design! })} /></div>}
-                      {(!!m.form || !!m.actions?.length) && (
+                      {m.actions?.map((a, k) => a.kind === "save" ? (
+                        <SaveCard key={`s${k}`} action={a} text={estimateText(m)} onOpen={onNavigate}
+                          onSaved={(id) => patchActions(i, (as) => as.map((x, n) => (n === k && x.kind === "save" ? { ...x, savedId: id } : x)))}
+                          onDismiss={a.savedId ? undefined : () => patchActions(i, (as) => as.filter((_, n) => n !== k))} />
+                      ) : null)}
+                      {(m.design ? !!m.design.estimate?.items?.length : m.text.length > 60 && !/^(I couldn't|Stopped)/.test(m.text)) && (
+                        <AnswerTools text={estimateText(m)} question={m.design ? `Design estimate — ${m.design.prompt}` : messages[i - 1]?.text}
+                          onSaveQuote={m.actions?.some((a) => a.kind === "save" && a.type === "quote") ? undefined : () => patchActions(i, (as) => [...as, { kind: "save", type: "quote", label: "quote", data: { title: docTitle(messages[i - 1]?.text), taxRate: 16 } }])} />
+                      )}
+                      {(!!m.form || !!m.actions?.some((a) => a.kind !== "save")) && (
                         <div className="flex flex-wrap gap-2 mt-3">
                           {m.form && <button onClick={() => setPreview({ kind: "form", form: m.form! })} className="inline-flex items-center gap-1.5 rounded-lg bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 text-[#FF8A47] hover:bg-[#FF6B1A]/25 px-3 py-1.5 text-[12px] font-medium"><ClipboardList className="w-3.5 h-3.5" /> Preview checklist</button>}
-                          {m.actions?.map((a, k) => <button key={k} onClick={() => run(a)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 text-[#FF8A47] hover:bg-[#FF6B1A]/25 px-3 py-1.5 text-[12px] font-medium"><ArrowUpRight className="w-3.5 h-3.5" /> Open {a.label}</button>)}
+                          {m.actions?.filter((a) => a.kind !== "save").map((a, k) => <button key={k} onClick={() => run(a)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 text-[#FF8A47] hover:bg-[#FF6B1A]/25 px-3 py-1.5 text-[12px] font-medium"><ArrowUpRight className="w-3.5 h-3.5" /> Open {a.label}</button>)}
                         </div>
                       )}
                     </div>
@@ -310,7 +376,11 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
           <aside className="fixed xl:static inset-y-0 right-0 z-40 w-full sm:w-[520px] xl:w-[44%] xl:max-w-[720px] shrink-0 border-l border-[#222A35] bg-[#0F141B] flex flex-col min-h-0">
             <div className="h-12 shrink-0 flex items-center gap-2 px-4 border-b border-[#222A35]">
               <div className="text-[13px] text-white truncate flex-1">{preview.kind === "table" ? preview.title : preview.kind === "form" ? preview.form.title : preview.kind === "design" ? "Visualizer" : "Financial report"}</div>
-              {preview.kind === "table" && <button onClick={() => exportCsv(preview.head, preview.rows)} className="h-8 px-3 rounded-md border border-[#222A35] text-[12px] text-[#FF8A47] hover:bg-[#161C24] inline-flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> Export to CSV</button>}
+              {preview.kind === "table" && <>
+                <button onClick={() => exportAnswer(tableMarkdown(preview.head, preview.rows), "pdf", preview.title)} className="h-8 px-2.5 rounded-md border border-[#222A35] text-[12px] text-[#C2CAD6] hover:bg-[#161C24] inline-flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" /> PDF</button>
+                <button onClick={() => exportAnswer(tableMarkdown(preview.head, preview.rows), "xlsx", preview.title)} className="h-8 px-2.5 rounded-md border border-[#222A35] text-[12px] text-[#FF8A47] hover:bg-[#161C24] inline-flex items-center gap-1.5"><FileSpreadsheet className="w-3.5 h-3.5" /> Excel</button>
+                <button onClick={() => exportCsv(preview.head, preview.rows)} className="h-8 px-2.5 rounded-md border border-[#222A35] text-[12px] text-[#8A95A5] hover:bg-[#161C24] inline-flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> CSV</button>
+              </>}
               {preview.kind === "form" && onOpenForm && <button onClick={() => onOpenForm(preview.form)} className="h-8 px-3 rounded-md bg-[#FF6B1A] text-white text-[12px] inline-flex items-center gap-1.5"><ClipboardList className="w-3.5 h-3.5" /> Open in Form Builder</button>}
               <button onClick={() => setPreview(null)} title="Close preview" className="h-8 w-8 rounded-md text-[#8A95A5] hover:text-white hover:bg-[#161C24] flex items-center justify-center"><X className="w-4 h-4" /></button>
             </div>
