@@ -11,13 +11,83 @@
 // ============================================================================
 
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import { Sparkles, X, Send, Square, Loader2, Maximize2, SquarePen, Pencil, ClipboardList } from "lucide-react";
+import { Sparkles, X, Send, Square, Loader2, Maximize2, SquarePen, Pencil, ClipboardList, ArrowUpRight, Download } from "lucide-react";
+import { AI_VIEWS } from "./modules";
 import api from "../../services/api";
 
 // A checklist/form the AI drafted from a chat prompt. Attached to the AI message
 // so the chat can offer to open it in the full Form Builder.
 export type AiFormDraft = { title: string; trade: string; category: string; items: any[] };
-export type Msg = { role: "user" | "ai"; text: string; form?: AiFormDraft };
+// A step the AI asked the app to take: open a page or a project.
+export type AiAction = { kind: "open"; view: string; label: string } | { kind: "project"; id: string; label: string };
+export type Msg = { role: "user" | "ai"; text: string; form?: AiFormDraft; actions?: AiAction[] };
+
+// The assistant ends a reply with [[open:daily-log]] or [[project:<id>|Name]]
+// when the user asked to go somewhere or do something there. Pull those out of
+// the text and turn them into buttons (the first one also runs straight away).
+export const parseActions = (raw: string): { text: string; actions: AiAction[] } => {
+  const actions: AiAction[] = [];
+  const text = raw.replace(/\[\[(open|project):([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, kind: string, arg: string, label?: string) => {
+    const key = String(arg).trim();
+    if (kind === "open") { const v = AI_VIEWS.find((x) => x.key === key); if (v) actions.push({ kind: "open", view: v.key, label: v.label }); }
+    else actions.push({ kind: "project", id: key, label: (label || "project").trim() });
+    return "";
+  }).trim();
+  return { text, actions };
+};
+
+// Markdown tables in a reply become real tables with an Export to CSV button,
+// so an estimate or a report can go straight into Excel.
+type Block = { kind: "text"; text: string } | { kind: "table"; head: string[]; rows: string[][] };
+const ROW = /^\s*\|.*\|\s*$/;
+const SEP = /^\s*\|?[\s:-]+(\|[\s:-]+)+\|?\s*$/;
+const cells = (line: string) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+function blocks(text: string): Block[] {
+  const out: Block[] = [];
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (ROW.test(lines[i]) && SEP.test(lines[i + 1] || "")) {
+      const head = cells(lines[i]);
+      const rows: string[][] = [];
+      i += 2;
+      while (i < lines.length && ROW.test(lines[i])) rows.push(cells(lines[i++]));
+      i--;
+      out.push({ kind: "table", head, rows });
+    } else {
+      const last = out[out.length - 1];
+      if (last && last.kind === "text") last.text += "\n" + lines[i]; else out.push({ kind: "text", text: lines[i] });
+    }
+  }
+  return out.map((b) => (b.kind === "text" ? { ...b, text: b.text.trim() } : b)).filter((b) => b.kind === "table" || b.text);
+}
+const plain = (s: string) => s.replace(/\*\*(.+?)\*\*/g, "$1");
+function exportCsv(head: string[], rows: string[][]) {
+  const esc = (v: string) => `"${plain(v).replace(/"/g, '""')}"`;
+  const csv = [head, ...rows].map((r) => r.map(esc).join(",")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  a.download = `buildsasa-ai-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+const Bold = ({ text }: { text: string }) => <>{text.split(/(\*\*.+?\*\*)/g).map((p, i) => (/^\*\*.+\*\*$/.test(p) ? <strong key={i} className="text-white font-semibold">{p.slice(2, -2)}</strong> : p))}</>;
+export function AiRichText({ text }: { text: string }) {
+  return (
+    <div className="space-y-2">
+      {blocks(text).map((b, i) => b.kind === "text" ? <div key={i} className="whitespace-pre-wrap"><Bold text={b.text} /></div> : (
+        <div key={i} className="rounded-md border border-[#222A35] overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11.5px]">
+              <thead className="bg-[#161C24] text-[#8A95A5]"><tr>{b.head.map((h, k) => <th key={k} className="text-left font-medium px-2 py-1.5 whitespace-nowrap">{plain(h)}</th>)}</tr></thead>
+              <tbody>{b.rows.map((r, k) => <tr key={k} className="border-t border-[#222A35]">{r.map((c, n) => <td key={n} className="px-2 py-1.5 text-[#C2CAD6] align-top"><Bold text={c} /></td>)}</tr>)}</tbody>
+            </table>
+          </div>
+          <button onClick={() => exportCsv(b.head, b.rows)} className="w-full h-8 border-t border-[#222A35] bg-[#0A0E14] text-[11.5px] text-[#FF8A45] hover:bg-[#161C24] inline-flex items-center justify-center gap-1.5"><Download className="w-3.5 h-3.5" /> Export to CSV</button>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // Heuristic: does this prompt ask the AI to BUILD a checklist/form (vs. ask a
 // general question about one)? We avoid firing on "how do I…/what is…" queries.
@@ -71,7 +141,7 @@ export const aiErrorText = (err: any): string => {
   return String(raw).replace(/\s+/g, " ").trim().slice(0, 240) || "unknown error";
 };
 
-export const AI_GREETING: Msg = { role: "ai", text: "Hi — I'm Buildsasa AI. Ask me about your projects, finances, change orders, or how to do something. e.g. \"What's my biggest cost exposure right now?\"" };
+export const AI_GREETING: Msg = { role: "ai", text: "Hi, I'm Buildsasa AI. Tell me what you need and I'll find it, open it or work it out for you: \"How is Kitengela House doing?\", \"Open today's daily log\", \"Estimate materials for a 3-bedroom bungalow\", or \"Which invoices are overdue?\"" };
 
 export function AiAssistantPanel({
   open,
@@ -80,7 +150,21 @@ export function AiAssistantPanel({
   messages,
   setMessages,
   onOpenForm,
+  docked,
+  prefill,
+  onConsumePrefill,
+  pageTitle,
+  onNavigate,
+  onOpenProject,
 }: {
+  /** Desktop: sits as a column beside the page instead of covering it. */
+  docked?: boolean;
+  prefill?: string | null;
+  onConsumePrefill?: () => void;
+  /** The page the user is on, so "this" in a question means something. */
+  pageTitle?: string;
+  onNavigate?: (view: string) => void;
+  onOpenProject?: (id: string) => void;
   open: boolean;
   onClose: () => void;
   onExpand?: () => void;
@@ -99,7 +183,14 @@ export function AiAssistantPanel({
   }, [messages, busy]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && open) onClose(); };
+    if (!prefill) return;
+    setQ(prefill); onConsumePrefill?.();
+    requestAnimationFrame(() => { const el = inputRef.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
+  }, [prefill, onConsumePrefill]);
+  const run = (a: AiAction) => (a.kind === "open" ? onNavigate?.(a.view) : onOpenProject?.(a.id));
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && open && !(docked && window.innerWidth >= 1280)) onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
@@ -129,8 +220,10 @@ export function AiAssistantPanel({
           ? { role: "ai", text: reply, form: { title: res.title || "Untitled checklist", trade, category, items } }
           : { role: "ai", text: reply }]);
       } else {
-        const res = await api.aiAssistant(text, history, controller.signal);
-        setMessages((m) => [...m, { role: "ai", text: res.answer || "No answer." }]);
+        const res = await api.aiAssistant(text, history, controller.signal, pageTitle);
+        const { text: answer, actions } = parseActions(res.answer || "No answer.");
+        setMessages((m) => [...m, { role: "ai", text: answer || "Done.", actions }]);
+        if (actions[0]) run(actions[0]);
       }
     } catch (err: any) {
       if (err?.name === "AbortError" || controller.signal.aborted) {
@@ -160,14 +253,14 @@ export function AiAssistantPanel({
 
   const newChat = () => { abortRef.current?.abort(); setMessages([AI_GREETING]); setQ(""); };
 
-  const quick = ["Summarize my projects", "Biggest cost exposure?", "Draft a change order summary"];
+  const quick = ["How are my projects doing?", "What needs my attention today?", "Estimate materials for a 3-bedroom house", "Which invoices are overdue?", "Open the daily log"];
 
   return (
     <>
       {/* backdrop (mobile) */}
       <div onClick={onClose} className={`fixed inset-0 z-[65] bg-black/40 sm:hidden transition-opacity ${open ? "opacity-100" : "opacity-0 pointer-events-none"}`} />
 
-      <aside className={`fixed inset-y-0 right-0 z-[70] w-full sm:w-[400px] bg-[#0A0E14] border-l border-[#222A35] flex flex-col transition-[transform,visibility] duration-200 ${open ? "translate-x-0 visible shadow-2xl" : "translate-x-full invisible"}`}>
+      <aside className={`fixed inset-y-0 right-0 z-[70] w-full sm:w-[400px] bg-[#0A0E14] border-l border-[#222A35] flex flex-col transition-[transform,visibility] duration-200 ${open ? `translate-x-0 visible shadow-2xl ${docked ? "xl:static xl:z-auto xl:shadow-none xl:h-screen xl:shrink-0" : ""}` : "translate-x-full invisible"}`}>
         <div className="shrink-0 px-4 py-3.5 border-b border-[#222A35] bg-[#11161D] flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-[#FF6B1A]/15 flex items-center justify-center"><Sparkles className="w-4 h-4 text-[#FF6B1A]" /></div>
           <div className="flex-1 min-w-0">
@@ -193,7 +286,12 @@ export function AiAssistantPanel({
                 </button>
               )}
               <div className="flex flex-col items-start gap-1.5 max-w-[88%]">
-                <div className={`rounded-lg px-3 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap ${m.role === "user" ? "bg-[#FF6B1A] text-white" : "bg-[#11161D] border border-[#222A35] text-[#C2CAD6]"}`}>{m.text}</div>
+                <div className={`rounded-lg px-3 py-2 text-[12.5px] leading-relaxed ${m.role === "user" ? "bg-[#FF6B1A] text-white whitespace-pre-wrap" : "bg-[#11161D] border border-[#222A35] text-[#C2CAD6] w-full"}`}>{m.role === "ai" ? <AiRichText text={m.text} /> : m.text}</div>
+                {m.role === "ai" && m.actions?.map((a, k) => (
+                  <button key={k} onClick={() => run(a)} className="inline-flex items-center gap-1.5 rounded-md bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 text-[#FF8A45] hover:bg-[#FF6B1A]/25 px-2.5 py-1.5 text-[11.5px] font-medium">
+                    <ArrowUpRight className="w-3.5 h-3.5" /> Open {a.label}
+                  </button>
+                ))}
                 {m.role === "ai" && m.form && onOpenForm && (
                   <button onClick={() => onOpenForm(m.form!)} className="inline-flex items-center gap-1.5 rounded-md bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 text-[#FF8A45] hover:bg-[#FF6B1A]/25 px-2.5 py-1.5 text-[11.5px] font-medium transition-colors">
                     <ClipboardList className="w-3.5 h-3.5" /> Open in Form Builder

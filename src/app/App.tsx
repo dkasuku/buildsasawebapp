@@ -51,6 +51,7 @@ import type { Role } from "./components/constructai/roles";
 import { ROLES } from "./components/constructai/roles";
 import { CurrencyProvider } from "./components/constructai/CurrencyContext";
 import { visibleViewsFor } from "./config/features";
+import { ModuleTabs } from "./components/constructai/ModuleTabs";
 import { Onboarding } from "./components/constructai/Onboarding";
 import { ProfileSettings } from "./components/constructai/ProfileSettings";
 import { CreditCard } from "lucide-react";
@@ -161,8 +162,23 @@ export default function App() {
     try { localStorage.setItem("constructai-onboarded", "1"); } catch { /* noop */ }
     setOnboarded(true);
   };
-  // Global Buildflex AI side panel (opened from the top-bar icon).
-  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  // Buildsasa AI, docked on the right. On a desktop it stays open by default
+  // (people work through it); on a phone it's a sheet opened on demand.
+  const [aiPanelOpen, setAiPanelOpenRaw] = useState(() => {
+    try { const v = localStorage.getItem("buildsasa-ai-open"); return v ? v === "1" : window.innerWidth >= 1280; } catch { return false; }
+  });
+  const setAiPanelOpen = (on: boolean) => {
+    setAiPanelOpenRaw(on);
+    if (window.innerWidth >= 1280) { try { localStorage.setItem("buildsasa-ai-open", on ? "1" : "0"); } catch { /* noop */ } }
+  };
+  // A prompt to drop into the AI's input (from "Ask AI about…" buttons).
+  const [aiPrefill, setAiPrefill] = useState<string | null>(null);
+  useEffect(() => {
+    const open = (e: Event) => { setAiPanelOpen(true); const p = (e as CustomEvent).detail?.prompt; if (p) setAiPrefill(p); };
+    window.addEventListener("buildsasa:open-ai", open);
+    return () => window.removeEventListener("buildsasa:open-ai", open);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Chat session lifted here so it persists across panel open/close and module
   // navigation; only "New chat" or a page reload (which remounts App) resets it.
   const [aiMessages, setAiMessages] = useState<AiMsg[]>([AI_GREETING]);
@@ -171,7 +187,6 @@ export default function App() {
   const [aiFormDraft, setAiFormDraft] = useState<any | null>(null);
   const openAiForm = (form: AiFormDraft) => {
     setAiFormDraft({ title: form.title, trade: form.trade, category: form.category, items: JSON.stringify(form.items || []), status: "draft" });
-    setAiPanelOpen(false);
     navigate("checklists");
   };
   // Profile settings modal (opened from the sidebar profile menu).
@@ -502,6 +517,10 @@ export default function App() {
             setTheme={setTheme}
           />
           <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
+            {!paywalled && (
+              <ModuleTabs view={effectiveView} allowed={(v) => allowed.includes(v)} starter={starter} onNavigate={navigate}
+                onAskAi={() => { setAiPanelOpen(true); setAiPrefill(`About ${meta?.title || "this page"}: `); }} />
+            )}
             {paywalled && effectiveView !== "billing" && (
               <div className="fixed inset-0 z-[70] backdrop-blur-lg bg-[#0A0E14]/70 flex items-center justify-center p-6 text-center">
                 <div className="max-w-sm w-full rounded-2xl border border-[#222A35] bg-[#11161D] shadow-2xl p-7">
@@ -627,8 +646,11 @@ export default function App() {
           />
         )}
         {settingsOpen && <ProfileSettings initialTab={settingsTab} onClose={() => setSettingsOpen(false)} />}
-        <AiAssistantPanel open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} onExpand={() => { setAiPanelOpen(false); navigate("buildflex-ai"); }} messages={aiMessages} setMessages={setAiMessages} onOpenForm={openAiForm} />
-        {!paywalled && <ShemmySupport />}
+        {!paywalled && <AiAssistantPanel docked open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} onExpand={() => { setAiPanelOpen(false); navigate("buildflex-ai"); }} messages={aiMessages} setMessages={setAiMessages} onOpenForm={openAiForm}
+          prefill={aiPrefill} onConsumePrefill={() => setAiPrefill(null)} pageTitle={meta?.title}
+          onNavigate={(v) => allowed.includes(v as View) && navigate(v as View)} onOpenProject={openProject} />}
+        {/* The support bubble would sit on the docked AI's send button. */}
+        {!paywalled && !(aiPanelOpen && window.innerWidth >= 1280) && <ShemmySupport />}
       </div>
     </CurrencyProvider>
   );

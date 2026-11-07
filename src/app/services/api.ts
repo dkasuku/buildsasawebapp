@@ -1485,7 +1485,7 @@ export const api = {
   // AI
   aiChat: (question: string) => http<{ answer: string }>("/api/ai/chat", { method: "POST", body: JSON.stringify({ question }) }),
   supportChat: (messages: { role: string; content: string }[]) => http<{ reply: string }>("/api/support/chat", { method: "POST", body: JSON.stringify({ messages }) }),
-  aiAssistant: (question: string, history?: { role: string; content: string }[], signal?: AbortSignal) => http<{ answer: string }>("/api/ai/assistant", { method: "POST", body: JSON.stringify({ question, history }), signal }),
+  aiAssistant: (question: string, history?: { role: string; content: string }[], signal?: AbortSignal, page?: string) => http<{ answer: string }>("/api/ai/assistant", { method: "POST", body: JSON.stringify({ question, history, page }), signal }),
   aiGenerateChecklist: (payload: { trade: string; projectType: string; scope?: string }) => http<{ title: string; items: any[] }>("/api/ai/generate-checklist", { method: "POST", body: JSON.stringify(payload) }),
   buildChecklistAI: (payload: { prompt: string; trade?: string; category?: string; current?: any[]; history?: { role: string; content: string }[] }, signal?: AbortSignal) => http<{ title: string; reply?: string; items: any[]; trade?: string; category?: string }>("/api/ai/build-checklist", { method: "POST", body: JSON.stringify(payload), signal }),
   aiExtractChecklistFromDocument: (file: File) => {

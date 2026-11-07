@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { Sparkles, Send, Square, Pencil, SquarePen, ClipboardList, Loader2, CheckCircle2, TrendingUp, Download, MessageSquare } from "lucide-react";
 import type { Role } from "./roles";
 import { ROLES } from "./roles";
-import { AI_GREETING, looksLikeFormRequest, inferTradeCategory, aiErrorText, type Msg, type AiFormDraft } from "./AiAssistantPanel";
+import { AI_GREETING, AiRichText, looksLikeFormRequest, inferTradeCategory, aiErrorText, parseActions, type Msg, type AiFormDraft } from "./AiAssistantPanel";
 import api, { type ProjectOverviewDto } from "../../services/api";
 import { useProjects } from "./useProjects";
 import { PageHeader, Tabs } from "./PageShell";
@@ -137,7 +137,9 @@ export default function BuildflexAI({ role, messages, setMessages, onOpenForm }:
           : { role: "ai", text: reply }]);
       } else {
         const res = await api.aiAssistant(q, history, controller.signal);
-        setMessages(m => [...m, { role: "ai", text: res.answer || aiReply(q) }]);
+        // Action tags become buttons in the docked panel, which shares this chat.
+        const { text, actions } = parseActions(res.answer || aiReply(q));
+        setMessages(m => [...m, { role: "ai", text: text || "Done.", actions }]);
       }
     } catch (err: any) {
       if (err?.name === "AbortError" || controller.signal.aborted) setMessages(m => [...m, { role: "ai", text: "⏹ Stopped." }]);
@@ -198,7 +200,7 @@ export default function BuildflexAI({ role, messages, setMessages, onOpenForm }:
               {m.role==="ai"&&<div className="w-7 h-7 rounded-full bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 flex items-center justify-center shrink-0"><Sparkles className="w-3.5 h-3.5 text-[#FF6B1A]" /></div>}
               {m.role==="user"&&<button onClick={()=>editAsk(i)} disabled={askLoad} title="Edit & re-ask" className="mb-0.5 h-6 w-6 shrink-0 rounded-md text-[#5B6675] opacity-0 group-hover:opacity-100 hover:text-white hover:bg-[#161C24] flex items-center justify-center transition-opacity disabled:opacity-0"><Pencil className="w-3.5 h-3.5" /></button>}
               <div className="flex flex-col items-start gap-1.5 max-w-[75%]">
-                <div className={`rounded-xl px-3 py-2 text-[12px] leading-relaxed whitespace-pre-wrap ${m.role==="user"?"bg-[#3B82F6]/15 text-white border border-[#3B82F6]/30":"bg-[#0A0E14] text-[#E6EAF0] border border-[#222A35]"}`}>{m.text}</div>
+                <div className={`rounded-xl px-3 py-2 text-[12px] leading-relaxed ${m.role==="user"?"whitespace-pre-wrap bg-[#3B82F6]/15 text-white border border-[#3B82F6]/30":"bg-[#0A0E14] text-[#E6EAF0] border border-[#222A35]"}`}>{m.role==="ai" ? <AiRichText text={m.text} /> : m.text}</div>
                 {m.role==="ai"&&m.form&&onOpenForm&&(
                   <button onClick={()=>onOpenForm(m.form!)} className="inline-flex items-center gap-1.5 rounded-md bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 text-[#FF8A45] hover:bg-[#FF6B1A]/25 px-2.5 py-1.5 text-[11.5px] font-medium transition-colors"><ClipboardList className="w-3.5 h-3.5" /> Open in Form Builder</button>
                 )}

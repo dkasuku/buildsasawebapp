@@ -1,7 +1,6 @@
 import {
-  LayoutDashboard, CalendarDays, FolderKanban, FileText, Users, Settings, LifeBuoy,
-  Mail, Eye, ClipboardCheck, ShieldCheck, Wallet, ChevronDown, ChevronRight, Megaphone, CreditCard, LogOut,
-  Lock, Search, SquarePen, X, NotebookPen, FolderOpen, Building2,
+  Settings, LifeBuoy, Eye, ChevronDown, CreditCard, LogOut,
+  Lock, Search, SquarePen, X, FolderOpen, Building2, Sparkles,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import type { Role } from "./roles";
@@ -11,6 +10,7 @@ import apiClient, { type UserProfile } from "../../services/api";
 import { BUSINESS_VIEWS } from "./planTier";
 import { useProjects } from "./useProjects";
 import { projectTone, TONE_DOT } from "./wsStatus";
+import { MODULES, moduleOf, type Module } from "./modules";
 
 export type View =
   | "login"
@@ -58,59 +58,9 @@ export type View =
 // viewing role can be switched; in production it follows the login.
 const ROLE_TESTING = (() => { try { return localStorage.getItem("bf-role-testing") === "1"; } catch { return false; } })();
 
-type Leaf = { key: View; label: string; icon?: any };
-type Group = { id: string; label: string; icon: any; items: Leaf[]; defaultOpen?: boolean };
-type Entry = { leaf: Leaf } | { group: Group } | { divider: true };
-
-// Linear-style tree: main items, with nested sub-items under a few of them.
-const TREE: Entry[] = [
-  { leaf: { key: "inbox", label: "Inbox", icon: Mail } },
-  { leaf: { key: "dashboard", label: "Dashboard", icon: LayoutDashboard } },
-  { leaf: { key: "announcements", label: "Announcements", icon: Megaphone } },
-  { divider: true },
-  { group: { id: "projects", label: "Projects", icon: FolderKanban, defaultOpen: true, items: [
-    { key: "projects", label: "All projects" },
-    // The current project is inserted here at render time.
-    { key: "change-orders", label: "Change orders" },
-    { key: "plans", label: "Plans & drawings" },
-  ] } },
-  { leaf: { key: "schedule", label: "Schedule", icon: CalendarDays } },
-  { leaf: { key: "daily-log", label: "Daily log", icon: NotebookPen } },
-  { group: { id: "site", label: "Site checks", icon: ClipboardCheck, defaultOpen: true, items: [
-    { key: "checklists", label: "Checklists" },
-    { key: "punch-list", label: "Punch list" },
-    { key: "observations", label: "Observations" },
-  ] } },
-  { group: { id: "money", label: "Money", icon: Wallet, items: [
-    { key: "financials", label: "Financials" },
-    { key: "commitments", label: "Commitments" },
-    { key: "quotes", label: "Quotes" },
-    { key: "invoicing", label: "Invoicing" },
-    { key: "equipment", label: "Inventory" },
-    { key: "billing", label: "Billing & plan" },
-  ] } },
-  { group: { id: "quality", label: "Quality & safety", icon: ShieldCheck, items: [
-    { key: "inspections", label: "Inspections" },
-    { key: "safety-incidents", label: "Safety incidents" },
-  ] } },
-  { group: { id: "people", label: "People", icon: Users, items: [
-    { key: "directory", label: "Directory" },
-    { key: "subcontractors", label: "Subcontractors" },
-    { key: "crews", label: "Crews" },
-    { key: "team", label: "Team" },
-    { key: "attendance", label: "Attendance" },
-    { key: "role-manager", label: "Role manager" },
-  ] } },
-  { group: { id: "docs", label: "Documents & reports", icon: FileText, items: [
-    { key: "reports", label: "Reports" },
-    { key: "documents", label: "Unfiled documents" },
-    { key: "company-docs", label: "Company documents" },
-    { key: "correspondence", label: "Correspondence" },
-    { key: "coordination", label: "Coordination issues" },
-  ] } },
-];
-
-const OPEN_KEY = "buildsasa-sidebar-open";
+// The last tab opened in each module, so going back to a module lands where
+// you left it.
+const LAST_KEY = "buildsasa-module-last";
 
 export function Sidebar({
   view,
@@ -184,37 +134,30 @@ export function Sidebar({
   const displayRole = me?.role || role;
   const initials = (me?.name || "U").trim().split(/\s+/).map((s) => s[0]).slice(0, 2).join("").toUpperCase() || "U";
 
-  // Which groups are expanded. Remembered; the group holding the current page
-  // always opens.
-  const [expanded, setExpanded] = useState<Set<string>>(() => {
-    try {
-      const saved = localStorage.getItem(OPEN_KEY);
-      if (saved) return new Set(JSON.parse(saved));
-    } catch { /* noop */ }
-    return new Set(TREE.flatMap((e) => ("group" in e && e.group.defaultOpen ? [e.group.id] : [])));
+  const [last, setLast] = useState<Record<string, View>>(() => {
+    try { return JSON.parse(localStorage.getItem(LAST_KEY) || "{}"); } catch { return {}; }
   });
+  const active = moduleOf(view);
   useEffect(() => {
-    try { localStorage.setItem(OPEN_KEY, JSON.stringify(Array.from(expanded))); } catch { /* noop */ }
-  }, [expanded]);
-  useEffect(() => {
-    const g = TREE.find((e) => "group" in e && (e.group.items.some((i) => i.key === view) || (e.group.id === "projects" && view === "project-detail")));
-    if (g && "group" in g) setExpanded((prev) => (prev.has(g.group.id) ? prev : new Set(prev).add(g.group.id)));
-  }, [view]);
-  const toggle = (id: string) => setExpanded((prev) => {
-    const next = new Set(prev);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    return next;
-  });
+    if (!active || view === "project-detail") return;
+    setLast((prev) => {
+      if (prev[active.id] === view) return prev;
+      const next = { ...prev, [active.id]: view };
+      try { localStorage.setItem(LAST_KEY, JSON.stringify(next)); } catch { /* noop */ }
+      return next;
+    });
+  }, [view, active]);
+  const openModule = (m: Module) => {
+    const tabs = m.tabs.filter((t) => allowed(t.key));
+    const remembered = tabs.find((t) => t.key === last[m.id]);
+    const target = remembered || tabs[0];
+    if (target) go(target.key);
+  };
+  const openAi = () => { onClose(); window.dispatchEvent(new Event("buildsasa:open-ai")); };
 
   const lock = (k: View) => starter && BUSINESS_VIEWS.includes(k) ? <Lock className="ws-chev" aria-label="Business plan" /> : null;
 
-  const row = (l: Leaf, sub = false) => (
-    <button key={l.key} type="button" className="ws-row" aria-current={view === l.key ? "page" : undefined} onClick={() => go(l.key)}>
-      {!sub && l.icon && <l.icon aria-hidden />}
-      <span className="ws-row-label">{l.label}</span>
-      {lock(l.key)}
-    </button>
-  );
+  const locked1 = (m: Module) => starter && m.tabs.filter((t) => allowed(t.key)).every((t) => BUSINESS_VIEWS.includes(t.key));
 
   return (
     <>
@@ -254,35 +197,27 @@ export function Sidebar({
             </button>
           )}
           <div className={locked ? "blur-sm select-none pointer-events-none opacity-70" : ""} aria-hidden={locked || undefined}>
-            {TREE.map((e, i) => {
-              if ("divider" in e) return <div key={`d${i}`} className="ws-divider" />;
-              if ("leaf" in e) return allowed(e.leaf.key) ? row(e.leaf) : null;
-              const g = e.group;
-              const items = g.items.filter((l) => allowed(l.key));
-              const showCurrent = g.id === "projects" && !!current;
-              if (items.length === 0 && !showCurrent) return null;
-              const isOpen = expanded.has(g.id);
+            <button type="button" className="ws-row" onClick={openAi} style={{ marginBottom: 6, color: "#FF8A45" }}>
+              <Sparkles aria-hidden style={{ color: "#FF6B1A" }} />
+              <span className="ws-row-label">Ask Buildsasa AI</span>
+            </button>
+            {MODULES.map((m) => {
+              if (!m.tabs.some((t) => allowed(t.key))) return null;
+              const on = active?.id === m.id;
               return (
-                <div key={g.id}>
-                  <button type="button" className="ws-row" aria-expanded={isOpen} onClick={() => toggle(g.id)}>
-                    <g.icon aria-hidden />
-                    <span className="ws-row-label">{g.label}</span>
-                    {isOpen ? <ChevronDown className="ws-chev" aria-hidden /> : <ChevronRight className="ws-chev" aria-hidden />}
+                <div key={m.id}>
+                  <button type="button" className="ws-row" aria-current={on ? "page" : undefined} onClick={() => openModule(m)} title={m.hint}>
+                    <m.icon aria-hidden />
+                    <span className="ws-row-label">{m.label}</span>
+                    {locked1(m) && <Lock className="ws-chev" aria-label="Business plan" />}
                   </button>
-                  {isOpen && (
+                  {/* The project last opened stays one click away under Projects. */}
+                  {m.id === "projects" && current && (
                     <div className="ws-subtree">
-                      {items.map((l, idx) => (
-                        <div key={l.key}>
-                          {row(l, true)}
-                          {/* Current project sits right after "All projects". */}
-                          {idx === 0 && showCurrent && current && (
-                            <button type="button" className="ws-row" aria-current={view === "project-detail" ? "page" : undefined} onClick={() => { onOpenProject?.(current.id); onClose(); }} title={current.name}>
-                              <span className="ws-dot" style={{ color: TONE_DOT[projectTone(current.status)] }} aria-hidden />
-                              <span className="ws-row-label">{current.name}</span>
-                            </button>
-                          )}
-                        </div>
-                      ))}
+                      <button type="button" className="ws-row" aria-current={view === "project-detail" ? "page" : undefined} onClick={() => { onOpenProject?.(current.id); onClose(); }} title={current.name}>
+                        <span className="ws-dot" style={{ color: TONE_DOT[projectTone(current.status)] }} aria-hidden />
+                        <span className="ws-row-label">{current.name}</span>
+                      </button>
                     </div>
                   )}
                 </div>

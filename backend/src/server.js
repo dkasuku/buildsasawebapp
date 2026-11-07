@@ -6026,7 +6026,7 @@ Rules: 6-14 items grouped into 2-5 logical groups; real construction terminology
 app.post('/api/ai/assistant', auth, withCredits('assistant'), async (req, res) => {
   try {
     const userId = req.user.sub;
-    const { question, history } = req.body;
+    const { question, history, page } = req.body;
     if (!question) return res.status(400).json({ error: 'question required' });
 
     const [user, projects, checklists, inspections, punchItems, safetyIncidents, dailyLogs, equipment, ledger, expenses, commitments, invoices, bids, changeOrders] = await Promise.all([
@@ -6054,7 +6054,7 @@ app.post('/api/ai/assistant', auth, withCredits('assistant'), async (req, res) =
     // ---- Safe (non-financial) context — available to all roles ----
     const safeLines = [];
     safeLines.push(`User: ${user?.name || 'Unknown'} (${user?.role || 'Unknown'})`);
-    if (projects.length) safeLines.push('PROJECTS:\n' + projects.map((p) => `  - ${p.name} (${p.code}) | ${p.status} | ${p.progress}% complete | ${p.city}`).join('\n'));
+    if (projects.length) safeLines.push('PROJECTS:\n' + projects.map((p) => `  - [id ${p.id}] ${p.name} (${p.code}) | ${p.status} | ${p.progress}% complete | ${p.city}`).join('\n'));
     if (checklists.length) safeLines.push('CHECKLISTS:\n' + checklists.map((c) => `  - ${c.title} | ${c.category || 'N/A'} | ${c.status || c.source} | assigned: ${c.assigned}`).join('\n'));
     if (inspections.length) safeLines.push('INSPECTIONS:\n' + inspections.map((i) => `  - ${i.type} | ${i.inspector} | ${i.date} | ${i.status}`).join('\n'));
     if (punchItems.length) safeLines.push('PUNCH ITEMS:\n' + punchItems.map((p) => `  - ${p.code} | ${p.area} | ${p.status} | ${p.desc}`).join('\n'));
@@ -6097,13 +6097,26 @@ app.post('/api/ai/assistant', auth, withCredits('assistant'), async (req, res) =
     const userRole = user?.role || 'Unknown';
     const isWorker = userRole === 'Worker' || userRole === 'Trade Lead';
 
+    // The workspace is driven from this chat: the assistant can open any page
+    // or project for the user by ending its reply with an action tag, which the
+    // app turns into a button and runs. Kept in step with AI_VIEWS in
+    // src/app/components/constructai/modules.ts.
+    const actionGuide = `
+ACTING IN THE APP: People use you instead of clicking through tabs. When the user asks to open, go to, show, log, record, create or add something, answer briefly and end your reply with ONE action tag on its own line:
+  [[open:<page>]] where <page> is one of: dashboard, inbox, announcements, projects, schedule, plans, change-orders, coordination, correspondence, daily-log, checklists, tasks, punch-list, inspections, observations, action-plans, safety-incidents, attendance, field-view, financials, commitments, quotes, invoicing, equipment (inventory), billing, team, crews, subcontractors, directory, role-manager, reports, company-docs.
+  [[project:<id>|<project name>]] to open one project (use the id from PROJECTS).
+Only add a tag when the user wants to go somewhere or do something; never for a plain question. Never show the tag syntax otherwise.
+ESTIMATES AND LISTS: For material estimates, bills of quantities, schedules, comparisons or any list of figures, answer with a markdown table (| Item | Description | Quantity | Unit | Rate (KES) | Amount (KES) |) followed by a bold total line. Use current Kenyan market rates in KES unless the user names another currency, and say they are estimates to confirm with suppliers. The user can export any table to CSV.
+${page ? `The user is currently on the "${String(page).slice(0, 60)}" page; "this" or "here" refers to it.` : ''}`;
+
     let systemPrompt;
     if (isWorker) {
       systemPrompt = `You are Buildsasa AI, a construction site assistant for field workers and trade leads. Help with how-to guidance, tools, safety/PPE, trade techniques, reading plans, and understanding assigned checklists.
 - Do NOT discuss budgets, financials, change orders, billing, invoices, reports, or subcontractor pricing. If asked, reply: "I can help with how-to and safety questions. For financials or reports, please ask your Project Manager or Superintendent."
 
 PROJECT CONTEXT (for how-to help only):
-${safeLines.join('\n\n')}`;
+${safeLines.join('\n\n')}
+${actionGuide}`;
     } else {
       systemPrompt = `You are Buildsasa AI, the management assistant for a construction company. You have the user's REAL project and financial data below (all money in USD). Use it to give specific, numbers-backed answers and reports.
 
@@ -6117,7 +6130,8 @@ You can produce on request:
 Formatting: when asked for a "report", use short clear headers and bulleted figures; always cite the actual numbers from the data; round money sensibly; be concise and decision-useful. If something isn't in the data, say so plainly instead of inventing it.
 
 DATA:
-${safeLines.concat(finLines).join('\n\n')}`;
+${safeLines.concat(finLines).join('\n\n')}
+${actionGuide}`;
     }
 
     // Prior conversation for continuity (mapped to chat roles, capped & trimmed).
