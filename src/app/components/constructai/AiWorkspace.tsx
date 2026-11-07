@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import {
   ArrowUp, ArrowUpRight, Calculator, CalendarRange, ClipboardCheck, ClipboardList, Download, HardHat, History,
   Loader2, MessageSquare, Palette, PanelLeftClose, PanelLeftOpen, Pencil, Search, Sparkles, Square, SquarePen,
-  Trash2, Wallet, X, ImagePlus, Paperclip, AlertTriangle, Building2, CheckCircle2, FileText, ListChecks, ShieldAlert, Camera, FileSpreadsheet,
+  Trash2, Wallet, X, ImagePlus, Paperclip, Mic, Zap, Receipt, PiggyBank, Package, Users, Truck, DraftingCompass, AlertTriangle, Building2, CheckCircle2, FileText, ListChecks, ShieldAlert, Camera, FileSpreadsheet,
 } from "lucide-react";
 import api, { type AiBriefItem } from "../../services/api";
 import { AnswerTools, SaveCard } from "./AiTools";
@@ -17,6 +17,8 @@ import { AiRichText, exportCsv, type AiAction, type AiDesignResult, type AiFormD
 import { DesignCard, DesignPreview } from "./Visualizer";
 import { askAi, imageModeFor, type AiSession, type ImageMode } from "./aiSession";
 import { QuoteCard, QuoteEditor } from "./QuoteEditor";
+import { ActionCard, runAction } from "./aiAgent";
+import { CameraModal, isTouch, useVoice } from "./MediaInputs";
 import { draftFromAnswer, exportQuote } from "./aiQuote";
 import { FinancialReports } from "./BuildflexAI";
 import { DesignStudio } from "./DesignStudio";
@@ -26,24 +28,51 @@ type Category = { id: string; label: string; icon: any; blurb: string; prompts: 
 
 // Kept in step with AI_CATEGORY_GUIDE in backend/src/server.js.
 export const AI_CATEGORIES: Category[] = [
-  { id: "design", label: "Interior design", icon: Palette, blurb: "Attach a photo of a raw space to see it finished, with a costed materials list. Or ask for layouts and finishes.",
-    prompts: ["Design a modern living room for a 4 m × 5 m space with warm lighting", "Render a 3-bedroom bungalow facade with a hipped roof and stone cladding"],
-    tool: { label: "Design from a photo", kind: "photo" } },
-  { id: "quotes", label: "Quotes & estimates", icon: Calculator, blurb: "Material estimates and bills of quantities priced in KES.",
+  { id: "projects", label: "Projects & clients", icon: Building2, blurb: "Set up projects from a description, drawing, contract or photo, send the client their portal link.",
+    prompts: ["Create a project: 4-bedroom maisonette in Ruiru for Mr Otieno, KES 9.5M, starting next month", "Share the client portal link for my latest project"],
+    tool: { label: "Open Projects", view: "projects" } },
+  { id: "quotes", label: "Quotes & estimates", icon: Calculator, blurb: "Quotes and bills of quantities priced in KES, editable and ready to send.",
     prompts: ["Quote a 3-bedroom bungalow, about 120 m², as a PDF", "Price a 50 m perimeter wall in machine-cut stone, in Excel"],
     tool: { label: "Open Quotes", view: "quotes" } },
-  { id: "site", label: "Site & daily logs", icon: HardHat, blurb: "What happened on site, write-ups of the day, delays and safety.",
-    prompts: ["What happened on my sites this week?", "Write today's daily log: 12 workers, first-floor slab formwork, cement delivered"],
-    tool: { label: "Open Daily log", view: "daily-log" } },
-  { id: "money", label: "Money & reports", icon: Wallet, money: true, blurb: "Budgets, spend, cash flow, invoices and change orders.",
-    prompts: ["Which projects are over budget?", "Which invoices are overdue and by how much?"],
+  { id: "invoices", label: "Invoices & payments", icon: Receipt, money: true, blurb: "Raise invoices from a sentence, deposits and stage payments, chase what's overdue.",
+    prompts: ["Invoice the client for the roofing stage: KES 850,000 plus VAT, due in 14 days", "Which invoices are overdue? Draft WhatsApp reminders"],
+    tool: { label: "Open Invoices", view: "invoicing" } },
+  { id: "budget", label: "Budgeting & cost control", icon: PiggyBank, money: true, blurb: "Budgets and BOQs by stage, budget vs actual, cash flow and savings.",
+    prompts: ["Put a substructure budget on my latest project", "Which projects are over budget, and why?"],
     tool: { label: "Build a financial report", kind: "financial" } },
-  { id: "checklists", label: "Checklists & quality", icon: ClipboardCheck, blurb: "Inspection checklists by trade and quality standards.",
-    prompts: ["Create a pre-pour concrete inspection checklist", "Build an electrical first-fix checklist"],
-    tool: { label: "Open Checklists", view: "checklists" } },
-  { id: "planning", label: "Planning & schedule", icon: CalendarRange, blurb: "Programmes, durations, sequencing and lead times.",
-    prompts: ["Draft a programme for a 4-bedroom maisonette", "What are typical lead times for steel windows and doors?"],
+  { id: "materials", label: "Materials & equipment", icon: Package, blurb: "Take-offs, stock, reorders, suppliers, owned and hired plant.",
+    prompts: ["How many bags of cement, ballast and sand for a 150 m² slab, 150 mm thick?", "Add 200 bags of cement at KES 780 each to inventory"],
+    tool: { label: "Open Inventory", view: "equipment" } },
+  { id: "site", label: "Site & daily logs", icon: HardHat, blurb: "What happened on site, write-ups of the day, delays, labour and deliveries.",
+    prompts: ["What happened on my sites this week?", "Log today's site work: 12 workers, first-floor slab formwork, cement delivered"],
+    tool: { label: "Open Daily log", view: "daily-log" } },
+  { id: "team", label: "Team, roles & crews", icon: Users, blurb: "Invite people, set roles and permissions, organise crews and foremen.",
+    prompts: ["Invite jane@example.com as a Site Engineer", "Set up a masonry crew with Peter as foreman"],
+    tool: { label: "Open Team", view: "team" } },
+  { id: "planning", label: "Planning & schedule", icon: CalendarRange, blurb: "Programmes, durations, sequencing and lead times, added to the schedule.",
+    prompts: ["Draft a programme for a 4-bedroom maisonette", "Add 'Ring beam' to my latest project's schedule for next week"],
     tool: { label: "Open Schedule", view: "schedule" } },
+  { id: "checklists", label: "Quality & inspections", icon: ClipboardCheck, blurb: "Checklists by trade, inspections, snags and standards.",
+    prompts: ["Create a pre-pour concrete inspection checklist", "Schedule a foundation inspection for Friday"],
+    tool: { label: "Open Checklists", view: "checklists" } },
+  { id: "safety", label: "Health & safety", icon: ShieldAlert, blurb: "Risk assessments, toolbox talks, PPE, incidents and OSHA/NCA/NEMA compliance.",
+    prompts: ["Write a toolbox talk on working at height", "Report a near miss: a plank fell from the scaffold, nobody hurt"],
+    tool: { label: "Open Safety", view: "safety-incidents" } },
+  { id: "procurement", label: "Suppliers & subcontractors", icon: Truck, blurb: "Find and compare suppliers and subcontractors, bids and purchase orders.",
+    prompts: ["Compare these supplier quotes and tell me which is cheaper overall", "Add Mwangi Hardware, 0722 000000, to my suppliers"],
+    tool: { label: "Open Directory", view: "directory" } },
+  { id: "money", label: "Money & reports", icon: Wallet, money: true, blurb: "Spend, cash flow, change orders and progress reports.",
+    prompts: ["Write a weekly progress report for all my projects", "Summarise change orders and their cost impact"],
+    tool: { label: "Open Reports", view: "reports" } },
+  { id: "documents", label: "Letters & contracts", icon: FileText, blurb: "Client letters, delay notices, contracts, minutes and method statements, ready as Word or PDF.",
+    prompts: ["Write a delay notice to the client: 2 weeks for heavy rain", "Draft a simple labour subcontract for a masonry crew"],
+    tool: { label: "Open Correspondence", view: "correspondence" } },
+  { id: "design", label: "Interior design", icon: Palette, blurb: "Snap or attach a photo of a raw space to see it finished, with a costed materials list.",
+    prompts: ["Design a modern living room for a 4 m × 5 m space with warm lighting", "Render a 3-bedroom bungalow facade with a hipped roof and stone cladding"],
+    tool: { label: "Design from a photo", kind: "photo" } },
+  { id: "drawings", label: "Drawings & architecture", icon: DraftingCompass, blurb: "Read plans, room schedules and areas, specifications, design options and approvals.",
+    prompts: ["What approvals do I need from the county to build a maisonette in Kiambu?", "Work out the floor areas from this plan"],
+    tool: { label: "Open Drawings", view: "plans" } },
 ];
 const catOf = (id?: string) => AI_CATEGORIES.find((c) => c.id === id);
 
@@ -65,6 +94,8 @@ const estimateText = (m: Msg) => {
     ...e.items.map((it) => `| ${it.item} | ${it.description} | ${it.quantity} | ${it.unit} | ${n(it.rate)} | ${n(it.amount)} |`),
     `| **Total** | | | | | **${n(e.total)}** |`, "", e.assumptions ? `Assumptions: ${e.assumptions}` : "", e.notes || ""].join("\n").trim();
 };
+// The project a create-project card in this reply made, for later cards that say "projectId":"new".
+const createdProjectId = (m: Msg) => { for (const a of m.actions || []) if (a.kind === "do" && a.action === "create-project" && a.done?.id) return a.done.id; return undefined; };
 const BRIEF_ICON: Record<string, any> = { wallet: Wallet, calculator: Calculator, hardhat: HardHat, file: FileText, list: ListChecks, shield: ShieldAlert, check: CheckCircle2, building: Building2 };
 
 type Preview = { kind: "table"; title: string; head: string[]; rows: string[][] } | { kind: "form"; form: AiFormDraft } | { kind: "financial" } | { kind: "design"; d: AiDesignResult } | { kind: "quote"; i: number };
@@ -96,6 +127,10 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
   const [imgMode, setImgMode] = useState<ImageMode>("auto");
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const camRef = useRef<HTMLInputElement>(null);
+  const [camOpen, setCamOpen] = useState(false);
+  // Phones get their own camera app; laptops get the webcam in a dialog.
+  const openCamera = () => (isTouch() ? camRef.current?.click() : setCamOpen(true));
   const attach = async (list: FileList | null) => {
     const picked = Array.from(list || []).filter((f) => f.type.startsWith("image/") || DOC_EXT.test(f.name)).slice(0, 4 - att.length);
     if (!picked.length) { if (list?.length) toast.error("Attach photos, or PDF, Word, Excel or CSV files."); return; }
@@ -130,11 +165,35 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
   const run = (a: AiAction) => { if (a.kind === "open") onNavigate(a.view); else if (a.kind === "project") onOpenProject(a.id); };
   // Update one action on one message (a draft saved, a quote card added).
   const patchActions = (i: number, f: (a: AiAction[]) => AiAction[]) => setMessages((m) => m.map((x, k) => (k === i ? { ...x, actions: f(x.actions || []) } : x)));
+  // "Do all": run the reply's pending actions in order; a project created first
+  // is used by the later steps that say "projectId":"new".
+  const [doingAll, setDoingAll] = useState(false);
+  const doAll = async (i: number) => {
+    setDoingAll(true);
+    let created = createdProjectId(messages[i]);
+    const acts = messages[i]?.actions || [];
+    for (let k = 0; k < acts.length; k++) {
+      const a = acts[k];
+      if (a.kind !== "do" || a.done) continue;
+      try {
+        const done = await runAction(a, created);
+        if (a.action === "create-project" && done.id) created = done.id;
+        patchActions(i, (as) => as.map((x, n) => (n === k && x.kind === "do" ? { ...x, done } : x)));
+      } catch (e: any) {
+        // One step failing (say, an invite to someone already on the team)
+        // doesn't stop the rest; it stays on its card to fix and retry.
+        toast.error(e?.message || "That step didn't work.");
+        if (a.action === "create-project") break;
+      }
+    }
+    setDoingAll(false);
+  };
   const patchQuote = (i: number, quote: QuoteDraft) => setMessages((m) => m.map((x, k) => (k === i ? { ...x, quote } : x)));
   const send = async (raw?: string, imgs?: string[], fresh = false) => {
-    const images = raw === undefined ? att.filter((a) => a.image).map((a) => a.url) : (imgs || []);
-    const files = raw === undefined ? att.filter((a) => !a.image).map(({ url, name }) => ({ url, name })) : [];
-    const mode: ImageMode = raw === undefined ? imgMode : "auto";
+    // Attachments go with typed, spoken or one-tap questions; an ask-bar start brings its own.
+    const images = imgs === undefined ? att.filter((a) => a.image).map((a) => a.url) : imgs;
+    const files = imgs === undefined ? att.filter((a) => !a.image).map(({ url, name }) => ({ url, name })) : [];
+    const mode: ImageMode = imgs === undefined ? imgMode : "auto";
     const text = (raw ?? q).trim() || (images.length ? (mode === "logo" ? "Use this as my logo on quotes" : "Turn this into a modern, finished interior") : files.length ? "Summarise this and tell me what needs my attention" : "");
     if (!text || busy || uploading) return;
     const before = fresh ? [] : messages;
@@ -156,13 +215,15 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
       if (fmt && reply.quote) exportQuote(reply.quote, fmt).catch(() => {});
       else if (fmt && !reply.design && !reply.form && reply.text.length > 40) exportAnswer(reply.text, fmt, docTitle(text)).catch(() => {});
       // "Open the punch list": go there. The chat carries on in the docked panel.
-      if (reply.actions?.[0] && reply.actions[0].kind !== "save") run(reply.actions[0]);
+      if (reply.actions?.[0] && (reply.actions[0].kind === "open" || reply.actions[0].kind === "project")) run(reply.actions[0]);
     } catch {
       setMessages((m) => [...m, { role: "ai", text: "Stopped." }]);
     }
     abortRef.current = null; setBusy(false);
   };
   const stop = () => abortRef.current?.abort();
+  // Speak: the words are sent as soon as they are transcribed, so the AI just does it.
+  const voice = useVoice((t) => send(t));
   const edit = (i: number) => {
     if (busy || messages[i]?.role !== "user") return;
     setQ(messages[i].text); setMessages((m) => m.slice(0, i));
@@ -220,28 +281,43 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
         </div>
       )}
       <input ref={fileRef} type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf,.docx,.xlsx,.xls,.csv,.txt" className="hidden" onChange={(e) => attach(e.target.files)} />
-      <textarea ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} rows={big ? 2 : 1}
+      <textarea ref={inputRef} aria-label="Message Buildsasa AI" value={q} onChange={(e) => setQ(e.target.value)} rows={big ? 2 : 1}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
         placeholder={cat ? `Ask about ${cat.label.toLowerCase()}…` : "How can I help with your projects today?"}
-        className="w-full resize-none bg-transparent px-2 py-1 text-[14px] text-white placeholder:text-[#5B6675] focus:outline-none" />
-      <div className="flex items-center gap-2 mt-1 flex-wrap">
-        <button onClick={() => fileRef.current?.click()} disabled={uploading || !!busy} title="Attach photos or documents: a room to redesign, your logo, a site photo, a BOQ, drawing or tender (PDF, Word, Excel)" aria-label="Attach files" className="h-8 w-8 rounded-full border border-[#222A35] text-[#C2CAD6] hover:text-white hover:border-[#2C3744] flex items-center justify-center disabled:opacity-50">{uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}</button>
+        className="w-full resize-none bg-transparent px-2 py-1 text-[16px] sm:text-[14px] text-white placeholder:text-[#5B6675] focus:outline-none" />
+      <input ref={camRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { attach(e.target.files); e.target.value = ""; }} />
+      {voice.state === "recording" ? (
+        <div className="flex items-center gap-2 mt-1">
+          <span className="w-2.5 h-2.5 rounded-full bg-[#EF4444] animate-pulse" />
+          <span className="text-[13px] text-white">Listening… {Math.floor(voice.seconds / 60)}:{String(voice.seconds % 60).padStart(2, "0")}</span>
+          <span className="text-[11.5px] text-[#8A95A5] hidden sm:inline">Say what you want done, e.g. "Create a project for a 4-bedroom house in Ruiru and invite Jane as site engineer"</span>
+          <div className="ml-auto flex items-center gap-1.5">
+            <button onClick={voice.cancel} className="h-9 px-3 rounded-xl border border-[#222A35] text-[12.5px] text-[#C2CAD6] hover:text-white">Cancel</button>
+            <button onClick={voice.stop} aria-label="Stop and send" className="h-9 px-3 rounded-xl bg-[#FF6B1A] text-[#ffffff] text-[12.5px] inline-flex items-center gap-1.5"><Square className="w-3 h-3 fill-current" /> Send</button>
+          </div>
+        </div>
+      ) : (
+      <div className="flex items-center gap-1.5 sm:gap-2 mt-1">
+        <button onClick={() => fileRef.current?.click()} disabled={uploading || !!busy} title="Attach photos or documents: a room to redesign, your logo, a site photo, a BOQ, drawing or tender (PDF, Word, Excel)" aria-label="Attach files" className="h-9 w-9 sm:h-8 sm:w-8 shrink-0 rounded-full border border-[#222A35] text-[#C2CAD6] hover:text-white hover:border-[#2C3744] flex items-center justify-center disabled:opacity-50">{uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}</button>
+        <button onClick={openCamera} disabled={uploading || !!busy} title="Take a photo" aria-label="Take a photo" className="h-9 w-9 sm:h-8 sm:w-8 shrink-0 rounded-full border border-[#222A35] text-[#C2CAD6] hover:text-white hover:border-[#2C3744] flex items-center justify-center disabled:opacity-50"><Camera className="w-4 h-4" /></button>
         {cat ? (
-          <button onClick={() => setCategory("general")} className="h-8 pl-2.5 pr-2 rounded-full bg-[#FF6B1A]/10 border border-[#FF6B1A]/30 text-[#FF8A47] text-[12px] inline-flex items-center gap-1.5" title="Remove the focus">
-            <cat.icon className="w-3.5 h-3.5" /> {cat.label} <X className="w-3.5 h-3.5" />
+          <button onClick={() => setCategory("general")} className="h-8 min-w-0 pl-2.5 pr-2 rounded-full bg-[#FF6B1A]/10 border border-[#FF6B1A]/30 text-[#FF8A47] text-[12px] inline-flex items-center gap-1.5" title="Remove the focus">
+            <cat.icon className="w-3.5 h-3.5 shrink-0" /> <span className="truncate">{cat.label}</span> <X className="w-3.5 h-3.5 shrink-0" />
           </button>
         ) : (
-          <span className="text-[11.5px] text-[#5B6675] pl-2">Pick a category to focus the answers, or just ask.</span>
+          <span className="text-[11.5px] text-[#5B6675] pl-1 hidden md:inline truncate">Type, talk, snap a photo or attach a file.</span>
         )}
         {cat?.tool && (!cat.money || canSeeMoney) && (
-          <button onClick={() => useTool(cat.tool!)} className="h-8 px-2.5 rounded-full border border-[#222A35] text-[#C2CAD6] hover:text-white text-[12px] inline-flex items-center gap-1.5"><ArrowUpRight className="w-3.5 h-3.5" /> {cat.tool.label}</button>
+          <button onClick={() => useTool(cat.tool!)} className="h-8 px-2.5 rounded-full border border-[#222A35] text-[#C2CAD6] hover:text-white text-[12px] hidden sm:inline-flex items-center gap-1.5 whitespace-nowrap"><ArrowUpRight className="w-3.5 h-3.5" /> {cat.tool.label}</button>
         )}
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-1.5 shrink-0">
+          {!busy && <button onClick={voice.start} disabled={voice.state !== "idle" || uploading} title="Speak instead of typing" aria-label="Speak" className="h-9 w-9 rounded-xl border border-[#222A35] text-[#C2CAD6] hover:text-white flex items-center justify-center disabled:opacity-60">{voice.state === "transcribing" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}</button>}
           {busy
             ? <button onClick={stop} title="Stop" className="h-9 w-9 rounded-xl bg-[#222A35] text-white flex items-center justify-center"><Square className="w-3.5 h-3.5 fill-current" /></button>
-            : <button onClick={() => send()} disabled={(!q.trim() && !att.length) || uploading} title="Send" className="h-9 w-9 rounded-xl bg-[#FF6B1A] hover:bg-[#FF7E33] text-white flex items-center justify-center disabled:opacity-35"><ArrowUp className="w-4 h-4" /></button>}
+            : <button onClick={() => send()} disabled={(!q.trim() && !att.length) || uploading} title="Send" aria-label="Send" className="h-9 w-9 rounded-xl bg-[#FF6B1A] hover:bg-[#FF7E33] text-white flex items-center justify-center disabled:opacity-35"><ArrowUp className="w-4 h-4" /></button>}
         </div>
       </div>
+      )}
     </div>
   );
 
@@ -304,7 +380,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
               <h1 className="text-center text-[32px] sm:text-[38px] text-white font-display tracking-tight flex items-center justify-center gap-3">
                 <Sparkles className="w-8 h-8 text-[#FF6B1A]" /> {greeting()}{name ? `, ${name}` : ""}
               </h1>
-              <p className="text-center text-[13.5px] text-[#8A95A5] mt-2">Ask about your projects, price a job, design a room or plan the work. I can open any page for you.</p>
+              <p className="text-center text-[13.5px] text-[#8A95A5] mt-2">Type, talk or snap a photo. I can price jobs, design rooms and set things up for you: projects, invoices, budgets, your team and more.</p>
               <div className="mt-7">{composer(true)}</div>
               {/* One tap to the jobs contractors do every day. */}
               <div className="flex flex-wrap justify-center gap-2 mt-4">
@@ -333,19 +409,25 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
                   </div>
                 </div>
               )}
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2.5 mt-6">
+              {/* Every kind of construction work, one tap to focus the AI on it. */}
+              <div className="mt-7 text-[11px] uppercase tracking-wider text-[#5B6675] mb-2">What do you need help with?</div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
                 {cats.map((c) => (
-                  <div key={c.id} className={`rounded-xl border p-3.5 transition-colors ${category === c.id ? "border-[#FF6B1A]/50 bg-[#FF6B1A]/5" : "border-[#222A35] bg-[#11161D] hover:border-[#2C3744]"}`}>
-                    <button onClick={() => pick(c)} className="w-full text-left">
-                      <div className="flex items-center gap-2 text-[13.5px] text-white"><span className="w-7 h-7 rounded-lg bg-[#FF6B1A]/10 flex items-center justify-center"><c.icon className="w-4 h-4 text-[#FF6B1A]" /></span>{c.label}</div>
-                      <div className="text-[11.5px] text-[#8A95A5] mt-1.5 leading-snug">{c.blurb}</div>
-                    </button>
-                    <div className="mt-2.5 space-y-1">
-                      {c.prompts.map((p) => <button key={p} onClick={() => { setCategory(c.id); send(p); }} className="w-full text-left text-[11.5px] text-[#C2CAD6] hover:text-white rounded-md px-2 py-1.5 bg-[#0A0E14] border border-[#222A35] hover:border-[#2C3744] line-clamp-2">{p}</button>)}
-                    </div>
-                  </div>
+                  <button key={c.id} onClick={() => pick(c)} aria-pressed={category === c.id}
+                    className={`rounded-xl border p-2.5 text-left transition-colors flex items-center gap-2 min-w-0 ${category === c.id ? "border-[#FF6B1A]/50 bg-[#FF6B1A]/5" : "border-[#222A35] bg-[#11161D] hover:border-[#2C3744]"}`}>
+                    <span className="w-7 h-7 shrink-0 rounded-lg bg-[#FF6B1A]/10 flex items-center justify-center"><c.icon className="w-4 h-4 text-[#FF6B1A]" /></span>
+                    <span className="text-[12.5px] text-white leading-tight">{c.label}</span>
+                  </button>
                 ))}
               </div>
+              {cat && (
+                <div className="mt-3 rounded-xl border border-[#FF6B1A]/30 bg-[#11161D] p-3">
+                  <div className="text-[12px] text-[#8A95A5]">{cat.blurb}</div>
+                  <div className="mt-2 flex flex-col sm:flex-row gap-1.5">
+                    {cat.prompts.map((p) => <button key={p} onClick={() => send(p)} className="flex-1 text-left text-[12px] text-[#C2CAD6] hover:text-white rounded-md px-2.5 py-2 bg-[#0A0E14] border border-[#222A35] hover:border-[#2C3744]">{p}</button>)}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -371,9 +453,20 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
                         <SaveCard key={`s${k}`} action={a} text={estimateText(m)} onOpen={onNavigate}
                           onSaved={(id) => patchActions(i, (as) => as.map((x, n) => (n === k && x.kind === "save" ? { ...x, savedId: id } : x)))}
                           onDismiss={a.savedId ? undefined : () => patchActions(i, (as) => as.filter((_, n) => n !== k))} />
+                      ) : a.kind === "do" ? (
+                        <ActionCard key={`d${k}-${a.action}`} action={a} onOpen={onNavigate}
+                          newProjectId={createdProjectId(m)}
+                          onDone={(done) => patchActions(i, (as) => as.map((x, n) => (n === k && x.kind === "do" ? { ...x, done } : x)))}
+                          onChange={(data) => patchActions(i, (as) => as.map((x, n) => (n === k && x.kind === "do" ? { ...x, data } : x)))}
+                          onDismiss={() => patchActions(i, (as) => as.filter((_, n) => n !== k))} />
                       ) : null)}
+                      {(m.actions || []).filter((a) => a.kind === "do" && !a.done).length > 1 && (
+                        <button onClick={() => doAll(i)} disabled={doingAll} className="mt-2.5 h-10 px-4 rounded-xl bg-[#FF6B1A] hover:bg-[#FF7E33] text-[#ffffff] text-[13px] font-medium inline-flex items-center gap-2 disabled:opacity-60">
+                          {doingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />} Do all {(m.actions || []).filter((a) => a.kind === "do" && !a.done).length}
+                        </button>
+                      )}
                       {m.quote && <QuoteCard q={m.quote} onChange={(nq) => patchQuote(i, nq)} onEdit={() => setPreview({ kind: "quote", i })} onOpenQuotes={() => onNavigate("quotes")} />}
-                      {!m.quote && (m.design ? !!m.design.estimate?.items?.length : m.text.length > 60 && !/^(I couldn't|Stopped)/.test(m.text)) && (
+                      {!m.quote && !m.actions?.some((a) => a.kind === "do") && (m.design ? !!m.design.estimate?.items?.length : m.text.length > 60 && !/^(I couldn't|Stopped)/.test(m.text)) && (
                         <AnswerTools text={estimateText(m)} question={m.design ? `Design estimate — ${m.design.prompt}` : messages[i - 1]?.text}
                           onSaveQuote={() => {
                             // Turn this answer's priced table into an editable quote.
@@ -382,10 +475,10 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
                             if (d) { patchQuote(i, d); setPreview({ kind: "quote", i }); }
                           }} />
                       )}
-                      {(!!m.form || !!m.actions?.some((a) => a.kind !== "save")) && (
+                      {(!!m.form || !!m.actions?.some((a) => a.kind === "open" || a.kind === "project")) && (
                         <div className="flex flex-wrap gap-2 mt-3">
                           {m.form && <button onClick={() => setPreview({ kind: "form", form: m.form! })} className="inline-flex items-center gap-1.5 rounded-lg bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 text-[#FF8A47] hover:bg-[#FF6B1A]/25 px-3 py-1.5 text-[12px] font-medium"><ClipboardList className="w-3.5 h-3.5" /> Preview checklist</button>}
-                          {m.actions?.filter((a) => a.kind !== "save").map((a, k) => <button key={k} onClick={() => run(a)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 text-[#FF8A47] hover:bg-[#FF6B1A]/25 px-3 py-1.5 text-[12px] font-medium"><ArrowUpRight className="w-3.5 h-3.5" /> Open {a.label}</button>)}
+                          {m.actions?.filter((a) => a.kind === "open" || a.kind === "project").map((a, k) => <button key={k} onClick={() => run(a)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 text-[#FF8A47] hover:bg-[#FF6B1A]/25 px-3 py-1.5 text-[12px] font-medium"><ArrowUpRight className="w-3.5 h-3.5" /> Open {a.label}</button>)}
                         </div>
                       )}
                     </div>
@@ -447,6 +540,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
         </>
       )}
       {designOpen && <DesignStudio onClose={() => setDesignOpen(false)} />}
+      {camOpen && <CameraModal onClose={() => setCamOpen(false)} onCapture={(f) => { const dt = new DataTransfer(); dt.items.add(f); attach(dt.files); }} />}
     </div>
   );
 }

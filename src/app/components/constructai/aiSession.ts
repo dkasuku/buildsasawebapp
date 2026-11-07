@@ -18,7 +18,12 @@ export const looksLikeDesignRequest = (t: string, category?: string) => {
   const s = t.trim();
   if (/^\s*(how|what|why|when|where|which|who|explain|tell me|is |are |should |can i|do i|suggest|recommend|list|compare|estimate|price|quote|cost)/i.test(s)) return false;
   if (/\b(quote|boq|bill of quantities|estimate|price|cost|checklist|schedule|programme|log)\b/i.test(s) && !/\b(render|visuali[sz]e|image|picture|photo|3d)\b/i.test(s)) return false;
-  const verb = /\b(design|redesign|render|visuali[sz]e|show me|draw|generate|create|imagine|mock ?up|picture|image of|make (me )?a)\b/i.test(s);
+  // "Create a project for a 4-bedroom house", "add a task", "invite…": app work
+  // for the agent, not a picture, unless an image is asked for outright.
+  const imageWords = /\b(render|visuali[sz]e|image|picture|photo|3d|interior design|mood ?board)\b/i.test(s);
+  if (/\b(project|invite|invoice|budget|task|schedule|team|member|role|crew|contact|supplier|inventory|stock|material|equipment|portal|link|announce\w*|incident|inspection|variation|change order|log|record|save|assign|send|client|programme|report|letter|contract)\b/i.test(s) && !imageWords) return false;
+  const verb = /\b(design|redesign|render|visuali[sz]e|show me|draw|imagine|mock ?up|picture of|image of)\b/i.test(s)
+    || (/\b(generate|create|make)\b/i.test(s) && (imageWords || /\b(look|style|modern|luxury|minimalist|interior)\b/i.test(s)));
   return verb && (SPACE.test(s) || (category === "design" && s.length > 12));
 };
 

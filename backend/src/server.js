@@ -6028,12 +6028,21 @@ Rules: 6-14 items grouped into 2-5 logical groups; real construction terminology
 // What the AI page's categories ask the assistant to concentrate on.
 // Kept in step with AI_CATEGORIES in src/app/components/constructai/AiWorkspace.tsx.
 const AI_CATEGORY_GUIDE = {
-  design: 'Interior and exterior design for Kenyan homes and offices: layouts, finishes, colour palettes, furniture, lighting and materials, with a costed materials table in KES when useful. Suggest the user opens the Design studio to generate images of the space.',
+  design: 'Interior and exterior design for Kenyan homes and offices: layouts, finishes, colour palettes, furniture, lighting and materials, with a costed materials table in KES when useful. Images are generated right here in the chat.',
   quotes: 'Quotes, bills of quantities and material estimates. Always answer with a markdown table (item, description, quantity, unit, rate, amount in KES) and a bold total, state your assumptions (sizes, specification) and offer to adjust them.',
   site: 'Site work: daily logs, progress, labour, deliveries, delays, quality and safety. Summarise from the data and, when the user describes a day, write it up as a clean daily log they can paste.',
   money: 'Money: budgets, spend, cash flow, invoices, change orders and commitments. Lead with the numbers from the data and flag risks.',
   checklists: 'Checklists, inspections and quality: build itemised checklists by trade and explain standards in plain language.',
-  planning: 'Planning and scheduling: stage-by-stage programmes, durations, sequencing, critical path and lead times, as a table of tasks with durations.',
+  planning: 'Planning and scheduling: stage-by-stage programmes, durations, sequencing, critical path and lead times, as a table of tasks with durations. Offer to add the tasks to a project schedule with add-task actions.',
+  projects: 'Projects and clients: setting up projects (from a description, drawing, contract or photo), status and progress, client updates and the client portal link. Use create-project and share-portal actions.',
+  invoices: 'Invoices and payments: raise invoices from a description, payment schedules, deposits, retention, chasing overdue payments (draft WhatsApp/email reminders). Use create-invoice actions.',
+  materials: 'Materials, stock and equipment: material take-offs, stock levels, reorders, wastage, suppliers, plant and equipment (owned or hired). Use add-material and add-equipment actions.',
+  budget: 'Budgeting and cost control: project budgets and BOQs by stage, budget vs actual, cash flow forecasts, cost-saving ideas. Use add-budget actions to put a budget on a project.',
+  team: 'Team, roles and crews: inviting members, choosing roles and permissions, crews, foremen, labour planning. Use invite-member, set-role and add-crew actions.',
+  safety: 'Health, safety and compliance: risk assessments, method statements, toolbox talks, PPE, incident reports, NCA/NEMA/county approvals and OSHA (Kenya) requirements. Use report-incident actions.',
+  procurement: 'Subcontractors, suppliers and procurement: finding and comparing suppliers and subcontractors, bid comparisons, purchase orders, contacts. Use add-contact actions.',
+  documents: 'Letters, contracts and documents: client letters, delay notices, variation letters, contracts, minutes, method statements, tender documents, written professionally and ready to download as Word or PDF.',
+  drawings: 'Drawings and architecture: reading plans, room schedules, areas, specifications, design options, approvals. Concept images can be generated here; detailed architectural drawings need an architect.',
 };
 
 // What Buildsasa is and where things live, so the assistant can answer "how do
@@ -6102,6 +6111,25 @@ app.get('/api/files/data-url', auth, async (req, res) => {
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// ── Voice ── speak to Buildsasa AI: a short recording becomes text (Whisper).
+// Works in every browser that can record audio, unlike the Web Speech API.
+app.post('/api/ai/transcribe', auth, singleFile('file'), async (req, res) => {
+  const fs = require('fs');
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No recording was received.' });
+    if (!openai) return res.status(503).json({ error: 'Voice needs the AI key on the server.' });
+    if (req.file.size > 20 * 1024 * 1024) return res.status(400).json({ error: 'That recording is too long. Keep it under a few minutes.' });
+    const { toFile } = require('openai');
+    const ext = (/(webm|ogg|mp4|m4a|mpeg|mp3|wav|aac)/.exec(req.file.mimetype || '') || [null, 'webm'])[1].replace('mp4', 'm4a').replace('mpeg', 'mp3');
+    const file = await toFile(fs.readFileSync(req.file.path), `voice.${ext}`, { type: req.file.mimetype || 'audio/webm' });
+    const r = await openai.audio.transcriptions.create({ file, model: 'whisper-1', prompt: 'Construction in Kenya: Buildsasa, project, quote, BOQ, invoice, KES, bags of cement, mabati, ballast, rebar, slab, ring beam, foreman, site.' });
+    res.json({ text: String(r.text || '').trim() });
+  } catch (e) {
+    console.error('[transcribe]', e.message);
+    res.status(502).json({ error: 'Couldn\'t understand the recording. Try again or type it.' });
+  } finally { if (req.file) fs.unlink(req.file.path, () => {}); }
+});
+
 // ── Daily brief ── what needs attention today, worked out from the data (no AI
 // call, so it is free and instant). The AI page shows these as cards; tapping
 // one asks the assistant about it.
@@ -6148,7 +6176,7 @@ app.get('/api/ai/brief', auth, async (req, res) => {
 const aiConvDto = (c, full) => ({ id: c.id, title: c.title, category: c.category, updatedAt: c.updatedAt, ...(full ? { messages: (() => { try { return JSON.parse(c.messages); } catch { return []; } })() } : {}) });
 const aiConvMessages = (v) => JSON.stringify((Array.isArray(v) ? v : []).slice(-200).map((m) => ({
   role: m && m.role === 'user' ? 'user' : 'ai', text: String((m && m.text) || '').slice(0, 20000),
-  ...(m && Array.isArray(m.actions) && m.actions.length ? { actions: m.actions.slice(0, 5) } : {}),
+  ...(m && Array.isArray(m.actions) && m.actions.length ? { actions: m.actions.slice(0, 15) } : {}),
   ...(m && m.form ? { form: m.form } : {}),
   ...(m && m.design && typeof m.design.after === 'string' ? { design: m.design } : {}),
   ...(m && Array.isArray(m.images) && m.images.length ? { images: m.images.filter((u) => typeof u === 'string' && /^https?:\/\//.test(u)).slice(0, 4) } : {}),
@@ -6218,6 +6246,7 @@ app.post('/api/ai/assistant', auth, withCredits('assistant'), async (req, res) =
       (prisma.changeOrder ? prisma.changeOrder.findMany({ orderBy: { createdAt: 'desc' }, take: 40, select: { number: true, title: true, status: true, trigger: true, costUSD: true, scheduleImpactDays: true, projectId: true } }).catch(() => []) : Promise.resolve([])),
     ]);
     const quotes = await prisma.quote.findMany({ orderBy: { createdAt: 'desc' }, take: 15, select: { quoteNumber: true, title: true, clientName: true, total: true, status: true, sentAt: true, viewedAt: true } }).catch(() => []);
+    const team = await prisma.user.findMany({ where: { role: { not: 'Client' } }, take: 60, select: { name: true, email: true, role: true, trade: true } }).catch(() => []);
 
     const fmt = (n) => '$' + Math.round(n || 0).toLocaleString('en-US');
     const group = (arr) => { const m = {}; (arr || []).forEach((r) => { (m[r.projectId] = m[r.projectId] || []).push(r); }); return m; };
@@ -6234,6 +6263,7 @@ app.post('/api/ai/assistant', auth, withCredits('assistant'), async (req, res) =
     if (safetyIncidents.length) safeLines.push('SAFETY INCIDENTS:\n' + safetyIncidents.map((s) => `  - ${s.incidentType} | ${s.severity} | ${s.status} | ${s.date}`).join('\n'));
     if (dailyLogs.length) safeLines.push('DAILY LOGS:\n' + dailyLogs.map((d) => `  - ${d.date.toISOString().split('T')[0]} | ${d.crew} | ${d.headcount} crew | ${d.location} | ${d.notes}`).join('\n'));
     if (equipment.length) safeLines.push('EQUIPMENT:\n' + equipment.map((e) => `  - ${e.name} | ${e.category} | ${e.status} | ${e.location || 'N/A'}`).join('\n'));
+    if (team.length) safeLines.push('TEAM MEMBERS:\n' + team.map((u) => `  - ${u.name} <${u.email}> | ${u.role}${u.trade ? ` | ${u.trade}` : ''}`).join('\n'));
 
     // ---- Financial context — managers only ----
     const finLines = [];
@@ -6287,6 +6317,23 @@ SAVING RECORDS: You can save records for the user. The app shows a card the user
   [[save:observation|{"projectId":"<id>","title":"<short>","type":"Quality|Safety|Environmental|Commissioning","priority":"low|medium|high","location":"...","description":"..."}]]
   [[save:quote|{"title":"<the job>","clientName":"<client>","taxRate":16,"notes":"<scope, inclusions, exclusions>"}]] — only together with a priced markdown table in the same reply; the table rows become the quote's lines.
 If you don't know which project, ask before saving (or use the only project if there is one). Never invent a projectId. Don't add a save tag together with an open tag.
+DOING THINGS FOR THE USER (you are their hands in Buildsasa): when the user asks you to create, add, invite, assign, share, send or set up something, do it with ACTION tags. Each tag becomes a card the user confirms with one tap, so act confidently and fill in sensible details (today's date, typical units, KES). You may use several tags in one reply for multi-step requests, in order. Use "projectId":"new" to mean the project created by a create-project tag earlier in the same reply. Compact JSON on one line:
+  [[do:create-project|{"name":"...","city":"...","clientName":"...","contractSumKES":0,"startDate":"YYYY-MM-DD","targetEndDate":"YYYY-MM-DD","status":"Planning","description":"..."}]]
+  [[do:invite-member|{"name":"...","email":"...","role":"Project Manager|Site Engineer|Superintendent|Foreman|Trade Lead|Worker|Architect|Quantity Surveyor|QA/QC Officer|Executive|Owner|Viewer","trade":"..."}]]
+  [[do:set-role|{"email":"<from TEAM MEMBERS>","role":"<one of the roles above>"}]] (roles are fixed; to "create a role" for someone, invite them or change their role)
+  [[do:share-portal|{"projectId":"<id>"}]] (creates the client portal link to send to the client)
+  [[do:create-invoice|{"projectId":"<id>","clientName":"...","dueDate":"YYYY-MM-DD","taxRate":16,"items":[{"description":"...","quantity":1,"rate":0}],"notes":"..."}]]
+  [[do:add-material|{"name":"...","category":"Cement|Steel|Aggregates|Timber|Roofing|Plumbing|Electrical|Finishes|Other","unit":"bags|tonnes|pcs|m|m²|m³|litres","currentStock":0,"unitCostKES":0,"reorderLevel":0,"supplier":"..."}]]
+  [[do:add-equipment|{"name":"...","category":"Earthmoving|Lifting|Concrete|Power|Transport|Tools|Scaffolding|Other","status":"available|in_use|maintenance","ownership":"owned|hired","location":"...","hireRate":0}]]
+  [[do:add-budget|{"projectId":"<id>","section":"<e.g. Substructure>","items":[{"description":"...","unit":"...","quantity":0,"rate":0}]}]] (a costed budget / BOQ section on the project, KES)
+  [[do:add-task|{"projectId":"<id>","name":"...","startDate":"YYYY-MM-DD","endDate":"YYYY-MM-DD","trade":"...","type":"task|milestone"}]] (on the project schedule)
+  [[do:add-variation|{"projectId":"<id>","title":"...","amountKES":0,"cause":"client_request|design_change|site_condition|other","scheduleImpactDays":0,"description":"..."}]] (a change order / variation)
+  [[do:add-crew|{"name":"...","trade":"...","foreman":"...","projectId":"<id or omit>"}]]
+  [[do:add-contact|{"name":"...","company":"...","role":"...","category":"Supplier|Subcontractor|Consultant|Client|Authority|Other","phone":"...","email":"..."}]]
+  [[do:schedule-inspection|{"projectId":"<id>","type":"...","date":"YYYY-MM-DD","inspector":"..."}]]
+  [[do:report-incident|{"projectId":"<id>","incidentType":"near_miss|injury|property_damage|environmental|other","severity":"minor|moderate|major","date":"YYYY-MM-DD","description":"...","correctiveAction":"..."}]]
+  [[do:announce|{"title":"...","body":"...","priority":"normal|high"}]] (an announcement to the team)
+When the user attaches a drawing, contract, BOQ or photo and says "create a project from this", read it and fill create-project (and add-budget lines if it has quantities). Briefly say what you set up; never claim it is done before the user confirms. Only ask a question if something essential is missing (e.g. an email to invite someone).
 DOCUMENTS: Every answer has buttons to download it as PDF, Word or Excel, and tables can be saved as quotes. When asked for a quote, BOQ, report, letter or log "in PDF/Excel/Word", just write the content well (the app downloads it in that format automatically); never say you can't create files. For a QUOTE: a markdown table with columns | Item | Description | Quantity | Unit | Rate (KES) | Amount (KES) |, one line per item (group by stage in the Item names where useful: Substructure, Walling, Roofing, Finishes, Labour…), then a bold subtotal, VAT 16% if appropriate and a bold total, then assumptions and exclusions. Offer to save it in Quotes for the client.
 ESTIMATES AND LISTS: For material estimates, bills of quantities, schedules, comparisons or any list of figures, answer with a markdown table (| Item | Description | Quantity | Unit | Rate (KES) | Amount (KES) |) followed by a bold total line. Use current Kenyan market rates in KES unless the user names another currency, and say they are estimates to confirm with suppliers. The user can export any table to CSV.
 ${page ? `The user is currently on the "${String(page).slice(0, 60)}" page; "this" or "here" refers to it.` : ''}

@@ -45,7 +45,7 @@ export function AskBar({ title, hint, onAsk }: { title: string; hint: string; on
           )}
           <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); go(); } }}
             placeholder={img ? "Describe the finish you want…" : hint} aria-label="Ask Buildsasa AI"
-            className="flex-1 min-w-0 bg-transparent text-[14px] text-white placeholder:text-[#5B6675] focus:outline-none" />
+            className="flex-1 min-w-0 bg-transparent text-[16px] sm:text-[14px] text-white placeholder:text-[#5B6675] focus:outline-none" />
           <button type="button" onClick={go} disabled={(!q.trim() && !img) || busy} aria-label="Ask Buildsasa AI"
             className="h-9 w-9 shrink-0 rounded-full bg-[#FF6B1A] hover:bg-[#FF7E33] text-[#ffffff] flex items-center justify-center disabled:opacity-40">
             <ArrowUp className="w-4 h-4" />

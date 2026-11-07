@@ -131,8 +131,29 @@ export function QuoteEditor({ q, onChange, onOpenQuotes }: { q: QuoteDraft; onCh
         <label><span className={label}>Valid until</span><input type="date" className={inp} value={q.validUntil || ""} onChange={(e) => set({ validUntil: e.target.value })} /></label>
       </div>
 
-      {/* Lines */}
-      <div className="rounded-lg border border-[#222A35] overflow-x-auto">
+      {/* Lines: stacked cards on a phone, a table on wider screens. */}
+      <div className="sm:hidden space-y-2">
+        {q.lines.map((l, i) => (
+          <div key={i} className="rounded-lg border border-[#222A35] bg-[#11161D] p-2.5 space-y-2">
+            <div className="flex items-start gap-2">
+              <span className="text-[11px] text-[#5B6675] pt-2 w-4 shrink-0">{i + 1}.</span>
+              <textarea aria-label={`Description ${i + 1}`} rows={2} className={`${inp} h-auto py-1.5 resize-y leading-snug flex-1`} value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} />
+              <button onClick={() => set({ lines: q.lines.filter((_, k) => k !== i) })} className="h-8 w-8 shrink-0 text-[#5B6675] hover:text-[#EF4444] flex items-center justify-center" aria-label={`Remove line ${i + 1}`}><Trash2 className="w-4 h-4" /></button>
+            </div>
+            <div className="grid grid-cols-3 gap-2 pl-6">
+              <label className="min-w-0"><span className="text-[10px] uppercase text-[#5B6675]">Qty</span><input aria-label={`Quantity ${i + 1}`} type="number" inputMode="decimal" className={`${inp} text-right`} value={l.quantity} onChange={(e) => setLine(i, { quantity: Number(e.target.value) })} /></label>
+              <label className="min-w-0"><span className="text-[10px] uppercase text-[#5B6675]">Unit</span><input aria-label={`Unit ${i + 1}`} className={inp} value={l.unit} onChange={(e) => setLine(i, { unit: e.target.value })} /></label>
+              <label className="min-w-0"><span className="text-[10px] uppercase text-[#5B6675]">Rate</span><input aria-label={`Rate ${i + 1}`} type="number" inputMode="decimal" className={`${inp} text-right`} value={l.rate} onChange={(e) => setLine(i, { rate: Number(e.target.value) })} /></label>
+            </div>
+            <div className="pl-6 flex items-center justify-between text-[12px]">
+              <input aria-label={`Section ${i + 1}`} className={`${inp} w-1/2`} value={l.section || ""} placeholder="Section (optional)" onChange={(e) => setLine(i, { section: e.target.value })} />
+              <span className="text-white font-medium whitespace-nowrap ml-2">KES {Math.round((Number(l.quantity) || 0) * (Number(l.rate) || 0)).toLocaleString("en-KE")}</span>
+            </div>
+          </div>
+        ))}
+        <button onClick={() => set({ lines: [...q.lines, { section: q.lines[q.lines.length - 1]?.section || "", description: "", unit: "item", quantity: 1, rate: 0 }] })} className="w-full h-10 rounded-lg border border-dashed border-[#2C3744] text-[12.5px] text-[#FF8A47] inline-flex items-center justify-center gap-1.5"><Plus className="w-3.5 h-3.5" /> Add line</button>
+      </div>
+      <div className="hidden sm:block rounded-lg border border-[#222A35] overflow-x-auto">
         <table className="w-full text-[12px] min-w-[600px]">
           <thead className="bg-[#161C24] text-[#8A95A5]">
             <tr><th className="text-left font-medium px-2 py-2 w-24">Section</th><th className="text-left font-medium px-2 py-2">Description</th><th className="text-left font-medium px-2 py-2 w-16">Unit</th><th className="text-right font-medium px-2 py-2 w-16">Qty</th><th className="text-right font-medium px-2 py-2 w-24">Rate</th><th className="text-right font-medium px-2 py-2 w-20">Amount</th><th className="w-8" /></tr>

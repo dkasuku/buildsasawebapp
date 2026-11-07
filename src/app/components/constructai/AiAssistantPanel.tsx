@@ -23,7 +23,10 @@ export type AiFormDraft = { title: string; trade: string; category: string; item
 export type SaveKind = "daily-log" | "punch" | "observation" | "quote";
 export type AiAction = { kind: "open"; view: string; label: string } | { kind: "project"; id: string; label: string }
   // A record the AI drafted; the user confirms it before it is saved.
-  | { kind: "save"; type: SaveKind; data: Record<string, any>; label: string; savedId?: string };
+  | { kind: "save"; type: SaveKind; data: Record<string, any>; label: string; savedId?: string }
+  // Something the AI will do in the app for the user (create a project, invite
+  // a member, raise an invoice…), run once the user taps "Do it".
+  | { kind: "do"; action: string; data: Record<string, any>; label: string; done?: { id?: string; link?: string; note?: string } };
 // An interior design the Visualizer generated from the user's photo.
 export type AiDesignResult = { id: string; before?: string; after: string; prompt: string; estimate?: import("../../services/api").DesignEstimate | null };
 // A quote the AI wrote, kept editable in the chat (lines, VAT, client, logo).
@@ -54,6 +57,11 @@ export const parseActions = (raw: string): { text: string; actions: AiAction[] }
   // [[save:daily-log|{...json...}]]: a draft record to confirm.
   raw = raw.replace(/\[\[save:(daily-log|punch|observation|quote)\|(\{[\s\S]*?\})\]\]/g, (_m, type: SaveKind, json: string) => {
     try { const data = JSON.parse(json); if (data && typeof data === "object") actions.push({ kind: "save", type, data, label: SAVE_LABEL[type] }); } catch { /* malformed: drop it */ }
+    return "";
+  });
+  // [[do:create-project|{...}]]: an action to run in the app once confirmed.
+  raw = raw.replace(/\[\[do:([a-z-]+)\|(\{[\s\S]*?\})\]\](?!\])/g, (_m, action: string, json: string) => {
+    try { const data = JSON.parse(json); if (data && typeof data === "object") actions.push({ kind: "do", action, data, label: action.replace(/-/g, " ") }); } catch { /* malformed: drop it */ }
     return "";
   });
   const text = raw.replace(/\[\[(open|project):([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, kind: string, arg: string, label?: string) => {
@@ -255,7 +263,7 @@ export function AiAssistantPanel({
         const res = await api.aiAssistant(text, history, controller.signal, pageTitle);
         const { text: answer, actions } = parseActions(res.answer || "No answer.");
         setMessages((m) => [...m, { role: "ai", text: answer || "Done.", actions }]);
-        if (actions[0] && actions[0].kind !== "save") run(actions[0]);
+        if (actions[0] && (actions[0].kind === "open" || actions[0].kind === "project")) run(actions[0]);
       }
     } catch (err: any) {
       if (err?.name === "AbortError" || controller.signal.aborted) {
@@ -325,7 +333,7 @@ export function AiAssistantPanel({
                   <div key={`s${k}`} className="w-full"><SaveCard action={a} text={m.text} onOpen={(v) => onNavigate?.(v)}
                     onSaved={(id) => setMessages((ms) => ms.map((x, n) => (n === i ? { ...x, actions: (x.actions || []).map((y, j) => (j === k && y.kind === "save" ? { ...y, savedId: id } : y)) } : x)))} /></div>
                 ))}
-                {m.role === "ai" && m.actions?.filter((a) => a.kind !== "save").map((a, k) => (
+                {m.role === "ai" && m.actions?.filter((a) => a.kind === "open" || a.kind === "project").map((a, k) => (
                   <button key={k} onClick={() => run(a)} className="inline-flex items-center gap-1.5 rounded-md bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 text-[#FF8A47] hover:bg-[#FF6B1A]/25 px-2.5 py-1.5 text-[11.5px] font-medium">
                     <ArrowUpRight className="w-3.5 h-3.5" /> Open {a.label}
                   </button>
