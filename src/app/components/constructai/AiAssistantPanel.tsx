@@ -61,7 +61,7 @@ function blocks(text: string): Block[] {
   return out.map((b) => (b.kind === "text" ? { ...b, text: b.text.trim() } : b)).filter((b) => b.kind === "table" || b.text);
 }
 const plain = (s: string) => s.replace(/\*\*(.+?)\*\*/g, "$1");
-function exportCsv(head: string[], rows: string[][]) {
+export function exportCsv(head: string[], rows: string[][]) {
   const esc = (v: string) => `"${plain(v).replace(/"/g, '""')}"`;
   const csv = [head, ...rows].map((r) => r.map(esc).join(",")).join("\r\n");
   const a = document.createElement("a");
@@ -71,7 +71,7 @@ function exportCsv(head: string[], rows: string[][]) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 const Bold = ({ text }: { text: string }) => <>{text.split(/(\*\*.+?\*\*)/g).map((p, i) => (/^\*\*.+\*\*$/.test(p) ? <strong key={i} className="text-white font-semibold">{p.slice(2, -2)}</strong> : p))}</>;
-export function AiRichText({ text }: { text: string }) {
+export function AiRichText({ text, onPreview }: { text: string; /** Show a table large in a side pane. */ onPreview?: (head: string[], rows: string[][]) => void }) {
   return (
     <div className="space-y-2">
       {blocks(text).map((b, i) => b.kind === "text" ? <div key={i} className="whitespace-pre-wrap"><Bold text={b.text} /></div> : (
@@ -82,7 +82,10 @@ export function AiRichText({ text }: { text: string }) {
               <tbody>{b.rows.map((r, k) => <tr key={k} className="border-t border-[#222A35]">{r.map((c, n) => <td key={n} className="px-2 py-1.5 text-[#C2CAD6] align-top"><Bold text={c} /></td>)}</tr>)}</tbody>
             </table>
           </div>
-          <button onClick={() => exportCsv(b.head, b.rows)} className="w-full h-8 border-t border-[#222A35] bg-[#0A0E14] text-[11.5px] text-[#FF8A45] hover:bg-[#161C24] inline-flex items-center justify-center gap-1.5"><Download className="w-3.5 h-3.5" /> Export to CSV</button>
+          <div className="flex border-t border-[#222A35] bg-[#0A0E14]">
+            {onPreview && <button onClick={() => onPreview(b.head, b.rows)} className="flex-1 h-8 text-[11.5px] text-[#C2CAD6] hover:bg-[#161C24] inline-flex items-center justify-center gap-1.5 border-r border-[#222A35]"><Maximize2 className="w-3.5 h-3.5" /> Open in preview</button>}
+            <button onClick={() => exportCsv(b.head, b.rows)} className="flex-1 h-8 text-[11.5px] text-[#FF8A47] hover:bg-[#161C24] inline-flex items-center justify-center gap-1.5"><Download className="w-3.5 h-3.5" /> Export to CSV</button>
+          </div>
         </div>
       ))}
     </div>
@@ -288,12 +291,12 @@ export function AiAssistantPanel({
               <div className="flex flex-col items-start gap-1.5 max-w-[88%]">
                 <div className={`rounded-lg px-3 py-2 text-[12.5px] leading-relaxed ${m.role === "user" ? "bg-[#FF6B1A] text-white whitespace-pre-wrap" : "bg-[#11161D] border border-[#222A35] text-[#C2CAD6] w-full"}`}>{m.role === "ai" ? <AiRichText text={m.text} /> : m.text}</div>
                 {m.role === "ai" && m.actions?.map((a, k) => (
-                  <button key={k} onClick={() => run(a)} className="inline-flex items-center gap-1.5 rounded-md bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 text-[#FF8A45] hover:bg-[#FF6B1A]/25 px-2.5 py-1.5 text-[11.5px] font-medium">
+                  <button key={k} onClick={() => run(a)} className="inline-flex items-center gap-1.5 rounded-md bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 text-[#FF8A47] hover:bg-[#FF6B1A]/25 px-2.5 py-1.5 text-[11.5px] font-medium">
                     <ArrowUpRight className="w-3.5 h-3.5" /> Open {a.label}
                   </button>
                 ))}
                 {m.role === "ai" && m.form && onOpenForm && (
-                  <button onClick={() => onOpenForm(m.form!)} className="inline-flex items-center gap-1.5 rounded-md bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 text-[#FF8A45] hover:bg-[#FF6B1A]/25 px-2.5 py-1.5 text-[11.5px] font-medium transition-colors">
+                  <button onClick={() => onOpenForm(m.form!)} className="inline-flex items-center gap-1.5 rounded-md bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 text-[#FF8A47] hover:bg-[#FF6B1A]/25 px-2.5 py-1.5 text-[11.5px] font-medium transition-colors">
                     <ClipboardList className="w-3.5 h-3.5" /> Open in Form Builder
                   </button>
                 )}

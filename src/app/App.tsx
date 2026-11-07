@@ -38,7 +38,8 @@ import Inspections from "./components/constructai/Inspections";
 import SafetyIncidents from "./components/constructai/SafetyIncidents";
 import Inventory from "./components/constructai/Inventory";
 import Attendance from "./components/constructai/Attendance";
-import BuildflexAI from "./components/constructai/BuildflexAI";
+import { AiWorkspace } from "./components/constructai/AiWorkspace";
+import { useAiSession } from "./components/constructai/aiSession";
 import { ChecklistsHub } from "./components/constructai/ChecklistsHub";
 import Observations from "./components/constructai/Observations";
 import Coordination from "./components/constructai/Coordination";
@@ -55,7 +56,7 @@ import { ModuleTabs } from "./components/constructai/ModuleTabs";
 import { Onboarding } from "./components/constructai/Onboarding";
 import { ProfileSettings } from "./components/constructai/ProfileSettings";
 import { CreditCard } from "lucide-react";
-import { AiAssistantPanel, AI_GREETING, type Msg as AiMsg, type AiFormDraft } from "./components/constructai/AiAssistantPanel";
+import { AiAssistantPanel, type AiFormDraft } from "./components/constructai/AiAssistantPanel";
 import ShemmySupport from "./components/constructai/ShemmySupport";
 
 const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }> = {
@@ -181,7 +182,12 @@ export default function App() {
   }, []);
   // Chat session lifted here so it persists across panel open/close and module
   // navigation; only "New chat" or a page reload (which remounts App) resets it.
-  const [aiMessages, setAiMessages] = useState<AiMsg[]>([AI_GREETING]);
+  const aiSession = useAiSession();
+  const { messages: aiMessages, setMessages: setAiMessages } = aiSession;
+  // Sidebar: full, or a rail of icons. The AI page starts on the rail so the
+  // chat gets the room; expanding it there only lasts for that visit.
+  const [navCollapsed, setNavCollapsed] = useState(() => { try { return localStorage.getItem("buildsasa-nav-collapsed") === "1"; } catch { return false; } });
+  const [aiNavOpen, setAiNavOpen] = useState(false);
   // A checklist the AI drafted in chat, queued to open in the Form Builder
   // (inside the Checklists view) as a new, unsaved form.
   const [aiFormDraft, setAiFormDraft] = useState<any | null>(null);
@@ -501,6 +507,11 @@ export default function App() {
           starter={starter}
           activeProjectId={activeProjectId}
           onOpenProject={openProject}
+          collapsed={effectiveView === "buildflex-ai" ? !aiNavOpen : navCollapsed}
+          onToggleCollapsed={() => {
+            if (effectiveView === "buildflex-ai") { setAiNavOpen((x) => !x); return; }
+            setNavCollapsed((x) => { try { localStorage.setItem("buildsasa-nav-collapsed", x ? "0" : "1"); } catch { /* noop */ } return !x; });
+          }}
         />
         <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
           <Topbar
@@ -516,7 +527,7 @@ export default function App() {
             theme={theme}
             setTheme={setTheme}
           />
-          <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
+          <div className={`flex-1 overflow-x-hidden relative ${effectiveView === "buildflex-ai" ? "overflow-hidden" : "overflow-y-auto"}`}>
             {!paywalled && (
               <ModuleTabs view={effectiveView} allowed={(v) => allowed.includes(v)} starter={starter} onNavigate={navigate}
                 onAskAi={() => { setAiPanelOpen(true); setAiPrefill(`About ${meta?.title || "this page"}: `); }} />
@@ -632,7 +643,7 @@ export default function App() {
             {effectiveView === "safety-incidents" && <SafetyIncidents role={role} />}
             {effectiveView === "equipment" && <Inventory role={role} />}
             {effectiveView === "attendance" && <Attendance role={role} />}
-            {effectiveView === "buildflex-ai" && <BuildflexAI role={role} messages={aiMessages} setMessages={setAiMessages} onOpenForm={openAiForm} />}
+            {effectiveView === "buildflex-ai" && <AiWorkspace session={aiSession} canSeeMoney={!!ROLES[role].financials} onNavigate={(v) => allowed.includes(v as View) && navigate(v as View)} onOpenProject={openProject} onOpenForm={openAiForm} />}
             </ErrorBoundary>
             )}
           </div>
@@ -646,11 +657,11 @@ export default function App() {
           />
         )}
         {settingsOpen && <ProfileSettings initialTab={settingsTab} onClose={() => setSettingsOpen(false)} />}
-        {!paywalled && <AiAssistantPanel docked open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} onExpand={() => { setAiPanelOpen(false); navigate("buildflex-ai"); }} messages={aiMessages} setMessages={setAiMessages} onOpenForm={openAiForm}
+        {!paywalled && effectiveView !== "buildflex-ai" && <AiAssistantPanel docked open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} onExpand={() => { setAiPanelOpen(false); navigate("buildflex-ai"); }} messages={aiMessages} setMessages={setAiMessages} onOpenForm={openAiForm}
           prefill={aiPrefill} onConsumePrefill={() => setAiPrefill(null)} pageTitle={meta?.title}
           onNavigate={(v) => allowed.includes(v as View) && navigate(v as View)} onOpenProject={openProject} />}
         {/* The support bubble would sit on the docked AI's send button. */}
-        {!paywalled && !(aiPanelOpen && window.innerWidth >= 1280) && <ShemmySupport />}
+        {!paywalled && effectiveView !== "buildflex-ai" && !(aiPanelOpen && window.innerWidth >= 1280) && <ShemmySupport />}
       </div>
     </CurrencyProvider>
   );

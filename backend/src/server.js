@@ -3772,6 +3772,110 @@ app.get('/api/inventory/low-stock', auth, async (_req, res) => {
 });
 
 // Single item including its movement ledger (newest first).
+// ===== WASTAGE REPORT =====
+// Registered before /api/inventory/:id, which would otherwise read "wastage" as an item id.
+// Answers the question the ledger alone cannot: how much material did we buy that
+// never became building, what was it, why did it go, on which project, and what
+// did it cost. Everything here is derived from recorded movements — nothing is
+// estimated or invented.
+//
+// ?from=YYYY-MM-DD &to=YYYY-MM-DD &projectId=
+app.get('/api/inventory/wastage', auth, async (req, res) => {
+  try {
+    const { from, to, projectId } = req.query;
+    const where = { type: { in: ['out', 'waste', 'adjust'] } };
+    if (from || to) {
+      where.date = {};
+      if (from) where.date.gte = new Date(String(from));
+      if (to) { const t = new Date(String(to)); t.setHours(23, 59, 59, 999); where.date.lte = t; }
+    }
+    if (projectId) where.projectId = String(projectId);
+
+    const movements = await prisma.inventoryMovement.findMany({ where, orderBy: { date: 'desc' } });
+    const itemIds = [...new Set(movements.map((m) => m.itemId))];
+    const items = itemIds.length
+      ? await prisma.inventoryItem.findMany({ where: { id: { in: itemIds } } })
+      : [];
+    const byId = new Map(items.map((i) => [i.id, i]));
+
+    const waste = movements.filter((m) => m.type === 'waste');
+    const issued = movements.filter((m) => m.type === 'out');
+    // A stock take that finds LESS than the system expected is unexplained loss —
+    // shrinkage, theft or unrecorded issues. It is reported separately from
+    // declared waste because the two need different responses.
+    const shrinkage = movements.filter((m) => m.type === 'adjust' && m.reason === 'shrinkage');
+
+    const sum = (rows, f) => Math.round(rows.reduce((a, r) => a + (Number(f(r)) || 0), 0) * 100) / 100;
+    const wasteValue = sum(waste, (m) => m.valueKES);
+    const issuedValue = sum(issued, (m) => m.valueKES);
+
+    // Waste by reason — where the money actually goes.
+    const byReason = {};
+    for (const m of waste) {
+      const k = m.reason || 'other';
+      if (!byReason[k]) byReason[k] = { reason: k, quantity: 0, valueKES: 0, movements: 0 };
+      byReason[k].quantity += Number(m.quantity) || 0;
+      byReason[k].valueKES += Number(m.valueKES) || 0;
+      byReason[k].movements += 1;
+    }
+
+    // Waste by material, with each item's own allowance so "is this normal?" is
+    // answerable rather than a judgement call.
+    const byItem = {};
+    for (const m of movements) {
+      const item = byId.get(m.itemId);
+      if (!item) continue;
+      if (!byItem[m.itemId]) {
+        byItem[m.itemId] = {
+          itemId: m.itemId, name: item.name, unit: item.unit, category: item.category || null,
+          wasteAllowancePct: item.wasteAllowancePct ?? null,
+          wastedQty: 0, wastedValueKES: 0, issuedQty: 0, issuedValueKES: 0,
+        };
+      }
+      const b = byItem[m.itemId];
+      if (m.type === 'waste') { b.wastedQty += Number(m.quantity) || 0; b.wastedValueKES += Number(m.valueKES) || 0; }
+      if (m.type === 'out') { b.issuedQty += Number(m.quantity) || 0; b.issuedValueKES += Number(m.valueKES) || 0; }
+    }
+    const items_ = Object.values(byItem).map((b) => {
+      // Waste rate = wasted / (issued + wasted): of everything that left the
+      // store for this material, what share never became building.
+      const consumed = b.issuedQty + b.wastedQty;
+      const wastePct = consumed > 0 ? Math.round((b.wastedQty / consumed) * 1000) / 10 : 0;
+      const allowance = b.wasteAllowancePct;
+      return {
+        ...b,
+        wastedQty: Math.round(b.wastedQty * 100) / 100,
+        wastedValueKES: Math.round(b.wastedValueKES * 100) / 100,
+        issuedQty: Math.round(b.issuedQty * 100) / 100,
+        issuedValueKES: Math.round(b.issuedValueKES * 100) / 100,
+        wastePct,
+        // Only a claim when there IS an allowance to measure against.
+        overAllowance: allowance != null ? wastePct > allowance : null,
+        overBy: allowance != null && wastePct > allowance ? Math.round((wastePct - allowance) * 10) / 10 : 0,
+      };
+    }).sort((a, b) => b.wastedValueKES - a.wastedValueKES);
+
+    const totalConsumedValue = wasteValue + issuedValue;
+    res.json({
+      totals: {
+        wasteValueKES: wasteValue,
+        issuedValueKES: issuedValue,
+        shrinkageValueKES: sum(shrinkage, (m) => m.valueKES),
+        wastePctOfConsumed: totalConsumedValue > 0 ? Math.round((wasteValue / totalConsumedValue) * 1000) / 10 : 0,
+        wasteMovements: waste.length,
+      },
+      byReason: Object.values(byReason)
+        .map((r) => ({ ...r, quantity: Math.round(r.quantity * 100) / 100, valueKES: Math.round(r.valueKES * 100) / 100 }))
+        .sort((a, b) => b.valueKES - a.valueKES),
+      byItem: items_,
+      // How much of this is unpriced. A total built from movements with no unit
+      // cost understates the loss, and saying so is better than quietly showing a
+      // number that is too small.
+      unpricedMovements: movements.filter((m) => m.valueKES == null).length,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/inventory/:id', auth, async (req, res) => {
   try {
     const row = await prisma.inventoryItem.findUnique({ where: { id: req.params.id }, include: { movements: { orderBy: { date: 'desc' } } } });
@@ -3878,108 +3982,6 @@ app.post('/api/inventory/:id/movements', auth, requireRole(CAN_MANAGE_INVENTORY)
 });
 
 
-// ===== WASTAGE REPORT =====
-// Answers the question the ledger alone cannot: how much material did we buy that
-// never became building, what was it, why did it go, on which project, and what
-// did it cost. Everything here is derived from recorded movements — nothing is
-// estimated or invented.
-//
-// ?from=YYYY-MM-DD &to=YYYY-MM-DD &projectId=
-app.get('/api/inventory/wastage', auth, async (req, res) => {
-  try {
-    const { from, to, projectId } = req.query;
-    const where = { type: { in: ['out', 'waste', 'adjust'] } };
-    if (from || to) {
-      where.date = {};
-      if (from) where.date.gte = new Date(String(from));
-      if (to) { const t = new Date(String(to)); t.setHours(23, 59, 59, 999); where.date.lte = t; }
-    }
-    if (projectId) where.projectId = String(projectId);
-
-    const movements = await prisma.inventoryMovement.findMany({ where, orderBy: { date: 'desc' } });
-    const itemIds = [...new Set(movements.map((m) => m.itemId))];
-    const items = itemIds.length
-      ? await prisma.inventoryItem.findMany({ where: { id: { in: itemIds } } })
-      : [];
-    const byId = new Map(items.map((i) => [i.id, i]));
-
-    const waste = movements.filter((m) => m.type === 'waste');
-    const issued = movements.filter((m) => m.type === 'out');
-    // A stock take that finds LESS than the system expected is unexplained loss —
-    // shrinkage, theft or unrecorded issues. It is reported separately from
-    // declared waste because the two need different responses.
-    const shrinkage = movements.filter((m) => m.type === 'adjust' && m.reason === 'shrinkage');
-
-    const sum = (rows, f) => Math.round(rows.reduce((a, r) => a + (Number(f(r)) || 0), 0) * 100) / 100;
-    const wasteValue = sum(waste, (m) => m.valueKES);
-    const issuedValue = sum(issued, (m) => m.valueKES);
-
-    // Waste by reason — where the money actually goes.
-    const byReason = {};
-    for (const m of waste) {
-      const k = m.reason || 'other';
-      if (!byReason[k]) byReason[k] = { reason: k, quantity: 0, valueKES: 0, movements: 0 };
-      byReason[k].quantity += Number(m.quantity) || 0;
-      byReason[k].valueKES += Number(m.valueKES) || 0;
-      byReason[k].movements += 1;
-    }
-
-    // Waste by material, with each item's own allowance so "is this normal?" is
-    // answerable rather than a judgement call.
-    const byItem = {};
-    for (const m of movements) {
-      const item = byId.get(m.itemId);
-      if (!item) continue;
-      if (!byItem[m.itemId]) {
-        byItem[m.itemId] = {
-          itemId: m.itemId, name: item.name, unit: item.unit, category: item.category || null,
-          wasteAllowancePct: item.wasteAllowancePct ?? null,
-          wastedQty: 0, wastedValueKES: 0, issuedQty: 0, issuedValueKES: 0,
-        };
-      }
-      const b = byItem[m.itemId];
-      if (m.type === 'waste') { b.wastedQty += Number(m.quantity) || 0; b.wastedValueKES += Number(m.valueKES) || 0; }
-      if (m.type === 'out') { b.issuedQty += Number(m.quantity) || 0; b.issuedValueKES += Number(m.valueKES) || 0; }
-    }
-    const items_ = Object.values(byItem).map((b) => {
-      // Waste rate = wasted / (issued + wasted): of everything that left the
-      // store for this material, what share never became building.
-      const consumed = b.issuedQty + b.wastedQty;
-      const wastePct = consumed > 0 ? Math.round((b.wastedQty / consumed) * 1000) / 10 : 0;
-      const allowance = b.wasteAllowancePct;
-      return {
-        ...b,
-        wastedQty: Math.round(b.wastedQty * 100) / 100,
-        wastedValueKES: Math.round(b.wastedValueKES * 100) / 100,
-        issuedQty: Math.round(b.issuedQty * 100) / 100,
-        issuedValueKES: Math.round(b.issuedValueKES * 100) / 100,
-        wastePct,
-        // Only a claim when there IS an allowance to measure against.
-        overAllowance: allowance != null ? wastePct > allowance : null,
-        overBy: allowance != null && wastePct > allowance ? Math.round((wastePct - allowance) * 10) / 10 : 0,
-      };
-    }).sort((a, b) => b.wastedValueKES - a.wastedValueKES);
-
-    const totalConsumedValue = wasteValue + issuedValue;
-    res.json({
-      totals: {
-        wasteValueKES: wasteValue,
-        issuedValueKES: issuedValue,
-        shrinkageValueKES: sum(shrinkage, (m) => m.valueKES),
-        wastePctOfConsumed: totalConsumedValue > 0 ? Math.round((wasteValue / totalConsumedValue) * 1000) / 10 : 0,
-        wasteMovements: waste.length,
-      },
-      byReason: Object.values(byReason)
-        .map((r) => ({ ...r, quantity: Math.round(r.quantity * 100) / 100, valueKES: Math.round(r.valueKES * 100) / 100 }))
-        .sort((a, b) => b.valueKES - a.valueKES),
-      byItem: items_,
-      // How much of this is unpriced. A total built from movements with no unit
-      // cost understates the loss, and saying so is better than quietly showing a
-      // number that is too small.
-      unpricedMovements: movements.filter((m) => m.valueKES == null).length,
-    });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
 
 // ===== SCHEDULED REPORT RUNNER =====
 // Scheduled reports were stored with a nextRunAt and then never executed — the
@@ -6023,10 +6025,67 @@ Rules: 6-14 items grouped into 2-5 logical groups; real construction terminology
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// What the AI page's categories ask the assistant to concentrate on.
+// Kept in step with AI_CATEGORIES in src/app/components/constructai/AiWorkspace.tsx.
+const AI_CATEGORY_GUIDE = {
+  design: 'Interior and exterior design for Kenyan homes and offices: layouts, finishes, colour palettes, furniture, lighting and materials, with a costed materials table in KES when useful. Suggest the user opens the Design studio to generate images of the space.',
+  quotes: 'Quotes, bills of quantities and material estimates. Always answer with a markdown table (item, description, quantity, unit, rate, amount in KES) and a bold total, state your assumptions (sizes, specification) and offer to adjust them.',
+  site: 'Site work: daily logs, progress, labour, deliveries, delays, quality and safety. Summarise from the data and, when the user describes a day, write it up as a clean daily log they can paste.',
+  money: 'Money: budgets, spend, cash flow, invoices, change orders and commitments. Lead with the numbers from the data and flag risks.',
+  checklists: 'Checklists, inspections and quality: build itemised checklists by trade and explain standards in plain language.',
+  planning: 'Planning and scheduling: stage-by-stage programmes, durations, sequencing, critical path and lead times, as a table of tasks with durations.',
+};
+
+// ── Saved AI chats (history) ── private to their owner.
+const aiConvDto = (c, full) => ({ id: c.id, title: c.title, category: c.category, updatedAt: c.updatedAt, ...(full ? { messages: (() => { try { return JSON.parse(c.messages); } catch { return []; } })() } : {}) });
+const aiConvMessages = (v) => JSON.stringify((Array.isArray(v) ? v : []).slice(-200).map((m) => ({
+  role: m && m.role === 'user' ? 'user' : 'ai', text: String((m && m.text) || '').slice(0, 20000),
+  ...(m && Array.isArray(m.actions) && m.actions.length ? { actions: m.actions.slice(0, 5) } : {}),
+  ...(m && m.form ? { form: m.form } : {}),
+})));
+app.get('/api/ai/conversations', auth, async (req, res) => {
+  try {
+    const rows = await prismaBase.aiConversation.findMany({ where: { userId: req.user.sub }, orderBy: { updatedAt: 'desc' }, take: 100, select: { id: true, title: true, category: true, updatedAt: true } });
+    res.json(rows.map((r) => aiConvDto(r)));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/ai/conversations/:id', auth, async (req, res) => {
+  try {
+    const c = await prismaBase.aiConversation.findFirst({ where: { id: req.params.id, userId: req.user.sub } });
+    if (!c) return res.status(404).json({ error: 'Chat not found' });
+    res.json(aiConvDto(c, true));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/ai/conversations', auth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const title = String(b.title || 'New chat').trim().slice(0, 120) || 'New chat';
+    const c = await prismaBase.aiConversation.create({ data: { userId: req.user.sub, workspaceId: currentWs() || null, title, category: AI_CATEGORY_GUIDE[b.category] ? b.category : 'general', messages: aiConvMessages(b.messages) } });
+    res.json(aiConvDto(c));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put('/api/ai/conversations/:id', auth, async (req, res) => {
+  try {
+    const c = await prismaBase.aiConversation.findFirst({ where: { id: req.params.id, userId: req.user.sub } });
+    if (!c) return res.status(404).json({ error: 'Chat not found' });
+    const b = req.body || {};
+    const data = {};
+    if (b.messages !== undefined) data.messages = aiConvMessages(b.messages);
+    if (b.title !== undefined && String(b.title).trim()) data.title = String(b.title).trim().slice(0, 120);
+    res.json(aiConvDto(await prismaBase.aiConversation.update({ where: { id: c.id }, data })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/ai/conversations/:id', auth, async (req, res) => {
+  try {
+    await prismaBase.aiConversation.deleteMany({ where: { id: req.params.id, userId: req.user.sub } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/ai/assistant', auth, withCredits('assistant'), async (req, res) => {
   try {
     const userId = req.user.sub;
-    const { question, history, page } = req.body;
+    const { question, history, page, category } = req.body;
     if (!question) return res.status(400).json({ error: 'question required' });
 
     const [user, projects, checklists, inspections, punchItems, safetyIncidents, dailyLogs, equipment, ledger, expenses, commitments, invoices, bids, changeOrders] = await Promise.all([
@@ -6107,7 +6166,8 @@ ACTING IN THE APP: People use you instead of clicking through tabs. When the use
   [[project:<id>|<project name>]] to open one project (use the id from PROJECTS).
 Only add a tag when the user wants to go somewhere or do something; never for a plain question. Never show the tag syntax otherwise.
 ESTIMATES AND LISTS: For material estimates, bills of quantities, schedules, comparisons or any list of figures, answer with a markdown table (| Item | Description | Quantity | Unit | Rate (KES) | Amount (KES) |) followed by a bold total line. Use current Kenyan market rates in KES unless the user names another currency, and say they are estimates to confirm with suppliers. The user can export any table to CSV.
-${page ? `The user is currently on the "${String(page).slice(0, 60)}" page; "this" or "here" refers to it.` : ''}`;
+${page ? `The user is currently on the "${String(page).slice(0, 60)}" page; "this" or "here" refers to it.` : ''}
+${AI_CATEGORY_GUIDE[category] ? `FOCUS FOR THIS CHAT: ${AI_CATEGORY_GUIDE[category]}` : ''}`;
 
     let systemPrompt;
     if (isWorker) {

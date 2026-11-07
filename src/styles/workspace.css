@@ -152,7 +152,7 @@
 .ws-menu-label { padding: 6px 9px 4px; font-size: 12px; color: var(--ws-muted); }
 
 /* ── Top bar ── */
-.ws-topbar { height: 56px; flex-shrink: 0; background: var(--ws-card); border-bottom: 1px solid var(--ws-border); display: flex; align-items: center; gap: 12px; padding: 0 20px; position: relative; z-index: 20; }
+.ws-topbar { height: 56px; flex-shrink: 0; background: var(--ws-card); border-bottom: 1px solid var(--ws-border); display: flex; align-items: center; gap: 12px; padding: 0 20px; position: relative; z-index: 30; }
 .ws-crumbs { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 0 1 auto; font-size: 13.5px; color: var(--ws-muted); }
 .ws-crumbs > button.ws-crumb { background: none; border: 0; color: var(--ws-muted); font-size: 13.5px; cursor: pointer; padding: 0; white-space: nowrap; }
 .ws-crumbs > button.ws-crumb:hover { color: var(--ws-text); }
@@ -215,4 +215,20 @@
 }
 @media (max-width: 480px) { .ws-grid-4 { grid-template-columns: 1fr; } }
 
+}
+
+/* Collapsed sidebar: a rail of icons on desktop, labels in the tooltip. On a
+   phone the sidebar is a drawer and always shows in full. */
+@media (min-width: 1024px) {
+  .ws-sidebar.ws-collapsed { width: 60px; }
+  .ws-sidebar.ws-collapsed .ws-sidebar-top { flex-direction: column; padding: 10px 8px 6px; gap: 6px; }
+  .ws-sidebar.ws-collapsed .ws-switcher { flex: none; width: 36px; justify-content: center; padding: 0; }
+  .ws-sidebar.ws-collapsed .ws-switcher > :not(img) { display: none; }
+  .ws-sidebar.ws-collapsed .ws-hide-collapsed { display: none !important; }
+  .ws-sidebar.ws-collapsed .ws-nav { padding: 4px 8px 12px; }
+  .ws-sidebar.ws-collapsed .ws-row { justify-content: center; padding: 0; height: 40px; gap: 0; }
+  .ws-sidebar.ws-collapsed .ws-row svg { width: 19px; height: 19px; }
+  .ws-sidebar.ws-collapsed .ws-row-label, .ws-sidebar.ws-collapsed .ws-row .ws-chev { display: none; }
+  .ws-sidebar.ws-collapsed .ws-user { justify-content: center; padding: 8px 0; }
+  .ws-sidebar.ws-collapsed .ws-user > :not(.ws-avatar) { display: none; }
 }

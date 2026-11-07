@@ -1,6 +1,6 @@
 import {
   Settings, LifeBuoy, Eye, ChevronDown, CreditCard, LogOut,
-  Lock, Search, SquarePen, X, FolderOpen, Building2, Sparkles,
+  Lock, Search, SquarePen, X, FolderOpen, Building2, Sparkles, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import type { Role } from "./roles";
@@ -73,7 +73,12 @@ export function Sidebar({
   starter = false,
   activeProjectId,
   onOpenProject,
+  collapsed = false,
+  onToggleCollapsed,
 }: {
+  /** Desktop only: a narrow rail of icons, labels on hover. */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
   view: View;
   setView: (v: View) => void;
   open: boolean;
@@ -153,7 +158,8 @@ export function Sidebar({
     const target = remembered || tabs[0];
     if (target) go(target.key);
   };
-  const openAi = () => { onClose(); window.dispatchEvent(new Event("buildsasa:open-ai")); };
+  // The full Buildsasa AI page; the docked panel stays for quick questions.
+  const openAi = () => go("buildflex-ai");
 
   const lock = (k: View) => starter && BUSINESS_VIEWS.includes(k) ? <Lock className="ws-chev" aria-label="Business plan" /> : null;
 
@@ -167,7 +173,7 @@ export function Sidebar({
       />
       <aside
         aria-label="Workspace navigation"
-        className={`ws-sidebar fixed lg:static z-50 shrink-0 transition-transform duration-200 ${open ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
+        className={`ws-sidebar ${collapsed ? "ws-collapsed" : ""} fixed lg:static z-50 shrink-0 transition-[transform,width] duration-200 ${open ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
       >
         <div className="ws-sidebar-top relative">
           <button type="button" className="ws-switcher" onClick={() => setMenu(menu === "workspace" ? null : "workspace")} aria-haspopup="menu" aria-expanded={menu === "workspace"}>
@@ -175,8 +181,13 @@ export function Sidebar({
             <span className="truncate">Buildsasa</span>
             <ChevronDown className="w-3.5 h-3.5" style={{ color: "var(--ws-muted)" }} aria-hidden />
           </button>
-          <button type="button" className="ws-icon-btn ws-ghost" style={{ width: 32, height: 32 }} aria-label="Search" onClick={() => { onClose(); window.dispatchEvent(new Event("buildsasa:focus-search")); }}><Search /></button>
-          <button type="button" className="ws-icon-btn ws-ghost" style={{ width: 32, height: 32 }} aria-label="Create new" onClick={() => { onClose(); window.dispatchEvent(new Event("buildsasa:open-new")); }}><SquarePen /></button>
+          {onToggleCollapsed && (
+            <button type="button" className="ws-icon-btn ws-ghost ws-collapse-btn hidden lg:flex" style={{ width: 32, height: 32 }} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Expand sidebar" : "Collapse sidebar"} onClick={onToggleCollapsed}>
+              {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+            </button>
+          )}
+          <button type="button" className="ws-icon-btn ws-ghost ws-hide-collapsed" style={{ width: 32, height: 32 }} aria-label="Search" onClick={() => { onClose(); window.dispatchEvent(new Event("buildsasa:focus-search")); }}><Search /></button>
+          <button type="button" className="ws-icon-btn ws-ghost ws-hide-collapsed" style={{ width: 32, height: 32 }} aria-label="Create new" onClick={() => { onClose(); window.dispatchEvent(new Event("buildsasa:open-new")); }}><SquarePen /></button>
           <button type="button" className="ws-icon-btn ws-ghost lg:hidden" style={{ width: 32, height: 32 }} aria-label="Close menu" onClick={onClose}><X /></button>
           {menu === "workspace" && (
             <>
@@ -197,7 +208,7 @@ export function Sidebar({
             </button>
           )}
           <div className={locked ? "blur-sm select-none pointer-events-none opacity-70" : ""} aria-hidden={locked || undefined}>
-            <button type="button" className="ws-row" onClick={openAi} style={{ marginBottom: 6, color: "#FF8A45" }}>
+            <button type="button" className="ws-row" onClick={openAi} title="Ask Buildsasa AI" aria-current={view === "buildflex-ai" ? "page" : undefined} style={{ marginBottom: 6, color: "#FF8A45" }}>
               <Sparkles aria-hidden style={{ color: "#FF6B1A" }} />
               <span className="ws-row-label">Ask Buildsasa AI</span>
             </button>
@@ -206,13 +217,13 @@ export function Sidebar({
               const on = active?.id === m.id;
               return (
                 <div key={m.id}>
-                  <button type="button" className="ws-row" aria-current={on ? "page" : undefined} onClick={() => openModule(m)} title={m.hint}>
+                  <button type="button" className="ws-row" aria-current={on ? "page" : undefined} onClick={() => openModule(m)} title={collapsed ? `${m.label}: ${m.hint}` : m.hint}>
                     <m.icon aria-hidden />
                     <span className="ws-row-label">{m.label}</span>
                     {locked1(m) && <Lock className="ws-chev" aria-label="Business plan" />}
                   </button>
                   {/* The project last opened stays one click away under Projects. */}
-                  {m.id === "projects" && current && (
+                  {m.id === "projects" && current && !collapsed && (
                     <div className="ws-subtree">
                       <button type="button" className="ws-row" aria-current={view === "project-detail" ? "page" : undefined} onClick={() => { onOpenProject?.(current.id); onClose(); }} title={current.name}>
                         <span className="ws-dot" style={{ color: TONE_DOT[projectTone(current.status)] }} aria-hidden />
@@ -226,7 +237,7 @@ export function Sidebar({
           </div>
         </nav>
 
-        <div className="ws-viewing relative">
+        <div className="ws-viewing ws-hide-collapsed relative">
           Viewing as <strong>{role}</strong>
           {ROLE_TESTING && setRole && (
             <>

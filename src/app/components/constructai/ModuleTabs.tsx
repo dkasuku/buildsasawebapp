@@ -28,7 +28,7 @@ export function ModuleTabs({ view, allowed, starter, onNavigate, onAskAi }: {
           );
         })}
         {onAskAi && (
-          <button onClick={onAskAi} className="ml-auto shrink-0 h-8 px-3 rounded-full border border-[#FF6B1A]/30 bg-[#FF6B1A]/10 text-[#FF8A45] text-[12px] inline-flex items-center gap-1.5 hover:bg-[#FF6B1A]/20">
+          <button onClick={onAskAi} className="ml-auto shrink-0 h-8 px-3 rounded-full border border-[#FF6B1A]/30 bg-[#FF6B1A]/10 text-[#FF8A47] text-[12px] inline-flex items-center gap-1.5 hover:bg-[#FF6B1A]/20">
             <Sparkles className="w-3.5 h-3.5" /> Ask AI about {m.label.toLowerCase()}
           </button>
         )}

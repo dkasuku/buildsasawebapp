@@ -1,5 +1,7 @@
 import { rejectReason, shrinkImage, type UploadOpts } from "./uploadPolicy";
 
+export type AiConversationRow = { id: string; title: string; category: string; updatedAt: string };
+
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 const TOKEN_KEY = "constructai-token";
@@ -1485,7 +1487,13 @@ export const api = {
   // AI
   aiChat: (question: string) => http<{ answer: string }>("/api/ai/chat", { method: "POST", body: JSON.stringify({ question }) }),
   supportChat: (messages: { role: string; content: string }[]) => http<{ reply: string }>("/api/support/chat", { method: "POST", body: JSON.stringify({ messages }) }),
-  aiAssistant: (question: string, history?: { role: string; content: string }[], signal?: AbortSignal, page?: string) => http<{ answer: string }>("/api/ai/assistant", { method: "POST", body: JSON.stringify({ question, history, page }), signal }),
+  aiAssistant: (question: string, history?: { role: string; content: string }[], signal?: AbortSignal, page?: string, category?: string) => http<{ answer: string }>("/api/ai/assistant", { method: "POST", body: JSON.stringify({ question, history, page, category }), signal }),
+  // Saved AI chats, private to the signed-in user (the AI page's history).
+  aiConversations: () => http<AiConversationRow[]>("/api/ai/conversations"),
+  aiConversation: (id: string) => http<AiConversationRow & { messages: any[] }>(`/api/ai/conversations/${id}`),
+  createAiConversation: (p: { title: string; category?: string; messages: any[] }) => http<AiConversationRow>("/api/ai/conversations", { method: "POST", body: JSON.stringify(p) }),
+  saveAiConversation: (id: string, p: { title?: string; messages?: any[] }) => http<AiConversationRow>(`/api/ai/conversations/${id}`, { method: "PUT", body: JSON.stringify(p) }),
+  deleteAiConversation: (id: string) => http(`/api/ai/conversations/${id}`, { method: "DELETE" }),
   aiGenerateChecklist: (payload: { trade: string; projectType: string; scope?: string }) => http<{ title: string; items: any[] }>("/api/ai/generate-checklist", { method: "POST", body: JSON.stringify(payload) }),
   buildChecklistAI: (payload: { prompt: string; trade?: string; category?: string; current?: any[]; history?: { role: string; content: string }[] }, signal?: AbortSignal) => http<{ title: string; reply?: string; items: any[]; trade?: string; category?: string }>("/api/ai/build-checklist", { method: "POST", body: JSON.stringify(payload), signal }),
   aiExtractChecklistFromDocument: (file: File) => {
