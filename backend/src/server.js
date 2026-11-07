@@ -6042,6 +6042,8 @@ const aiConvMessages = (v) => JSON.stringify((Array.isArray(v) ? v : []).slice(-
   role: m && m.role === 'user' ? 'user' : 'ai', text: String((m && m.text) || '').slice(0, 20000),
   ...(m && Array.isArray(m.actions) && m.actions.length ? { actions: m.actions.slice(0, 5) } : {}),
   ...(m && m.form ? { form: m.form } : {}),
+  ...(m && m.design && typeof m.design.after === 'string' ? { design: m.design } : {}),
+  ...(m && Array.isArray(m.images) && m.images.length ? { images: m.images.filter((u) => typeof u === 'string' && /^https?:\/\//.test(u)).slice(0, 4) } : {}),
 })));
 app.get('/api/ai/conversations', auth, async (req, res) => {
   try {
@@ -6316,6 +6318,25 @@ app.post('/api/ai/design', auth, withCredits((req) => (Array.isArray(req.body?.i
       } catch (e) { console.error('[design] advice failed:', e.message); return null; }
     })();
 
+    // The Visualizer (AI page, Interior design) also wants a costed materials
+    // list for the transformation, read from the "before" photo. JSON so the app
+    // can show it as a table and export it.
+    const estimateTask = b.estimate ? (async () => {
+      try {
+        const content = [{ type: 'text', text: `You are a quantity surveyor in Kenya. The client wants this space turned into: ${prompt}.${style} ${refs.length ? 'The attached photo shows the space as it is now; estimate its size from what you can see (ceiling height, doors, tiles) and say so.' : 'No photo was given; assume a typical room for the brief.'}
+Return JSON only: {"assumptions": "one or two sentences on the size and scope you assumed", "items": [{"item": "short name", "description": "specification", "quantity": number, "unit": "m² | m | pcs | bags | litres | sets | lump sum", "rate": number, "amount": number}], "notes": "two or three practical tips"}.
+6 to 12 items covering the finishes, fittings and labour needed. Rates and amounts in Kenyan shillings at current Nairobi market prices; amount = quantity × rate.` }];
+        for (const u of refs.slice(0, 2)) content.push({ type: 'image_url', image_url: { url: u.startsWith('/') ? `${req.protocol}://${req.get('host')}${u}` : u } });
+        const c = await openai.chat.completions.create({ model: 'gpt-4o', messages: [{ role: 'user', content }], temperature: 0.3, max_tokens: 1200, response_format: { type: 'json_object' } });
+        const j = JSON.parse(c.choices?.[0]?.message?.content || '{}');
+        const items = (Array.isArray(j.items) ? j.items : []).slice(0, 20).map((it) => {
+          const quantity = Number(it.quantity) || 0; const rate = Number(it.rate) || 0;
+          return { item: String(it.item || '').slice(0, 80), description: String(it.description || '').slice(0, 200), quantity, unit: String(it.unit || '').slice(0, 20), rate, amount: Math.round(Number(it.amount) || quantity * rate) };
+        }).filter((it) => it.item);
+        return items.length ? { currency: 'KES', items, total: items.reduce((t, it) => t + it.amount, 0), assumptions: String(j.assumptions || '').slice(0, 400), notes: String(j.notes || '').slice(0, 800) } : null;
+      } catch (e) { console.error('[design] estimate failed:', e.message); return null; }
+    })() : Promise.resolve(null);
+
     let result;
     try { result = await generate(IMAGE_MODEL); }
     catch (e) {
@@ -6336,9 +6357,9 @@ app.post('/api/ai/design', auth, withCredits((req) => (Array.isArray(req.body?.i
     if (!buffer) return res.status(502).json({ error: 'The AI didn\'t return an image. Please try again.' });
     noteDesignUse(ws);
     const imageUrl = await storeBuffer(req, buffer, `ai-${mode}.png`, 'image/png');
-    const notes = await adviceTask;
+    const [notes, estimate] = await Promise.all([adviceTask, estimateTask]);
     const row = await prisma.aiDesign.create({ data: { userId: req.user?.sub || null, mode, prompt, imageUrl, sourceImages: refs.length ? JSON.stringify(refs) : null, notes } });
-    res.json({ ...row, sourceImages: refs, remainingToday: designQuotaLeft(ws) });
+    res.json({ ...row, sourceImages: refs, estimate, remainingToday: designQuotaLeft(ws) });
   } catch (e) {
     console.error('[design]', e.message);
     res.status(500).json({ error: e.message });

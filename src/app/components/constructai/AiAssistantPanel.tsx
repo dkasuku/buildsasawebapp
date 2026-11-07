@@ -20,7 +20,9 @@ import api from "../../services/api";
 export type AiFormDraft = { title: string; trade: string; category: string; items: any[] };
 // A step the AI asked the app to take: open a page or a project.
 export type AiAction = { kind: "open"; view: string; label: string } | { kind: "project"; id: string; label: string };
-export type Msg = { role: "user" | "ai"; text: string; form?: AiFormDraft; actions?: AiAction[] };
+// An interior design the Visualizer generated from the user's photo.
+export type AiDesignResult = { id: string; before?: string; after: string; prompt: string; estimate?: import("../../services/api").DesignEstimate | null };
+export type Msg = { role: "user" | "ai"; text: string; form?: AiFormDraft; actions?: AiAction[]; design?: AiDesignResult; images?: string[] };
 
 // The assistant ends a reply with [[open:daily-log]] or [[project:<id>|Name]]
 // when the user asked to go somewhere or do something there. Pull those out of
@@ -289,7 +291,9 @@ export function AiAssistantPanel({
                 </button>
               )}
               <div className="flex flex-col items-start gap-1.5 max-w-[88%]">
-                <div className={`rounded-lg px-3 py-2 text-[12.5px] leading-relaxed ${m.role === "user" ? "bg-[#FF6B1A] text-white whitespace-pre-wrap" : "bg-[#11161D] border border-[#222A35] text-[#C2CAD6] w-full"}`}>{m.role === "ai" ? <AiRichText text={m.text} /> : m.text}</div>
+                <div className={`rounded-lg px-3 py-2 text-[12.5px] leading-relaxed ${m.role === "user" ? "bg-[#FF6B1A] text-white whitespace-pre-wrap" : "bg-[#11161D] border border-[#222A35] text-[#C2CAD6] w-full"}`}>{m.role === "ai" ? <AiRichText text={m.text} /> : m.text}
+                  {m.design && <img src={m.design.after} alt="AI design" className="mt-2 w-full rounded-md border border-[#222A35]" />}
+                  {m.role === "ai" && m.design && onExpand && <button onClick={onExpand} className="mt-2 text-[11.5px] text-[#FF8A47] hover:underline">Compare before and after, and see the estimate →</button>}</div>
                 {m.role === "ai" && m.actions?.map((a, k) => (
                   <button key={k} onClick={() => run(a)} className="inline-flex items-center gap-1.5 rounded-md bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 text-[#FF8A47] hover:bg-[#FF6B1A]/25 px-2.5 py-1.5 text-[11.5px] font-medium">
                     <ArrowUpRight className="w-3.5 h-3.5" /> Open {a.label}

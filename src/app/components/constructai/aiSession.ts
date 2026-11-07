@@ -9,9 +9,16 @@ const isGreeting = (m: Msg) => m.role === "ai" && m.text === AI_GREETING.text;
 
 /** Ask the assistant (or build a checklist when that's what was asked) and
  *  return the reply as a chat message. Never throws, except when stopped. */
-export async function askAi(text: string, before: Msg[], opts: { signal?: AbortSignal; page?: string; category?: string } = {}): Promise<Msg> {
+export async function askAi(text: string, before: Msg[], opts: { signal?: AbortSignal; page?: string; category?: string; images?: string[] } = {}): Promise<Msg> {
   const history = before.filter((m) => !isGreeting(m)).map((m) => ({ role: m.role === "ai" ? "assistant" : "user", content: m.text }));
   try {
+    // A photo attached: the Visualizer turns the raw space into the finished
+    // interior and prices the materials.
+    if (opts.images?.length) {
+      const d = await api.generateDesign({ mode: "interior", prompt: text, images: opts.images, aspect: "landscape", estimate: true }, opts.signal);
+      const total = d.estimate?.total ? ` Estimated cost: **KES ${Math.round(d.estimate.total).toLocaleString("en-KE")}**.` : "";
+      return { role: "ai", text: `Here's the space redesigned from your photo. Drag the slider to compare before and after.${total}`, design: { id: d.id, before: opts.images[0], after: d.imageUrl, prompt: d.prompt, estimate: d.estimate || null } };
+    }
     if (looksLikeFormRequest(text)) {
       const res = await api.buildChecklistAI({ prompt: text }, opts.signal);
       const items = Array.isArray(res.items) ? res.items : [];
@@ -28,6 +35,7 @@ export async function askAi(text: string, before: Msg[], opts: { signal?: AbortS
     return { role: "ai", text: answer || "Done.", actions };
   } catch (err: any) {
     if (err?.name === "AbortError" || opts.signal?.aborted) throw err;
+    if (opts.images?.length) return { role: "ai", text: `I couldn't generate the design: ${aiErrorText(err)}` };
     return { role: "ai", text: `I couldn't reach the AI: ${aiErrorText(err)}. Check your connection and try again. If it keeps failing, the AI key on the server may need topping up.` };
   }
 }
