@@ -75,10 +75,10 @@ export const firstQuoteTable = (text: string) => {
 
 // ── Company letterhead, fetched once ──
 let companyP: Promise<CompanyPublic | null> | null = null;
-const company = () => (companyP ||= api.getCompany().then((c) => c as CompanyPublic).catch(() => null));
+export const company = () => (companyP ||= api.getCompany().then((c) => c as CompanyPublic).catch(() => null));
 
-const fileName = (title: string, ext: string) => `${(title || "Buildsasa document").replace(/[\\/:*?"<>|\n]/g, "-").slice(0, 80).trim()}.${ext}`;
-const save = (blob: Blob, name: string) => {
+export const fileName = (title: string, ext: string) => `${(title || "Buildsasa document").replace(/[\\/:*?"<>|\n]/g, "-").slice(0, 80).trim()}.${ext}`;
+export const save = (blob: Blob, name: string) => {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1500);
@@ -96,7 +96,7 @@ async function toPdf(text: string, title: string) {
   const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
   const quote = isQuoteLike(text, title);
   const c = await company();
-  let y = drawLetterhead(doc, c, await companyLogoData(), quote ? "QUOTATION" : "DOCUMENT", [`Date: ${new Date().toLocaleDateString("en-GB")}`]);
+  let y = drawLetterhead(doc, c, await docLogo(), quote ? "QUOTATION" : "DOCUMENT", [`Date: ${new Date().toLocaleDateString("en-GB")}`]);
   doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.setTextColor(20);
   doc.splitTextToSize(title, W - 28).forEach((l: string) => { doc.text(l, 14, y); y += 6; });
   y += 2;
@@ -188,7 +188,7 @@ function toXlsx(text: string, title: string) {
 }
 
 // ── Word: an HTML document Word opens natively (.doc) ──
-const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+export const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const inline = (s: string) => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
 async function toWord(text: string, title: string) {
   const c = await company();
@@ -210,14 +210,15 @@ async function toWord(text: string, title: string) {
     }
     flush();
   }
-  const head = c ? `<div class="co"><b>${esc(c.name || "")}</b><br/>${[c.address, [c.phone, c.email].filter(Boolean).join(" · "), c.kraPin ? `KRA PIN: ${c.kraPin}` : ""].filter(Boolean).map((x) => esc(String(x))).join("<br/>")}</div>` : "";
+  const logo = await docLogo();
+  const head = c ? `<div class="co">${logo ? `<img src="${logo}" style="height:48pt"/><br/>` : ""}<b>${esc(c.name || "")}</b><br/>${[c.address, [c.phone, c.email].filter(Boolean).join(" · "), c.kraPin ? `KRA PIN: ${c.kraPin}` : ""].filter(Boolean).map((x) => esc(String(x))).join("<br/>")}</div>` : "";
   const doc = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>${esc(title)}</title>
 <style>body{font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#222}h1{font-size:16pt;margin:14pt 0 6pt}h2{font-size:12pt;margin:12pt 0 4pt}table{border-collapse:collapse;width:100%;margin:8pt 0}th{background:#0B2A4A;color:#fff;text-align:left}th,td{border:1px solid #ccc;padding:4pt 6pt;font-size:10pt}td.n{text-align:right}.co{border-top:4pt solid #FF6B1A;padding-top:6pt;color:#555;font-size:9pt}.foot{color:#999;font-size:8pt;margin-top:18pt}</style></head>
 <body>${head}<h1>${esc(title)}</h1><p style="color:#777;font-size:9pt">${new Date().toLocaleDateString("en-GB")}</p>${html}${c?.paymentDetails && isQuoteLike(text, title) ? `<h2>Payment details</h2><p>${esc(c.paymentDetails).replace(/\n/g, "<br/>")}</p>` : ""}<p class="foot">Prepared with Buildsasa</p></body></html>`;
   save(new Blob(["﻿", doc], { type: "application/msword" }), fileName(title, "doc"));
 }
 
-function toCsv(text: string, title: string) {
+export function toCsv(text: string, title: string) {
   const t = docBlocks(text).find((b) => b.kind === "table") as Extract<Block, { kind: "table" }> | undefined;
   const rows = t ? [t.head, ...t.rows] : docBlocks(text).map((b) => [plain((b as any).text || "")]);
   const q = (v: string) => `"${plain(v).replace(/"/g, '""')}"`;
@@ -250,3 +251,29 @@ export const whatsappLink = (text: string) => {
   const flat = docBlocks(text).map((b) => b.kind === "text" ? b.text.replace(/\*\*(.+?)\*\*/g, "*$1*") : b.rows.map((r) => r.map(plain).filter(Boolean).join(" · ")).join("\n")).join("\n\n");
   return `https://wa.me/?text=${encodeURIComponent(flat.slice(0, 3500))}`;
 };
+
+// ── Logo on documents ──
+// A logo attached in the chat wins over the company logo from Settings, so a
+// contractor who hasn't set one up can still send a branded quote.
+let chatLogo: string | null = null;
+/** Use this uploaded image as the letterhead logo for documents from the chat. */
+export const setChatLogo = (url: string | null) => { chatLogo = url; };
+export const getChatLogo = () => chatLogo;
+const logoCache = new Map<string, Promise<string | null>>();
+/** An uploaded image as a PNG/JPEG data URL jsPDF can draw (WebP is converted). */
+export function imageData(url: string): Promise<string | null> {
+  if (!logoCache.has(url)) logoCache.set(url, api.fileDataUrl(url).then(({ dataUrl }) => new Promise<string | null>((resolve) => {
+    if (/^data:image\/(png|jpe?g);/.test(dataUrl)) return resolve(dataUrl);
+    const img = new Image();
+    img.onload = () => { const c = document.createElement("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight; c.getContext("2d")!.drawImage(img, 0, 0); resolve(c.toDataURL("image/png")); };
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  })).catch(() => { logoCache.delete(url); return null; }));
+  return logoCache.get(url)!;
+}
+/** The logo for a document: this quote's, the chat's, else the company's. */
+export async function docLogo(override?: string | null): Promise<string | null> {
+  const url = override || chatLogo;
+  if (url) { const d = await imageData(url); if (d) return d; }
+  return companyLogoData();
+}

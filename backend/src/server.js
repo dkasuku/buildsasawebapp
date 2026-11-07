@@ -6047,7 +6047,60 @@ Buildsasa is construction management software for contractors in Kenya and East 
 - People: team and invitations, crews, subcontractors and bids, directory of contacts, role manager (who can see what).
 - Files & reports: reports (PDF reports), company documents (licences such as NCA, expiry dates), document inbox.
 Clients get a client portal link per project (progress, photos, shared 360° tours, invoices, quotes to accept). Company details and logo (printed on quotes and invoices) are in Settings. AI features cost Sasa Credits: a chat answer 1, a design image 20, a design from a photo 30; trial workspaces get 50 a month.
-Buildsasa AI (this chat) can: answer from the workspace data, price jobs and write quotes, write daily logs, reports, letters and client updates, build checklists, generate interior designs (with or without a photo, shown right here in the chat with a costed materials list), open any page, and save records after the user confirms. Every answer can be downloaded as a PDF, Word or Excel document, and any table can be saved as a quote in Quotes.`;
+Buildsasa AI (this chat) can: answer from the workspace data, price jobs and write quotes, write daily logs, reports, letters and client updates, build checklists, generate interior designs (with or without a photo, shown right here in the chat with a costed materials list), open any page, and save records after the user confirms. Every answer can be downloaded as a PDF, Word or Excel document, and any table can be saved as a quote in Quotes.
+A quote you write appears as an editable quote in the chat: the user can change lines, quantities, rates, VAT, discount and client details, add their logo, then download or save it. When they ask you to change a quote, reply with the complete updated table.
+ATTACHMENTS: users can attach photos and documents (PDF, Word, Excel, CSV). Use them: price a BOQ, drawing or handwritten list; summarise or check a contract, tender or report; assess a site photo (progress, defects, safety hazards, likely causes and fixes); read a supplier quotation and compare it.`;
+
+// ── Files attached in the AI chat ──
+// Only our own uploads are read (local /uploads or the storage bucket), never an
+// arbitrary URL, so the chat can't be used to make the server fetch other hosts.
+async function readOwnUpload(req, url, maxBytes = 15 * 1024 * 1024) {
+  const fs = require('fs');
+  const u = String(url || '');
+  const local = u.match(/^(?:https?:\/\/[^/]+)?\/uploads\/([\w.\-]+)$/);
+  const mimeOf = (name) => ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', xls: 'application/vnd.ms-excel', csv: 'text/csv', txt: 'text/plain', md: 'text/plain' }[String(name).split('.').pop().toLowerCase()] || 'application/octet-stream');
+  if (local && (u.startsWith('/') || new URL(u).host === req.get('host') || (process.env.PUBLIC_API_URL && u.startsWith(String(process.env.PUBLIC_API_URL).replace(/\/$/, ''))))) {
+    const p = path.join(UPLOAD_DIR, local[1]);
+    if (!fs.existsSync(p)) throw new Error('That file is no longer available. Upload it again.');
+    const buf = fs.readFileSync(p);
+    if (buf.length > maxBytes) throw new Error('That file is too large to read.');
+    return { buf, type: mimeOf(local[1]), name: local[1] };
+  }
+  if (s3 && u.startsWith(publicUrlFor(''))) {
+    const r = await fetch(u);
+    if (!r.ok) throw new Error('That file could not be read. Upload it again.');
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length > maxBytes) throw new Error('That file is too large to read.');
+    const name = decodeURIComponent(u.split('/').pop() || 'file');
+    const type = (r.headers.get('content-type') || '').split(';')[0];
+    return { buf, type: type && type !== 'application/octet-stream' ? type : mimeOf(name), name };
+  }
+  throw new Error('Only files uploaded to Buildsasa can be read.');
+}
+/** The text of a PDF, Word, Excel/CSV or text file, trimmed for the prompt. */
+async function uploadText(req, url, label) {
+  const { buf, type, name } = await readOwnUpload(req, url);
+  const ext = String(label || name).split('.').pop().toLowerCase();
+  let text = '';
+  if (type === 'application/pdf' || ext === 'pdf') text = (await pdfParse(buf)).text;
+  else if (/wordprocessingml/.test(type) || ext === 'docx') text = (await mammoth.extractRawText({ buffer: buf })).value;
+  else if (/spreadsheet|ms-excel|csv/.test(type) || ['xlsx', 'xls', 'csv'].includes(ext)) {
+    const wb = xlsx.read(buf, { type: 'buffer' });
+    text = wb.SheetNames.map((s) => `Sheet "${s}":\n${xlsx.utils.sheet_to_csv(wb.Sheets[s])}`).join('\n\n');
+  } else if (/^text\//.test(type) || ['txt', 'md'].includes(ext)) text = buf.toString('utf8');
+  else throw new Error(`${label || name}: this file type can't be read. Use PDF, Word, Excel, CSV or a photo.`);
+  return text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, 25000);
+}
+
+// An uploaded image as a data URL (PDF letterheads, AI vision). The bucket has
+// no CORS headers, so the browser can't read the bytes itself.
+app.get('/api/files/data-url', auth, async (req, res) => {
+  try {
+    const { buf, type } = await readOwnUpload(req, req.query.url, 5 * 1024 * 1024);
+    if (!/^image\//.test(type)) return res.status(400).json({ error: 'Not an image' });
+    res.json({ dataUrl: `data:${type};base64,${buf.toString('base64')}` });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 
 // ── Daily brief ── what needs attention today, worked out from the data (no AI
 // call, so it is free and instant). The AI page shows these as cards; tapping
@@ -6099,6 +6152,9 @@ const aiConvMessages = (v) => JSON.stringify((Array.isArray(v) ? v : []).slice(-
   ...(m && m.form ? { form: m.form } : {}),
   ...(m && m.design && typeof m.design.after === 'string' ? { design: m.design } : {}),
   ...(m && Array.isArray(m.images) && m.images.length ? { images: m.images.filter((u) => typeof u === 'string' && /^https?:\/\//.test(u)).slice(0, 4) } : {}),
+  ...(m && Array.isArray(m.files) && m.files.length ? { files: m.files.filter((f) => f && typeof f.url === 'string').slice(0, 4).map((f) => ({ url: String(f.url).slice(0, 600), name: String(f.name || 'file').slice(0, 160) })) } : {}),
+  ...(m && typeof m.logo === 'string' && /^https?:\/\//.test(m.logo) ? { logo: m.logo.slice(0, 600) } : {}),
+  ...(m && m.quote && Array.isArray(m.quote.lines) && JSON.stringify(m.quote).length < 60000 ? { quote: m.quote } : {}),
 })));
 app.get('/api/ai/conversations', auth, async (req, res) => {
   try {
@@ -6269,10 +6325,28 @@ ${actionGuide}`;
       .slice(-10)
       // Long enough to carry a whole quote table forward ("now add VAT", "save it").
       .map((h) => ({ role: (h.role === 'assistant' || h.role === 'ai') ? 'assistant' : 'user', content: String(h.content).slice(0, 6000) }));
+    // Attachments, as in ChatGPT: documents are read into the prompt, photos
+    // are looked at (site photos, defects, drawings, a handwritten BOQ).
+    const files = (Array.isArray(req.body.files) ? req.body.files : []).filter((f) => f && f.url).slice(0, 3);
+    const images = (Array.isArray(req.body.images) ? req.body.images : []).filter((u) => typeof u === 'string').slice(0, 4);
+    let attached = '';
+    for (const f of files) {
+      try { attached += `\n\n--- Attached file: ${String(f.name || 'document').slice(0, 120)} ---\n${await uploadText(req, f.url, f.name)}`; }
+      catch (e) { attached += `\n\n--- Attached file: ${String(f.name || 'document').slice(0, 120)} (could not be read: ${e.message}) ---`; }
+    }
+    const pictures = [];
+    for (const u of images) {
+      try { const { buf, type } = await readOwnUpload(req, u, 8 * 1024 * 1024); if (/^image\/(png|jpe?g|webp|gif)$/.test(type)) pictures.push({ type: 'image_url', image_url: { url: `data:${type};base64,${buf.toString('base64')}` } }); }
+      catch { /* skip an unreadable photo */ }
+    }
+    const logoNote = req.body.logo
+      ? '\n(The user attached their company logo. The app puts it on the letterhead of any PDF or Word document; do not describe the logo, just do the task.)'
+      : pictures.length ? '\n(If an attached image is a company logo or brand mark, do not analyse it: just do the task and end your reply with [[logo]] on its own line, and the app puts it on the letterhead of their quote and documents.)' : '';
+    const text = `${question}${logoNote}${attached}`;
     const answer = await callAi([
       { role: 'system', content: systemPrompt },
       ...hist,
-      { role: 'user', content: question }
+      { role: 'user', content: pictures.length ? [{ type: 'text', text }, ...pictures] : text }
     ], { temperature: 0.4, max_tokens: 3500 });
     res.json({ answer });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -6282,7 +6356,15 @@ ${actionGuide}`;
 const { OpenAI } = require('openai');
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
-const pdfParse = require('pdf-parse');
+// pdf-parse v2 is a class (PDFParse) rather than the v1 function, so calling
+// it as pdfParse(buffer) threw "pdfParse is not a function" and every PDF
+// upload to the AI failed. Keep the old call shape: pdfParse(buf) -> { text }.
+const { PDFParse } = require('pdf-parse');
+async function pdfParse(buffer) {
+  const parser = new PDFParse({ data: buffer });
+  try { const r = await parser.getText(); return { text: r.text || '' }; }
+  finally { await parser.destroy().catch(() => {}); }
+}
 const mammoth = require('mammoth');
 
 // ===== AI DESIGN STUDIO =====

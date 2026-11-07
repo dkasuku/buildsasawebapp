@@ -8,14 +8,16 @@ import { toast } from "sonner";
 import {
   ArrowUp, ArrowUpRight, Calculator, CalendarRange, ClipboardCheck, ClipboardList, Download, HardHat, History,
   Loader2, MessageSquare, Palette, PanelLeftClose, PanelLeftOpen, Pencil, Search, Sparkles, Square, SquarePen,
-  Trash2, Wallet, X, ImagePlus, AlertTriangle, Building2, CheckCircle2, FileText, ListChecks, ShieldAlert, Camera, FileSpreadsheet,
+  Trash2, Wallet, X, ImagePlus, Paperclip, AlertTriangle, Building2, CheckCircle2, FileText, ListChecks, ShieldAlert, Camera, FileSpreadsheet,
 } from "lucide-react";
 import api, { type AiBriefItem } from "../../services/api";
 import { AnswerTools, SaveCard } from "./AiTools";
 import { askedFormat, docTitle, exportAnswer, tableMarkdown } from "./aiDocs";
-import { AiRichText, exportCsv, type AiAction, type AiDesignResult, type AiFormDraft, type Msg } from "./AiAssistantPanel";
+import { AiRichText, exportCsv, type AiAction, type AiDesignResult, type AiFormDraft, type Msg, type QuoteDraft } from "./AiAssistantPanel";
 import { DesignCard, DesignPreview } from "./Visualizer";
-import { askAi, type AiSession } from "./aiSession";
+import { askAi, imageModeFor, type AiSession, type ImageMode } from "./aiSession";
+import { QuoteCard, QuoteEditor } from "./QuoteEditor";
+import { draftFromAnswer, exportQuote } from "./aiQuote";
 import { FinancialReports } from "./BuildflexAI";
 import { DesignStudio } from "./DesignStudio";
 
@@ -65,7 +67,8 @@ const estimateText = (m: Msg) => {
 };
 const BRIEF_ICON: Record<string, any> = { wallet: Wallet, calculator: Calculator, hardhat: HardHat, file: FileText, list: ListChecks, shield: ShieldAlert, check: CheckCircle2, building: Building2 };
 
-type Preview = { kind: "table"; title: string; head: string[]; rows: string[][] } | { kind: "form"; form: AiFormDraft } | { kind: "financial" } | { kind: "design"; d: AiDesignResult };
+type Preview = { kind: "table"; title: string; head: string[]; rows: string[][] } | { kind: "form"; form: AiFormDraft } | { kind: "financial" } | { kind: "design"; d: AiDesignResult } | { kind: "quote"; i: number };
+const DOC_EXT = /\.(pdf|docx|xlsx|xls|csv|txt)$/i;
 
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Morning" : h < 17 ? "Afternoon" : "Evening"; };
 const dayGroup = (iso: string) => {
@@ -82,22 +85,27 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
 }) {
   const { messages, setMessages, category, setCategory, history, convId, reset, open, remove } = session;
   const [q, setQ] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<false | "think" | "read" | "design">(false);
   const [name, setName] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [designOpen, setDesignOpen] = useState(false);
-  // Photos attached to the next message (the Visualizer redesigns them).
-  const [files, setFiles] = useState<string[]>([]);
+  // Files attached to the next message, as in ChatGPT: photos (a room to
+  // redesign, a logo for the quote, a site photo to assess) and documents
+  // (PDF, Word, Excel, CSV) the AI reads.
+  const [att, setAtt] = useState<{ url: string; name: string; image: boolean }[]>([]);
+  const [imgMode, setImgMode] = useState<ImageMode>("auto");
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const attach = async (list: FileList | null) => {
-    const picked = Array.from(list || []).filter((f) => f.type.startsWith("image/")).slice(0, 1);
-    if (!picked.length) return;
+    const picked = Array.from(list || []).filter((f) => f.type.startsWith("image/") || DOC_EXT.test(f.name)).slice(0, 4 - att.length);
+    if (!picked.length) { if (list?.length) toast.error("Attach photos, or PDF, Word, Excel or CSV files."); return; }
     setUploading(true);
     try {
       const { urls, failed } = await api.uploadFiles(picked);
       failed.forEach((f) => toast.error(`${f.name}: ${f.error}`));
-      if (urls[0]) { setFiles([urls[0]]); setCategory("design"); requestAnimationFrame(() => inputRef.current?.focus()); }
+      const ok = picked.filter((f) => !failed.some((x) => x.name === f.name));
+      setAtt((a) => [...a, ...urls.map((url, k) => ({ url, name: ok[k]?.name || "file", image: !!ok[k]?.type.startsWith("image/") }))].slice(0, 4));
+      requestAnimationFrame(() => inputRef.current?.focus());
     } catch (e: any) { toast.error(e?.message || "Upload failed. Try again."); }
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
   };
@@ -122,23 +130,31 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
   const run = (a: AiAction) => { if (a.kind === "open") onNavigate(a.view); else if (a.kind === "project") onOpenProject(a.id); };
   // Update one action on one message (a draft saved, a quote card added).
   const patchActions = (i: number, f: (a: AiAction[]) => AiAction[]) => setMessages((m) => m.map((x, k) => (k === i ? { ...x, actions: f(x.actions || []) } : x)));
+  const patchQuote = (i: number, quote: QuoteDraft) => setMessages((m) => m.map((x, k) => (k === i ? { ...x, quote } : x)));
   const send = async (raw?: string, imgs?: string[], fresh = false) => {
-    const images = raw === undefined ? files : (imgs || []);
-    const text = (raw ?? q).trim() || (images.length ? "Turn this into a modern, finished interior" : "");
+    const images = raw === undefined ? att.filter((a) => a.image).map((a) => a.url) : (imgs || []);
+    const files = raw === undefined ? att.filter((a) => !a.image).map(({ url, name }) => ({ url, name })) : [];
+    const mode: ImageMode = raw === undefined ? imgMode : "auto";
+    const text = (raw ?? q).trim() || (images.length ? (mode === "logo" ? "Use this as my logo on quotes" : "Turn this into a modern, finished interior") : files.length ? "Summarise this and tell me what needs my attention" : "");
     if (!text || busy || uploading) return;
     const before = fresh ? [] : messages;
-    setMessages((m) => [...m, { role: "user", text, ...(images.length ? { images } : {}) }]);
-    setQ(""); setFiles([]); setBusy(true);
+    const designing = images.length > 0 && imageModeFor(text, mode) === "design";
+    setMessages((m) => [...m, { role: "user", text, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) }]);
+    setQ(""); setAtt([]); setImgMode("auto"); setBusy(designing ? "design" : files.length || images.length ? "read" : "think");
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const reply = await askAi(text, before, { signal: controller.signal, category: images.length ? "design" : fresh ? "general" : category, page: (fresh && pageRef.current) || "Buildsasa AI", images });
+      const reply = await askAi(text, before, { signal: controller.signal, category: designing ? "design" : fresh ? "general" : category, page: (fresh && pageRef.current) || "Buildsasa AI", images, files, imageMode: mode });
+      // The reply lands after the question: its index is the old length + 1.
+      const idx = (fresh ? 1 : before.length) + 1;
       setMessages((m) => [...m, reply]);
       if (reply.form) setPreview({ kind: "form", form: reply.form });
       if (reply.design && window.innerWidth >= 1280) setPreview({ kind: "design", d: reply.design });
+      if (reply.quote && window.innerWidth >= 1280) setPreview({ kind: "quote", i: idx });
       // "…as a PDF / in Excel": hand over the file straight away.
       const fmt = askedFormat(text);
-      if (fmt && !reply.design && !reply.form && reply.text.length > 40) exportAnswer(reply.text, fmt, docTitle(text)).catch(() => {});
+      if (fmt && reply.quote) exportQuote(reply.quote, fmt).catch(() => {});
+      else if (fmt && !reply.design && !reply.form && reply.text.length > 40) exportAnswer(reply.text, fmt, docTitle(text)).catch(() => {});
       // "Open the punch list": go there. The chat carries on in the docked panel.
       if (reply.actions?.[0] && reply.actions[0].kind !== "save") run(reply.actions[0]);
     } catch {
@@ -160,7 +176,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
     if (!start || startedKey.current === start.key) return;
     startedKey.current = start.key;
     pageRef.current = start.page;
-    abortRef.current?.abort(); reset(start.images.length ? "design" : "general"); setPreview(null); setQ(""); setFiles([]);
+    abortRef.current?.abort(); reset("general"); setPreview(null); setQ(""); setAtt([]);
     send(start.text, start.images, true);
     onStarted?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -182,24 +198,34 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
 
   const composer = (big: boolean) => (
     <div className={`rounded-2xl border border-[#2C3744] bg-[#11161D] shadow-[0_8px_30px_rgba(0,0,0,0.18)] focus-within:border-[#FF6B1A]/60 transition-colors ${big ? "p-3" : "p-2.5"}`}>
-      {files.length > 0 && (
-        <div className="flex gap-2 px-1 pb-2">
-          {files.map((u) => (
-            <div key={u} className="relative w-16 h-16 rounded-lg overflow-hidden border border-[#222A35]">
-              <img src={u} alt="Attached" className="w-full h-full object-cover" />
-              <button onClick={() => setFiles((f) => f.filter((x) => x !== u))} className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/70 text-[#ffffff] flex items-center justify-center" aria-label="Remove photo"><X className="w-3 h-3" /></button>
+      {att.length > 0 && (
+        <div className="px-1 pb-2">
+          <div className="flex flex-wrap gap-2">
+            {att.map((a) => (
+              <div key={a.url} className={`relative rounded-lg overflow-hidden border border-[#222A35] ${a.image ? "w-16 h-16" : "h-16 max-w-[220px] bg-[#0A0E14] pl-2.5 pr-7 flex items-center gap-2"}`}>
+                {a.image ? <img src={a.url} alt="Attached" className="w-full h-full object-cover" />
+                  : <><FileText className="w-5 h-5 text-[#FF8A47] shrink-0" /><span className="text-[11.5px] text-[#C2CAD6] line-clamp-2 break-all">{a.name}</span></>}
+                <button onClick={() => setAtt((x) => x.filter((y) => y.url !== a.url))} className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/70 text-[#ffffff] flex items-center justify-center" aria-label={`Remove ${a.name}`}><X className="w-3 h-3" /></button>
+              </div>
+            ))}
+          </div>
+          {att.some((a) => a.image) && (
+            <div className="flex flex-wrap items-center gap-1.5 mt-2" role="radiogroup" aria-label="What is the photo for?">
+              <span className="text-[11px] text-[#5B6675] mr-0.5">Photo is for:</span>
+              {([["auto", "Let AI decide"], ["design", "Redesign this space"], ["logo", "My logo on the quote"], ["ask", "Ask about it"]] as [ImageMode, string][]).map(([k, l]) => (
+                <button key={k} role="radio" aria-checked={imgMode === k} onClick={() => setImgMode(k)} className={`h-6 px-2 rounded-full text-[11px] border ${imgMode === k ? "border-[#FF6B1A]/50 bg-[#FF6B1A]/10 text-[#FF8A47]" : "border-[#222A35] text-[#8A95A5] hover:text-white"}`}>{l}</button>
+              ))}
             </div>
-          ))}
-          <div className="text-[11.5px] text-[#8A95A5] self-center">Describe the finish you want, e.g. "luxury modern office with glass partitions and polished concrete".</div>
+          )}
         </div>
       )}
-      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => attach(e.target.files)} />
+      <input ref={fileRef} type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf,.docx,.xlsx,.xls,.csv,.txt" className="hidden" onChange={(e) => attach(e.target.files)} />
       <textarea ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} rows={big ? 2 : 1}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
         placeholder={cat ? `Ask about ${cat.label.toLowerCase()}…` : "How can I help with your projects today?"}
         className="w-full resize-none bg-transparent px-2 py-1 text-[14px] text-white placeholder:text-[#5B6675] focus:outline-none" />
       <div className="flex items-center gap-2 mt-1 flex-wrap">
-        <button onClick={() => fileRef.current?.click()} disabled={uploading || busy} title="Attach a photo of a raw space to redesign it" className="h-8 w-8 rounded-full border border-[#222A35] text-[#C2CAD6] hover:text-white hover:border-[#2C3744] flex items-center justify-center disabled:opacity-50">{uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}</button>
+        <button onClick={() => fileRef.current?.click()} disabled={uploading || !!busy} title="Attach photos or documents: a room to redesign, your logo, a site photo, a BOQ, drawing or tender (PDF, Word, Excel)" aria-label="Attach files" className="h-8 w-8 rounded-full border border-[#222A35] text-[#C2CAD6] hover:text-white hover:border-[#2C3744] flex items-center justify-center disabled:opacity-50">{uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}</button>
         {cat ? (
           <button onClick={() => setCategory("general")} className="h-8 pl-2.5 pr-2 rounded-full bg-[#FF6B1A]/10 border border-[#FF6B1A]/30 text-[#FF8A47] text-[12px] inline-flex items-center gap-1.5" title="Remove the focus">
             <cat.icon className="w-3.5 h-3.5" /> {cat.label} <X className="w-3.5 h-3.5" />
@@ -213,7 +239,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
         <div className="ml-auto">
           {busy
             ? <button onClick={stop} title="Stop" className="h-9 w-9 rounded-xl bg-[#222A35] text-white flex items-center justify-center"><Square className="w-3.5 h-3.5 fill-current" /></button>
-            : <button onClick={() => send()} disabled={(!q.trim() && !files.length) || uploading} title="Send" className="h-9 w-9 rounded-xl bg-[#FF6B1A] hover:bg-[#FF7E33] text-white flex items-center justify-center disabled:opacity-35"><ArrowUp className="w-4 h-4" /></button>}
+            : <button onClick={() => send()} disabled={(!q.trim() && !att.length) || uploading} title="Send" className="h-9 w-9 rounded-xl bg-[#FF6B1A] hover:bg-[#FF7E33] text-white flex items-center justify-center disabled:opacity-35"><ArrowUp className="w-4 h-4" /></button>}
         </div>
       </div>
     </div>
@@ -328,9 +354,10 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
               <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
                 {messages.map((m, i) => m.role === "user" ? (
                   <div key={i} className="group flex justify-end items-end gap-1.5">
-                    <button onClick={() => edit(i)} disabled={busy} title="Edit and ask again" className="h-7 w-7 rounded-md text-[#5B6675] opacity-0 group-hover:opacity-100 hover:text-white hover:bg-[#161C24] flex items-center justify-center disabled:opacity-0"><Pencil className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => edit(i)} disabled={!!busy} title="Edit and ask again" className="h-7 w-7 rounded-md text-[#5B6675] opacity-0 group-hover:opacity-100 hover:text-white hover:bg-[#161C24] flex items-center justify-center disabled:opacity-0"><Pencil className="w-3.5 h-3.5" /></button>
                     <div className="max-w-[80%] flex flex-col items-end gap-1.5">
                       {m.images?.map((u) => <img key={u} src={u} alt="Attached" className="max-w-[240px] max-h-44 rounded-xl border border-[#222A35] object-cover" />)}
+                      {m.files?.map((f) => <a key={f.url} href={f.url} target="_blank" rel="noreferrer" className="h-10 max-w-[260px] px-3 rounded-xl border border-[#222A35] bg-[#11161D] inline-flex items-center gap-2 text-[12.5px] text-[#C2CAD6] hover:text-white"><FileText className="w-4 h-4 text-[#FF8A47] shrink-0" /><span className="truncate">{f.name}</span></a>)}
                       <div className="rounded-2xl rounded-br-md bg-[#161C24] text-white text-[14px] leading-relaxed px-4 py-2.5 whitespace-pre-wrap">{m.text}</div>
                     </div>
                   </div>
@@ -345,9 +372,15 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
                           onSaved={(id) => patchActions(i, (as) => as.map((x, n) => (n === k && x.kind === "save" ? { ...x, savedId: id } : x)))}
                           onDismiss={a.savedId ? undefined : () => patchActions(i, (as) => as.filter((_, n) => n !== k))} />
                       ) : null)}
-                      {(m.design ? !!m.design.estimate?.items?.length : m.text.length > 60 && !/^(I couldn't|Stopped)/.test(m.text)) && (
+                      {m.quote && <QuoteCard q={m.quote} onChange={(nq) => patchQuote(i, nq)} onEdit={() => setPreview({ kind: "quote", i })} onOpenQuotes={() => onNavigate("quotes")} />}
+                      {!m.quote && (m.design ? !!m.design.estimate?.items?.length : m.text.length > 60 && !/^(I couldn't|Stopped)/.test(m.text)) && (
                         <AnswerTools text={estimateText(m)} question={m.design ? `Design estimate — ${m.design.prompt}` : messages[i - 1]?.text}
-                          onSaveQuote={m.actions?.some((a) => a.kind === "save" && a.type === "quote") ? undefined : () => patchActions(i, (as) => [...as, { kind: "save", type: "quote", label: "quote", data: { title: docTitle(messages[i - 1]?.text), taxRate: 16 } }])} />
+                          onSaveQuote={() => {
+                            // Turn this answer's priced table into an editable quote.
+                            const prev = [...messages.slice(0, i)].reverse().find((x) => x.quote)?.quote;
+                            const d = draftFromAnswer(estimateText(m), { title: m.design ? m.design.prompt.slice(0, 80) : docTitle(messages[i - 1]?.text) }, prev);
+                            if (d) { patchQuote(i, d); setPreview({ kind: "quote", i }); }
+                          }} />
                       )}
                       {(!!m.form || !!m.actions?.some((a) => a.kind !== "save")) && (
                         <div className="flex flex-wrap gap-2 mt-3">
@@ -358,7 +391,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
                     </div>
                   </div>
                 ))}
-                {busy && <div className="flex gap-3"><span className="w-8 h-8 rounded-full bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 flex items-center justify-center shrink-0"><Sparkles className="w-4 h-4 text-[#FF6B1A] animate-pulse" /></span><div className="pt-1.5 text-[13px] text-[#8A95A5] inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> {messages[messages.length - 1]?.images?.length ? "Designing your space and pricing the materials… this takes up to a minute." : "Thinking…"}</div></div>}
+                {busy && <div className="flex gap-3"><span className="w-8 h-8 rounded-full bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 flex items-center justify-center shrink-0"><Sparkles className="w-4 h-4 text-[#FF6B1A] animate-pulse" /></span><div className="pt-1.5 text-[13px] text-[#8A95A5] inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> {busy === "design" ? "Designing your space and pricing the materials… this takes up to a minute." : busy === "read" ? "Reading your files…" : "Thinking…"}</div></div>}
                 <div ref={endRef} />
               </div>
             </div>
@@ -375,7 +408,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
           <div className="fixed inset-0 z-30 bg-black/50 xl:hidden" onClick={() => setPreview(null)} />
           <aside className="fixed xl:static inset-y-0 right-0 z-40 w-full sm:w-[520px] xl:w-[44%] xl:max-w-[720px] shrink-0 border-l border-[#222A35] bg-[#0F141B] flex flex-col min-h-0">
             <div className="h-12 shrink-0 flex items-center gap-2 px-4 border-b border-[#222A35]">
-              <div className="text-[13px] text-white truncate flex-1">{preview.kind === "table" ? preview.title : preview.kind === "form" ? preview.form.title : preview.kind === "design" ? "Visualizer" : "Financial report"}</div>
+              <div className="text-[13px] text-white truncate flex-1">{preview.kind === "table" ? preview.title : preview.kind === "form" ? preview.form.title : preview.kind === "design" ? "Visualizer" : preview.kind === "quote" ? `Edit quote${messages[preview.i]?.quote?.quoteNumber ? ` · ${messages[preview.i].quote!.quoteNumber}` : ""}` : "Financial report"}</div>
               {preview.kind === "table" && <>
                 <button onClick={() => exportAnswer(tableMarkdown(preview.head, preview.rows), "pdf", preview.title)} className="h-8 px-2.5 rounded-md border border-[#222A35] text-[12px] text-[#C2CAD6] hover:bg-[#161C24] inline-flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" /> PDF</button>
                 <button onClick={() => exportAnswer(tableMarkdown(preview.head, preview.rows), "xlsx", preview.title)} className="h-8 px-2.5 rounded-md border border-[#222A35] text-[12px] text-[#FF8A47] hover:bg-[#161C24] inline-flex items-center gap-1.5"><FileSpreadsheet className="w-3.5 h-3.5" /> Excel</button>
@@ -408,6 +441,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
               )}
               {preview.kind === "financial" && canSeeMoney && <FinancialReports />}
               {preview.kind === "design" && <DesignPreview d={preview.d} />}
+              {preview.kind === "quote" && messages[preview.i]?.quote && <QuoteEditor q={messages[preview.i].quote!} onChange={(nq) => patchQuote(preview.i, nq)} onOpenQuotes={() => onNavigate("quotes")} />}
             </div>
           </aside>
         </>

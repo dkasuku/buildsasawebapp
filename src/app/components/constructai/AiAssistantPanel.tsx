@@ -26,7 +26,24 @@ export type AiAction = { kind: "open"; view: string; label: string } | { kind: "
   | { kind: "save"; type: SaveKind; data: Record<string, any>; label: string; savedId?: string };
 // An interior design the Visualizer generated from the user's photo.
 export type AiDesignResult = { id: string; before?: string; after: string; prompt: string; estimate?: import("../../services/api").DesignEstimate | null };
-export type Msg = { role: "user" | "ai"; text: string; form?: AiFormDraft; actions?: AiAction[]; design?: AiDesignResult; images?: string[] };
+// A quote the AI wrote, kept editable in the chat (lines, VAT, client, logo).
+export type QuoteDraft = {
+  title: string; clientName: string; clientPhone?: string; clientEmail?: string; clientAddress?: string;
+  lines: { section?: string; description: string; unit: string; quantity: number; rate: number }[];
+  taxRate: number; discount: number; notes?: string; terms?: string; validUntil?: string;
+  /** Logo for this quote's letterhead (an uploaded image URL). */
+  logo?: string;
+  /** Once saved in Quotes, saving again updates that quote. */
+  savedId?: string; quoteNumber?: string;
+};
+export type Msg = {
+  role: "user" | "ai"; text: string; form?: AiFormDraft; actions?: AiAction[]; design?: AiDesignResult; images?: string[];
+  /** Documents attached to a question (PDF, Word, Excel, CSV). */
+  files?: { url: string; name: string }[];
+  /** An image the user attached as their logo. */
+  logo?: string;
+  quote?: QuoteDraft;
+};
 
 // The assistant ends a reply with [[open:daily-log]] or [[project:<id>|Name]]
 // when the user asked to go somewhere or do something there. Pull those out of
