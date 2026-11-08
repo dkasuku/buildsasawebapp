@@ -32,7 +32,9 @@ export function UnitsFolder({ projectId, projectName, canShare }: { projectId: s
   const [sending, setSending] = useState(false);
   const load = () => api.getUnits(projectId).then((list) => { setUnits(list); setOpen((o) => (o ? list.find((x) => x.id === o.id) || o : o)); }).catch((e) => { setUnits([]); toast.error(e?.message || "Couldn't load units"); });
   const [auto, setAuto] = useState<"weekly" | "monthly" | null>(null);
-  useEffect(() => { api.getUnitSettings(projectId).then((r) => setAuto(r.frequency)).catch(() => {}); }, [projectId]);
+  const [waAuto, setWaAuto] = useState(false);
+  const [waQueue, setWaQueue] = useState(false);
+  useEffect(() => { api.getUnitSettings(projectId).then((r) => { setAuto(r.frequency); setWaAuto(!!r.whatsapp); }).catch(() => {}); }, [projectId]);
   const changeAuto = async (v: string) => {
     const f = (v || null) as "weekly" | "monthly" | null;
     try { const r = await api.setUnitSettings(projectId, f); setAuto(r.frequency); toast.success(f ? `Every buyer with an email now gets their unit's report ${f === "weekly" ? "every week" : "every month"}.` : "Automatic reports switched off."); }
@@ -85,6 +87,7 @@ export function UnitsFolder({ projectId, projectName, canShare }: { projectId: s
                   <option value="monthly">Automatic reports: monthly</option>
                 </select>
               )}
+              {canShare && <button className={btnGhost} onClick={() => setWaQueue(true)}><MessageCircle className="w-4 h-4" /> WhatsApp all clients</button>}
               {canShare && <button className={btnGhost} onClick={reportAll} disabled={sending}>{sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Send reports to all buyers</button>}
               <button className={btnPrimary} onClick={() => setAdding(true)}><Plus className="w-4 h-4" /> Add units</button>
             </div>}>
@@ -114,9 +117,48 @@ export function UnitsFolder({ projectId, projectName, canShare }: { projectId: s
           </Panel>
         </>
       )}
+      {waQueue && <WhatsAppQueue projectId={projectId} units={(units || []).filter((u) => u.clientPhone)} onClose={() => setWaQueue(false)} />}
+      {auto && <div className="text-[11.5px] text-[#8A95A5]">Automatic {auto} reports: every client with an email gets their unit's report with the PDF attached{waAuto ? ", and a WhatsApp message with the PDF link" : ". WhatsApp reports are one tap each (WhatsApp all clients) until a WhatsApp Business number is connected"}.</div>}
       {adding && <AddUnits projectId={projectId} onClose={() => setAdding(false)} onAdded={() => { setAdding(false); load(); }} />}
       {open && <UnitDrawer projectId={projectId} projectName={projectName} unit={open} canShare={canShare} onChange={replace} onReload={load} onClose={() => setOpen(null)} onDeleted={() => { setOpen(null); load(); }} />}
     </div>
+  );
+}
+
+/** WhatsApp can't be sent from a browser without a tap, so make it one tap per client: each opens with that client's own report. */
+function WhatsAppQueue({ projectId, units, onClose }: { projectId: string; units: UnitDto[]; onClose: () => void }) {
+  const [sent, setSent] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState<string | null>(null);
+  const send = async (u: UnitDto) => {
+    const w = window.open("about:blank", "_blank");
+    setBusy(u.id);
+    try {
+      const r = await api.unitReport(projectId, u.id, false);
+      if (w) w.location.href = wa(u.clientPhone, r.text);
+      setSent((s) => new Set(s).add(u.id));
+    } catch (e: any) { w?.close(); toast.error(e?.message || "Couldn't make the report."); }
+    setBusy(null);
+  };
+  const next = units.find((u) => !sent.has(u.id));
+  return (
+    <Modal title="WhatsApp every client" subtitle="Each tap opens WhatsApp with that client's own unit report and PDF link. Press send in WhatsApp, come back, tap the next." onClose={onClose}>
+      {!units.length ? <div className="text-[12.5px] text-[#8A95A5]">No unit has a client phone number yet. Add phones in each unit.</div> : (
+        <>
+          {next && <button className={`${btnPrimary} w-full justify-center mb-3`} onClick={() => send(next)} disabled={!!busy}>{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageCircle className="w-4 h-4" />} Send next: {next.code}{next.clientName ? ` (${next.clientName})` : ""}</button>}
+          {!next && <div className="text-[12.5px] text-[#4ADE80] mb-3">All {units.length} clients done.</div>}
+          <div className="space-y-1.5 max-h-[50vh] overflow-y-auto">
+            {units.map((u) => (
+              <div key={u.id} className="flex items-center gap-2 rounded-lg border border-[#222A35] bg-[#0A0E14] px-3 py-2 text-[12.5px]">
+                <span className="text-white w-16 shrink-0">{u.code}</span>
+                <span className="text-[#8A95A5] flex-1 truncate">{u.clientName || ""} · {u.clientPhone}</span>
+                {sent.has(u.id) ? <span className="text-[#4ADE80] text-[11.5px] inline-flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Opened</span>
+                  : <button className="text-[#25D366] text-[12px] inline-flex items-center gap-1" onClick={() => send(u)} disabled={!!busy}><MessageCircle className="w-3.5 h-3.5" /> Send</button>}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </Modal>
   );
 }
 

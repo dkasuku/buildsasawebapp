@@ -273,6 +273,10 @@ export function Projects({
   const [showNew, setShowNew] = useState(false);
   // The project owner can be invited as part of creating the project.
   const [newClient, setNewClient] = useState({ name: "", email: "" });
+  // Apartments, estates, townhouses: the units are set up with the project.
+  const NO_UNITS = { on: false, kind: "block" as "block" | "houses", block: "A", floors: "4", perFloor: "4", ground: true, count: "10", type: "" };
+  const [newUnits, setNewUnits] = useState(NO_UNITS);
+  const unitTotal = newUnits.kind === "block" ? (Number(newUnits.floors || 0) + (newUnits.ground ? 1 : 0)) * Number(newUnits.perFloor || 0) : Number(newUnits.count || 0);
   const [codeTouched, setCodeTouched] = useState(false);
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
   const autoCode = (name: string) => name.trim() ? name.split(" ").filter(Boolean).map((w) => w[0]).join("").toUpperCase().slice(0, 4) + "-" + String(projects.length + 1).padStart(2, "0") : "";
@@ -500,6 +504,15 @@ export function Projects({
       // failure must not read as "the project wasn't created" — but it must not be
       // silent either, which is what Promise.allSettled did here.
       await saveTeam(pid, form, "created");
+      if (newUnits.on && unitTotal > 0) {
+        try {
+          const r = await api.addUnits(pid, { generate: newUnits.kind === "block"
+            ? { block: newUnits.block, floors: Number(newUnits.floors), perFloor: Number(newUnits.perFloor), groundFloor: newUnits.ground, type: newUnits.type || undefined }
+            : { count: Number(newUnits.count), type: newUnits.type || undefined } });
+          toast.success(`${r.added} units added. Add each client in the project's Units tab.`);
+        } catch (e: any) { toast.error(`Project created, but the units weren't added: ${e?.message || "unknown error"}. Add them from the project's Units tab.`, { duration: 9000 }); }
+        setNewUnits(NO_UNITS);
+      }
       if (newClient.email.trim()) {
         // The project exists either way; a failed invite is reported, not fatal.
         try {
@@ -1244,7 +1257,36 @@ export function Projects({
               </div>
 
               <div className="rounded-lg border border-[#222A35] bg-[#0A0E14] p-3">
-                <label className="text-[11px] text-[#8A95A5] block">Client (optional): the person you're building for</label>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input type="checkbox" checked={newUnits.on} onChange={(e) => setNewUnits({ ...newUnits, on: e.target.checked })} className="mt-0.5 accent-[#FF6B1A]" aria-label="This project has several units" />
+                  <span className="text-[12px] text-[#C2CAD6]">This project has several units (apartments, an estate, townhouses)
+                    <span className="block text-[11px] text-[#5B6675]">Each unit gets its own client, stages, snags and reports. You can also add units later from the project's Units tab.</span></span>
+                </label>
+                {newUnits.on && (
+                  <div className="mt-3 space-y-2">
+                    <div className="flex gap-1.5">
+                      {([["block", "Apartment block"], ["houses", "Houses / estate"]] as const).map(([k, l]) => (
+                        <button key={k} type="button" onClick={() => setNewUnits({ ...newUnits, kind: k })} className={`h-8 px-3 rounded-full text-[12px] border ${newUnits.kind === k ? "border-[#FF6B1A] text-white bg-[#FF6B1A]/10" : "border-[#222A35] text-[#8A95A5]"}`}>{l}</button>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {newUnits.kind === "block" ? <>
+                        <input aria-label="Block name" value={newUnits.block} onChange={(e) => setNewUnits({ ...newUnits, block: e.target.value })} placeholder="Block (A)" className="h-9 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]/50" />
+                        <input aria-label="Floors above ground" type="number" min={1} value={newUnits.floors} onChange={(e) => setNewUnits({ ...newUnits, floors: e.target.value })} placeholder="Floors" className="h-9 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]/50" />
+                        <input aria-label="Units per floor" type="number" min={1} value={newUnits.perFloor} onChange={(e) => setNewUnits({ ...newUnits, perFloor: e.target.value })} placeholder="Per floor" className="h-9 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]/50" />
+                      </> : (
+                        <input aria-label="Number of houses" type="number" min={1} value={newUnits.count} onChange={(e) => setNewUnits({ ...newUnits, count: e.target.value })} placeholder="How many houses" className="h-9 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]/50" />
+                      )}
+                      <input aria-label="Unit type" value={newUnits.type} onChange={(e) => setNewUnits({ ...newUnits, type: e.target.value })} placeholder={newUnits.kind === "block" ? "Type (2 bedroom)" : "Type (3 bedroom bungalow)"} className="h-9 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]/50" />
+                    </div>
+                    {newUnits.kind === "block" && <label className="flex items-center gap-2 text-[11.5px] text-[#C2CAD6]"><input type="checkbox" checked={newUnits.ground} onChange={(e) => setNewUnits({ ...newUnits, ground: e.target.checked })} className="accent-[#FF6B1A]" /> Units on the ground floor too</label>}
+                    <div className="text-[11.5px] text-[#8A95A5]">{unitTotal > 0 ? <>Makes <b className="text-white">{unitTotal}</b> units{newUnits.kind === "block" ? ` (${newUnits.block ? `${newUnits.block}-` : ""}${newUnits.ground ? "G01" : "101"} to ${newUnits.block ? `${newUnits.block}-` : ""}${newUnits.floors}${String(Number(newUnits.perFloor) || 1).padStart(2, "0")})` : ` (House 1 to House ${newUnits.count})`}.</> : "Fill in the numbers."}</div>
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-[#222A35] bg-[#0A0E14] p-3">
+                <label className="text-[11px] text-[#8A95A5] block">{newUnits.on ? "Owner or developer (optional): unit clients are added per unit" : "Client (optional): the person you're building for"}</label>
                 <p className="text-[11px] text-[#5B6675] mt-0.5 mb-2">They get a free client account to follow progress, approve changes and chat with you. You can also invite them later from the project's Client tab.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <input value={newClient.name} onChange={(e) => setNewClient({ ...newClient, name: e.target.value })} placeholder="Client's name, e.g. Mary Wanjiru" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[12px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]/50" />

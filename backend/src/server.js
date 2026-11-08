@@ -7445,7 +7445,7 @@ app.post('/api/billing/verify', auth, async (req, res) => {
 });
 
 // Client accounts, sharing with clients, client jobs and Buildsasa site reporting.
-Object.assign(clientRouteDeps, { unitIdsJson, prisma, prismaBase, auth, currentWs, hasRole, CAN_SHARE_PORTAL, sendEmail, emailShell, button, paystackRequest, PAYSTACK_SECRET, isPlatformAdmin, portalPayload, companyPublic, APP_URL, freeAccessEmails: () => [...new Set([...FREE_ACCESS_EMAILS, ...PLATFORM_ADMIN_EMAILS, ...dbAdminEmails])] });
+Object.assign(clientRouteDeps, { readOwnUpload, unitIdsJson, prisma, prismaBase, auth, currentWs, hasRole, CAN_SHARE_PORTAL, sendEmail, emailShell, button, paystackRequest, PAYSTACK_SECRET, isPlatformAdmin, portalPayload, companyPublic, APP_URL, freeAccessEmails: () => [...new Set([...FREE_ACCESS_EMAILS, ...PLATFORM_ADMIN_EMAILS, ...dbAdminEmails])] });
 require('./client-routes')(app, clientRouteDeps);
 
 // Paystack webhook — activates on charge.success. (Signature checked when key is set.)

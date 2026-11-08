@@ -15,9 +15,53 @@ const OPEN_SNAG = { notIn: ['resolved', 'closed', 'rejected'] };
 const isHouse = (type) => /house|villa|bungalow|maisonette|town ?house|mansion|cottage/i.test(type || '');
 const templateFor = (type) => (isHouse(type) ? HOUSE_STAGES : APARTMENT_STAGES).map((name) => ({ name, done: false }));
 
+const unitPdf = require('./unit-pdf');
+
 module.exports = function unitRoutes(app, h) {
   const { prisma, prismaBase, auth, hasRole, CAN_SHARE_PORTAL, APP_URL, companyPublic, text, parse, cleanMedia, updateDto, notify, p14, button, ownProject, kes, STAGES, UPDATE_KINDS } = h;
   const crypto = require('crypto');
+  const { sendEmail, emailShell, readOwnUpload } = h;
+
+  // ── The report as a PDF, and where it can be fetched ──
+  // Our own uploads only (the bucket or /uploads), never an arbitrary URL.
+  const readFile = (url, max) => readOwnUpload({ get: () => '', headers: {} }, url, max);
+  const pdfFor = (p, u) => unitPdf({ prismaBase, readFile, link: unitLink(u), p, u });
+  // The API's public address, for PDF links in WhatsApp messages and emails.
+  let seenBase = null;
+  const apiBase = (req) => {
+    if (process.env.PUBLIC_API_URL) return String(process.env.PUBLIC_API_URL).replace(/\/$/, '');
+    if (req) seenBase = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.get('host')}`;
+    return seenBase;
+  };
+  const pdfLink = (u, req) => (u.shareToken && apiBase(req) ? `${apiBase(req)}/api/public/unit/${u.shareToken}/report.pdf` : null);
+  const pdfName = (u) => `Unit ${u.code} progress ${new Date().toISOString().slice(0, 10)}.pdf`.replace(/[\\/:*?"<>|]/g, '-');
+  /** Email a unit report with its PDF attached (best effort, never throws). */
+  const emailReport = async (to, subject, html, pdf, u) => {
+    const attachments = pdf ? [{ filename: pdfName(u), content: pdf.toString('base64') }] : undefined;
+    for (const e of to) await sendEmail({ to: e, subject, html: emailShell(subject, html), attachments }).catch(() => {});
+  };
+
+  // ── WhatsApp, sent automatically, when the WhatsApp Business (Cloud API)
+  // number is connected: WHATSAPP_TOKEN, WHATSAPP_PHONE_ID and an approved
+  // template WHATSAPP_UNIT_TEMPLATE whose body takes {{1}} name, {{2}} unit,
+  // {{3}} project, {{4}} progress, {{5}} link. Without them, WhatsApp stays a tap.
+  const waReady = () => !!(process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_ID && process.env.WHATSAPP_UNIT_TEMPLATE);
+  const waNumber = (ph) => { const d = String(ph || '').replace(/\D/g, ''); return d.length >= 9 ? d.replace(/^0/, '254').replace(/^(7|1)(\d{8})$/, '254$1$2') : null; };
+  async function sendWhatsApp(u, p, link) {
+    const to = waNumber(u.clientPhone);
+    if (!waReady() || !to) return false;
+    try {
+      const r = await fetch(`https://graph.facebook.com/v20.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
+        method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` },
+        body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'template', template: {
+          name: process.env.WHATSAPP_UNIT_TEMPLATE, language: { code: process.env.WHATSAPP_TEMPLATE_LANG || 'en' },
+          components: [{ type: 'body', parameters: [u.clientName || 'there', u.code, p.name, `${u.progress}%`, link || unitLink(u) || ''].map((t) => ({ type: 'text', text: String(t).slice(0, 200) })) }],
+        } }),
+      });
+      if (!r.ok) { console.error('[whatsapp]', r.status, (await r.text()).slice(0, 300)); return false; }
+      return true;
+    } catch (e) { console.error('[whatsapp]', e.message); return false; }
+  }
 
   const cleanStages = (v) => (Array.isArray(v) ? v : parse(v))
     .filter((s) => s && text(s.name, 80))
@@ -231,10 +275,13 @@ module.exports = function unitRoutes(app, h) {
       const found = await ownUnit(req.params.projectId, req.params.id);
       if (!found.u) return res.status(404).json({ error: 'Unit not found' });
       const u = await ensureToken(found.u);
-      const pdfUrl = /^https?:\/\/\S+$/i.test(String(req.body?.pdfUrl || '')) ? String(req.body.pdfUrl) : null;
+      const pdfUrl = /^https?:\/\/\S+$/i.test(String(req.body?.pdfUrl || '')) ? String(req.body.pdfUrl) : pdfLink(u, req);
       const r = await reportFor(found.p, u, pdfUrl);
       const to = await unitRecipients(u);
-      if (req.body?.email !== false) for (const e of to) notify(e, `Progress on your unit ${u.code}: ${u.progress}%`, r.html);
+      if (req.body?.email !== false && to.length) {
+        const pdf = await pdfFor(found.p, u).catch((e) => { console.error('[unit-pdf]', e.message); return null; });
+        emailReport(to, `Progress on your unit ${u.code}: ${u.progress}%`, r.html, pdf, u);
+      }
       await prisma.projectUnit.update({ where: { id: u.id }, data: { lastReportAt: new Date() } });
       res.json({ text: r.text, link: r.link, emailed: req.body?.email === false ? [] : to, phone: u.clientPhone || null });
     } catch (e) { res.status(500).json({ error: e.message }); }
@@ -252,8 +299,10 @@ module.exports = function unitRoutes(app, h) {
         const to = await unitRecipients(u);
         if (!to.length) { skipped++; continue; }
         u = await ensureToken(u);
-        const r = await reportFor(p, u);
-        for (const e of to) notify(e, `Progress on your unit ${u.code}: ${u.progress}%`, r.html);
+        const r = await reportFor(p, u, pdfLink(u, req));
+        const pdf = await pdfFor(p, u).catch(() => null);
+        await emailReport(to, `Progress on your unit ${u.code}: ${u.progress}%`, r.html, pdf, u);
+        await sendWhatsApp(u, p, pdfLink(u, req));
         await prisma.projectUnit.update({ where: { id: u.id }, data: { lastReportAt: new Date() } });
         sent++;
       }
@@ -318,10 +367,24 @@ module.exports = function unitRoutes(app, h) {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
+  app.get('/api/public/unit/:token/report.pdf', async (req, res) => {
+    try {
+      const u = await prismaBase.projectUnit.findUnique({ where: { shareToken: String(req.params.token) } });
+      const p = u && await prismaBase.project.findUnique({ where: { id: u.projectId } });
+      if (!u || !p) return res.status(404).send('This report link is no longer active.');
+      const pdf = await pdfFor(p, u);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${pdfName(u)}"`);
+      res.setHeader('Cache-Control', 'private, max-age=300');
+      res.send(pdf);
+    } catch (e) { console.error('[unit-pdf]', e.message); res.status(500).send('The report could not be made right now.'); }
+  });
+
   app.get('/api/projects/:projectId/units-settings', auth, async (req, res) => {
     const p = await ownProject(req.params.projectId);
     if (!p) return res.status(404).json({ error: 'Project not found' });
-    res.json({ frequency: p.unitReportFrequency || null, lastAt: p.unitReportLastAt });
+    apiBase(req);
+    res.json({ frequency: p.unitReportFrequency || null, lastAt: p.unitReportLastAt, whatsapp: waReady() });
   });
   app.put('/api/projects/:projectId/units-settings', auth, async (req, res) => {
     try {
@@ -331,7 +394,8 @@ module.exports = function unitRoutes(app, h) {
       const f = ['weekly', 'monthly'].includes(req.body?.frequency) ? req.body.frequency : null;
       // The first automatic report goes one period from now ("Send reports" sends one today).
       const row = await prismaBase.project.update({ where: { id: p.id }, data: { unitReportFrequency: f, unitReportLastAt: f ? (p.unitReportLastAt || new Date()) : p.unitReportLastAt } });
-      res.json({ frequency: row.unitReportFrequency, lastAt: row.unitReportLastAt });
+      apiBase(req);
+      res.json({ frequency: row.unitReportFrequency, lastAt: row.unitReportLastAt, whatsapp: waReady() });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -351,10 +415,16 @@ module.exports = function unitRoutes(app, h) {
       let sent = 0;
       for (let u of list) {
         const to = await unitRecipients(u);
-        if (!to.length) continue;
+        const canWa = waReady() && waNumber(u.clientPhone);
+        if (!to.length && !canWa) continue;
         if (!u.shareToken) u = await prismaBase.projectUnit.update({ where: { id: u.id }, data: { shareToken: crypto.randomBytes(12).toString('base64url') } });
-        const r = await reportFor(p, u);
-        for (const e of to) notify(e, `${p.unitReportFrequency === 'weekly' ? 'Weekly' : 'Monthly'} progress on your unit ${u.code}: ${u.progress}%`, r.html);
+        const link = pdfLink(u);
+        const r = await reportFor(p, u, link);
+        if (to.length) {
+          const pdf = await pdfFor(p, u).catch((e) => { console.error('[unit-pdf]', e.message); return null; });
+          await emailReport(to, `${p.unitReportFrequency === 'weekly' ? 'Weekly' : 'Monthly'} progress on your unit ${u.code}: ${u.progress}%`, r.html, pdf, u);
+        }
+        if (canWa) await sendWhatsApp(u, p, link);
         await prismaBase.projectUnit.update({ where: { id: u.id }, data: { lastReportAt: new Date() } });
         sent++;
       }

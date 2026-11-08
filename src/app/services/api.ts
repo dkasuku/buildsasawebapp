@@ -1385,7 +1385,7 @@ export const api = {
   deleteUnit: (projectId: string, id: string) => http<{ ok: boolean }>(`/api/projects/${projectId}/units/${id}`, { method: "DELETE" }),
   shareUnit: (projectId: string, id: string, invite?: { email?: string }) => http<UnitDto & { invited?: string | null }>(`/api/projects/${projectId}/units/${id}/share`, { method: "POST", body: JSON.stringify(invite ? { invite: true, ...invite } : {}) }),
   unitReport: (projectId: string, id: string, email = true, pdfUrl?: string) => http<{ text: string; link: string; emailed: string[]; phone?: string | null }>(`/api/projects/${projectId}/units/${id}/report`, { method: "POST", body: JSON.stringify({ email, pdfUrl }) }),
-  getUnitSettings: (projectId: string) => http<{ frequency: "weekly" | "monthly" | null; lastAt?: string | null }>(`/api/projects/${projectId}/units-settings`),
+  getUnitSettings: (projectId: string) => http<{ frequency: "weekly" | "monthly" | null; lastAt?: string | null; whatsapp?: boolean }>(`/api/projects/${projectId}/units-settings`),
   setUnitSettings: (projectId: string, frequency: "weekly" | "monthly" | null) => http<{ frequency: "weekly" | "monthly" | null; lastAt?: string | null }>(`/api/projects/${projectId}/units-settings`, { method: "PUT", body: JSON.stringify({ frequency }) }),
   unitReportAll: (projectId: string) => http<{ sent: number; skipped: number }>(`/api/projects/${projectId}/units/report-all`, { method: "POST" }),
   postUnitUpdate: (projectId: string, id: string, payload: { title: string; body?: string; stage?: string; kind?: string; media?: { url: string; type: string; name?: string }[] }) => http<any>(`/api/projects/${projectId}/units/${id}/updates`, { method: "POST", body: JSON.stringify(payload) }),

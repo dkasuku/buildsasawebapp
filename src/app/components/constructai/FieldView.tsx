@@ -6,6 +6,55 @@ import {
 } from "lucide-react";
 import type { Role } from "./roles";
 import api, { type ChecklistDto, type ChecklistQuestionDto } from "../../services/api";
+import { UnitSelect } from "./UnitPicker";
+import { Wrench, X } from "lucide-react";
+
+/** A snag found on site, with its unit (apartments/estates) and photos, in a few taps. */
+function SnagSheet({ onClose }: { onClose: () => void }) {
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  const [f, setF] = useState({ projectId: "", unitId: null as string | null, title: "", area: "" });
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  useEffect(() => { api.getProjects().then((ps: any[]) => { setProjects(ps); if (ps.length === 1) setF((x) => ({ ...x, projectId: ps[0].id })); }).catch(() => {}); }, []);
+  const addPhoto = async (files: FileList | null) => {
+    const list = Array.from(files || []); if (!list.length) return;
+    setUploading(true);
+    try { const r = await api.uploadFiles(list); setPhotos((p) => [...p, ...r.urls]); r.failed.forEach((x: any) => toast.error(`${x.name}: ${x.error}`)); }
+    catch (e: any) { toast.error(e?.message || "Upload failed"); }
+    setUploading(false);
+  };
+  const save = async () => {
+    if (!f.projectId) return toast.error("Pick the project");
+    if (!f.title.trim()) return toast.error("Describe the snag");
+    setBusy(true);
+    try {
+      await api.createPunchItem({ projectId: f.projectId, unitId: f.unitId, title: f.title.trim(), desc: f.title.trim(), area: f.area || "—", photos, status: "open", priority: "medium", category: "other" });
+      toast.success("Snag logged");
+      onClose();
+    } catch (e: any) { toast.error(e?.message || "Couldn't save"); }
+    setBusy(false);
+  };
+  const inp = "mt-1 w-full h-10 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-[14px] text-white focus:outline-none focus:border-[#FF6B1A]/60";
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/60 flex items-end sm:items-center justify-center" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full sm:max-w-md bg-[#11161D] border border-[#222A35] rounded-t-2xl sm:rounded-xl p-5 space-y-3 max-h-[92vh] overflow-y-auto" role="dialog" aria-label="Report a snag">
+        <div className="flex items-center gap-2 text-[15px] text-white"><Wrench className="w-4 h-4 text-[#FBBF24]" /> Report a snag<button onClick={onClose} className="ml-auto text-[#8A95A5]" aria-label="Close"><X className="w-4 h-4" /></button></div>
+        <label className="block"><span className="text-[11px] text-[#8A95A5]">Project</span>
+          <select aria-label="Project" value={f.projectId} onChange={(e) => setF({ ...f, projectId: e.target.value, unitId: null })} className={inp}><option value="">Choose…</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+        <UnitSelect projectId={f.projectId || null} value={f.unitId} onChange={(v) => setF({ ...f, unitId: v })} />
+        <label className="block"><span className="text-[11px] text-[#8A95A5]">What's wrong</span><input aria-label="What's wrong" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="e.g. Cracked tile by the shower" className={inp} /></label>
+        <label className="block"><span className="text-[11px] text-[#8A95A5]">Room or area</span><input aria-label="Room or area" value={f.area} onChange={(e) => setF({ ...f, area: e.target.value })} placeholder="Bathroom" className={inp} /></label>
+        <div className="flex flex-wrap gap-2 items-center">
+          {photos.map((u) => <img key={u} src={u} alt="" className="w-14 h-14 rounded-md object-cover border border-[#222A35]" />)}
+          <label className="h-14 px-3 rounded-md border-2 border-dashed border-[#222A35] text-[12px] text-[#8A95A5] flex items-center gap-1.5 cursor-pointer">{uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />} Photo
+            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { addPhoto(e.target.files); e.target.value = ""; }} /></label>
+        </div>
+        <button onClick={save} disabled={busy || uploading} className="w-full h-11 rounded-lg bg-[#FF6B1A] text-white text-[14px] font-medium flex items-center justify-center gap-2 disabled:opacity-60">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Log snag</button>
+      </div>
+    </div>
+  );
+}
 
 type AnswerMap = Record<string, string>;
 
@@ -161,6 +210,7 @@ function QuestionCard({
 }
 
 export function FieldView({ role = "Worker" }: { role?: Role }) {
+  const [snagOpen, setSnagOpen] = useState(false);
   const [checklists, setChecklists] = useState<ChecklistDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeChecklist, setActiveChecklist] = useState<ChecklistDto | null>(null);
@@ -297,7 +347,9 @@ export function FieldView({ role = "Worker" }: { role?: Role }) {
             Complete your assigned QA checklists and safety inspections
           </div>
         </div>
+        <button onClick={() => setSnagOpen(true)} className="h-10 px-3.5 rounded-lg bg-[#FF6B1A] text-white text-[13px] inline-flex items-center gap-1.5 shrink-0"><Wrench className="w-4 h-4" /> Report a snag</button>
       </div>
+      {snagOpen && <SnagSheet onClose={() => setSnagOpen(false)} />}
 
       {loading ? (
         <div className="flex items-center justify-center h-40">
