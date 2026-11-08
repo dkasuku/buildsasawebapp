@@ -160,7 +160,7 @@ export function ClientFolder({ projectId, canInvite, onOpenPortal }: { projectId
             : <UpdateFeed updates={updates.map((u) => (u.unitId && unitCode(u.unitId) ? { ...u, title: `Unit ${unitCode(u.unitId)} · ${u.title}` } : u))} onDelete={del} renderComments={(u) => reply("update", u.id)} empty="Nothing shared yet. Post photos of each stage (land clearing, fencing, foundation, roofing…) so the client sees the work as it happens." />}
         </>
       )}
-      {tab === "tours" && <Suspense fallback={<div className="text-[12px] text-[#5B6675]"><Loader2 className="w-3.5 h-3.5 animate-spin inline mr-1" />Loading…</div>}><TourBuilder projectId={projectId} canShare={canInvite} hasClient={!!clients?.length} /></Suspense>}
+      {tab === "tours" && <Suspense fallback={<div className="text-[12px] text-[#5B6675]"><Loader2 className="w-3.5 h-3.5 animate-spin inline mr-1" />Loading…</div>}><TourBuilder projectId={projectId} canShare={canInvite} hasClient={!!clients?.length || units.length > 0} /></Suspense>}
       {tab === "chat" && (
         <>
           <div className="flex gap-1.5">

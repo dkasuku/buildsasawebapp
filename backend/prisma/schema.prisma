@@ -62,6 +62,9 @@ model Workspace {
 
 model Project {
   id        String   @id @default(cuid())
+  // Units: send every unit client their report automatically. null | weekly | monthly
+  unitReportFrequency String?
+  unitReportLastAt    DateTime?
   workspaceId String?
   code      String   @unique
   name      String
@@ -207,6 +210,9 @@ model ExpenseCategory {
 
 model DailyLog {
   id        String   @id @default(cuid())
+  // Apartments/estates: JSON array of unit ids this is for. Empty = the whole
+  // project (every client sees it); set = only those units' clients see it.
+  unitIds     String?
   workspaceId String?
   date      DateTime
   // `crew` is the crew name as typed/selected; `crewId` links to the Crew row it
@@ -241,6 +247,7 @@ model DailyLog {
 
 model PunchItem {
   id          String   @id @default(cuid())
+  unitId      String?  // a snag in one unit (apartments/estates); its client sees it before handover
   workspaceId String?
   code        String
   area        String
@@ -612,6 +619,9 @@ model Invoice {
 
 model Inspection {
   id          String   @id @default(cuid())
+  // Apartments/estates: JSON array of unit ids this is for. Empty = the whole
+  // project (every client sees it); set = only those units' clients see it.
+  unitIds     String?
   workspaceId String?
   type        String
   inspector   String
@@ -1709,6 +1719,9 @@ model ClientComment {
 // contractor's team; the client sees it once it is shared (sharedAt set).
 model VirtualTour {
   id          String    @id @default(cuid())
+  // Apartments/estates: JSON array of unit ids this is for. Empty = the whole
+  // project (every client sees it); set = only those units' clients see it.
+  unitIds     String?
   workspaceId String
   projectId   String
   title       String

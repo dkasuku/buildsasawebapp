@@ -11,7 +11,7 @@ import {
 import { ChatThread, Chip, CommentThread, MediaGrid, MediaPicker, UpdateFeed } from "./ClientParts";
 import { PublicQuoteView } from "../PublicQuoteView";
 import { PublicPortalView } from "../PublicPortalView";
-import { UnitStages } from "../PublicUnitView";
+import { UnitSnags, UnitStages } from "../PublicUnitView";
 import { RateDialog, Stars, TrustBadge } from "./Trust";
 // The 360° viewer pulls in three.js; load it only when a tour is opened.
 const TourGallery = lazy(() => import("./VirtualTour").then((m) => ({ default: m.TourGallery })));
@@ -346,7 +346,7 @@ function SiteView({ id, initialTab, go }: { id: string; initialTab?: string; go:
       </div>
       {tab === "progress" && (
         <>
-          {d.unit && <section className={`${card} p-4 mb-4`}><UnitStages dark code={d.unit.code} type={d.unit.type} progress={d.unit.progress} stages={d.unit.stages || []} /><p className="text-[11.5px] text-[#8A95A5] mt-3">You see your own unit and news about the whole project. Other buyers can't see your unit, your payments or your chats.</p></section>}
+          {d.unit && <section className={`${card} p-4 mb-4`}><UnitStages dark code={d.unit.code} type={d.unit.type} progress={d.unit.progress} stages={d.unit.stages || []} />{(d.snags || []).length > 0 && <div className="mt-4 pt-4 border-t border-[#222A35]"><UnitSnags dark snags={d.snags} /></div>}<p className="text-[11.5px] text-[#8A95A5] mt-3">You see your own unit and news about the whole project. Other buyers can't see your unit, your payments or your chats.</p></section>}
           <StageStrip updates={d.updates} />
           <UpdateFeed updates={d.updates} renderComments={(u) => thr("update", u.id)} empty="Your contractor hasn't shared progress updates yet. Photos and videos of each stage will appear here. You can ask for them in the Chat tab." />
           {d.photos?.length > 0 && <div className="mt-5"><div className="text-[13px] font-medium mb-2">Site photos from daily logs</div><MediaGrid media={d.photos.flatMap((l: any) => [...toMedia(l.photos), ...l.videos.map((u: string) => ({ url: u, type: "video" as const }))])} max={16} /></div>}

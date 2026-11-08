@@ -141,7 +141,7 @@ export type UnitDto = {
   id: string; projectId: string; code: string; block?: string | null; floor?: string | null; type?: string | null; sizeSqm?: number | null;
   status: string; statusLabel?: string; stages: UnitStage[]; progress: number; clientName?: string | null; clientEmail?: string | null; clientPhone?: string | null;
   priceKES?: number | null; paidKES?: number | null; notes?: string | null; shareToken?: string | null; link?: string | null; lastReportAt?: string | null;
-  updates?: number; accounts?: { email: string; joined: boolean }[];
+  updates?: number; openSnags?: number; accounts?: { email: string; joined: boolean }[];
 };
 export type PublicUnitDto = {
   company: CompanyDto | null;
@@ -149,6 +149,8 @@ export type PublicUnitDto = {
   unit: { code: string; block?: string | null; floor?: string | null; type?: string | null; sizeSqm?: number | null; status: string; statusLabel: string; progress: number; stages: UnitStage[]; clientName?: string | null; priceKES?: number | null; paidKES?: number | null; updatedAt: string };
   updates: { id: string; title: string; body?: string | null; stage: string; kind: string; media: { url: string; type: string; name?: string }[]; authorName?: string | null; createdAt: string; scope: "unit" | "project" }[];
   invoices: { invoiceNumber: string; amount: number; paidAmount: number; status: string; issueDate: string; dueDate: string }[];
+  photos?: { date: string; photos: string[]; videos: string[]; scope: "unit" | "project" }[];
+  snags?: { code?: string; title: string; area?: string; status: string; photos: string[] }[];
 };
 /** A 402 for credits or a daily allowance: the app offers to buy credits on the spot. */
 export const NEED_CREDITS_EVENT = "buildsasa:need-credits";
@@ -1276,7 +1278,7 @@ export const api = {
   updatePunch: (projectId: string, id: string, payload: Partial<PunchDto>) => http<PunchDto>(`/api/projects/${projectId}/punch/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deletePunch: (projectId: string, id: string) => http(`/api/projects/${projectId}/punch/${id}`, { method: "DELETE" }),
   // Punch List (rich, item-centric)
-  listPunch: (params?: { projectId?: string; status?: string; trade?: string; priority?: string; assignee?: string; q?: string }) => http<any[]>(`/api/punch?${new URLSearchParams((params || {}) as Record<string, string>).toString()}`),
+  listPunch: (params?: { projectId?: string; status?: string; trade?: string; priority?: string; assignee?: string; q?: string; unitId?: string }) => http<any[]>(`/api/punch?${new URLSearchParams((params || {}) as Record<string, string>).toString()}`),
   getPunchItem: (id: string) => http<any>(`/api/punch/${id}`),
   getDrawingPunch: (drawingId: string) => http<any[]>(`/api/drawings/${drawingId}/punch`),
   createPunchItem: (payload: any) => http<any>(`/api/punch`, { method: "POST", body: JSON.stringify(payload) }),
@@ -1382,7 +1384,9 @@ export const api = {
   updateUnit: (projectId: string, id: string, payload: Partial<Omit<UnitDto, "stages">> & { stages?: UnitStage[]; done?: string[]; undone?: string[] }) => http<UnitDto>(`/api/projects/${projectId}/units/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteUnit: (projectId: string, id: string) => http<{ ok: boolean }>(`/api/projects/${projectId}/units/${id}`, { method: "DELETE" }),
   shareUnit: (projectId: string, id: string, invite?: { email?: string }) => http<UnitDto & { invited?: string | null }>(`/api/projects/${projectId}/units/${id}/share`, { method: "POST", body: JSON.stringify(invite ? { invite: true, ...invite } : {}) }),
-  unitReport: (projectId: string, id: string, email = true) => http<{ text: string; link: string; emailed: string[]; phone?: string | null }>(`/api/projects/${projectId}/units/${id}/report`, { method: "POST", body: JSON.stringify({ email }) }),
+  unitReport: (projectId: string, id: string, email = true, pdfUrl?: string) => http<{ text: string; link: string; emailed: string[]; phone?: string | null }>(`/api/projects/${projectId}/units/${id}/report`, { method: "POST", body: JSON.stringify({ email, pdfUrl }) }),
+  getUnitSettings: (projectId: string) => http<{ frequency: "weekly" | "monthly" | null; lastAt?: string | null }>(`/api/projects/${projectId}/units-settings`),
+  setUnitSettings: (projectId: string, frequency: "weekly" | "monthly" | null) => http<{ frequency: "weekly" | "monthly" | null; lastAt?: string | null }>(`/api/projects/${projectId}/units-settings`, { method: "PUT", body: JSON.stringify({ frequency }) }),
   unitReportAll: (projectId: string) => http<{ sent: number; skipped: number }>(`/api/projects/${projectId}/units/report-all`, { method: "POST" }),
   postUnitUpdate: (projectId: string, id: string, payload: { title: string; body?: string; stage?: string; kind?: string; media?: { url: string; type: string; name?: string }[] }) => http<any>(`/api/projects/${projectId}/units/${id}/updates`, { method: "POST", body: JSON.stringify(payload) }),
   getPublicUnit: (token: string) => http<PublicUnitDto>(`/api/public/unit/${token}`),

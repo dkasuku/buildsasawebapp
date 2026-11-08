@@ -19,7 +19,7 @@ const COMMENT_TARGETS = ['update', 'inspection', 'dailylog', 'quote', 'changeord
 const REPORTING_FEE_PERCENT = 10;
 
 module.exports = function clientRoutes(app, d) {
-  const { prisma, prismaBase, auth, currentWs, hasRole, CAN_SHARE_PORTAL, sendEmail, emailShell, button,
+  const { unitIdsJson, prisma, prismaBase, auth, currentWs, hasRole, CAN_SHARE_PORTAL, sendEmail, emailShell, button,
     paystackRequest, PAYSTACK_SECRET, isPlatformAdmin, portalPayload, companyPublic, APP_URL, freeAccessEmails } = d;
 
   const text = (v, max = 2000) => { const s = String(v == null ? '' : v).trim(); return s ? s.slice(0, max) : null; };
@@ -52,7 +52,7 @@ module.exports = function clientRoutes(app, d) {
     }));
     return out.length ? JSON.stringify(out) : null;
   };
-  const tourDto = (t) => ({ ...t, scenes: parse(t.scenes) });
+  const tourDto = (t) => ({ ...t, scenes: parse(t.scenes), unitIds: parse(t.unitIds) });
   const kes = (n) => `KES ${Math.round(Number(n) || 0).toLocaleString('en-KE')}`;
 
   const requireClient = (req, res, next) => (req.user && req.user.role === 'Client' ? next() : res.status(403).json({ error: 'This page is for client accounts.' }));
@@ -97,6 +97,17 @@ module.exports = function clientRoutes(app, d) {
     const where = { projectId, ...(scope === 'general' ? { unitId: null } : scope ? { unitId: scope } : {}) };
     const links = await prismaBase.projectClient.findMany({ where });
     for (const l of links) notify(l.email, subject, p14(line) + button(`${APP_URL}/?as=client&project=${projectId}`, 'Open Buildsasa'));
+  }
+  /** Something tagged to some units: only those units' clients hear about it. */
+  const forUnit = (unitIdsRaw, unitId) => { const a = parse(unitIdsRaw); return !a.length || (unitId && a.includes(unitId)); };
+  async function emailUnitsOrAll(p, unitIdsRaw, subject, line) {
+    const ids = parse(unitIdsRaw);
+    if (!ids.length) return emailClients(p.id, subject, line);
+    const us = await prismaBase.projectUnit.findMany({ where: { id: { in: ids }, projectId: p.id } });
+    for (const u of us) {
+      const link = u.shareToken ? `${APP_URL}/?unit=${u.shareToken}` : `${APP_URL}/?as=client&project=${p.id}`;
+      for (const e of await units.unitRecipients(u)) notify(e, subject, p14(line) + button(link, 'See it'));
+    }
   }
   async function emailTeam(workspaceId, subject, line) {
     // The people who can share with clients hear from them.
@@ -265,25 +276,29 @@ module.exports = function clientRoutes(app, d) {
       ]);
       const urls = (raw) => parse(raw).filter((x) => typeof x === 'string' && /^https?:\/\//i.test(x));
       const portal = unitId
-        ? { ...portal0, changeOrders: [], selections: [], invoices: portal0.invoices.filter((i) => i.unitId === unitId) }
+        ? { ...portal0, changeOrders: [], selections: [], invoices: portal0.invoices.filter((i) => i.unitId === unitId), photos: portal0.photos.filter((l) => !l.unitIds.length || l.unitIds.includes(unitId)) }
         : portal0;
       portal.invoices = portal.invoices.map(({ unitId: _u, ...i }) => i);
+      portal.photos = portal.photos.map(({ unitIds: _x, ...l }) => l);
+      const mine = (row) => !unitId || forUnit(row.unitIds, unitId);
+      const snags = unitId ? await prismaBase.punchItem.findMany({ where: { projectId: p.id, unitId, isPrivate: { not: true } }, orderBy: { createdAt: 'desc' }, take: 200 }) : [];
       res.json({
         // A lapsed contractor subscription never locks the client out: what was
         // shared stays theirs to see. The flag only explains why the team may be
         // slow to reply and why new updates may pause.
         id: p.id, companyId: p.workspaceId, companyActive: (await activeWorkspaceIds()).includes(p.workspaceId), portalToken: unitId ? null : token, ...portal,
+        snags: snags.map((x) => ({ id: x.id, code: x.code, title: x.title || x.desc, area: x.area, status: x.status, photos: urls(x.photos), dueDate: x.dueDate, createdAt: x.createdAt })),
         unit: unit ? { id: unit.id, code: unit.code, block: unit.block, floor: unit.floor, type: unit.type, status: unit.status, progress: unit.progress, stages: parse(unit.stages), link: unit.shareToken ? `${APP_URL}/?unit=${unit.shareToken}` : null } : null,
         updates: updates.map(updateDto),
-        tours: tours.map((t) => ({ id: t.id, title: t.title, description: t.description, stage: t.stage, createdBy: t.createdBy, sharedAt: t.sharedAt, scenes: parse(t.scenes) })),
+        tours: tours.filter(mine).map((t) => ({ id: t.id, title: t.title, description: t.description, stage: t.stage, createdBy: t.createdBy, sharedAt: t.sharedAt, scenes: parse(t.scenes) })),
         // Daily logs ARE shared (a client abroad wants to know the site was worked
         // on, by how many people, in what weather) but the free-text notes are
         // written for the site team, so only the summary fields leave.
-        dailyLogs: logs.map((l) => ({
+        dailyLogs: logs.filter(mine).map((l) => ({
           id: l.id, date: l.date, weather: l.weather, workers: l.headcount ?? null,
           location: l.placeName || l.location, photos: urls(l.photos), videos: urls(l.videos),
         })),
-        inspections: inspections.map((i) => ({
+        inspections: inspections.filter(mine).map((i) => ({
           id: i.id, type: i.type, inspector: i.inspector, date: i.date, status: i.status, notes: i.notes,
           photos: urls(i.photos), videos: urls(i.videos), checklist: parse(i.checklist),
         })),
@@ -765,7 +780,7 @@ module.exports = function clientRoutes(app, d) {
       if (!title) return res.status(400).json({ error: 'Give the tour a name, e.g. "Show house walk-through".' });
       const row = await prismaBase.virtualTour.create({ data: {
         workspaceId: p.workspaceId, projectId: p.id, title, description: text(b.description, 4000),
-        stage: STAGES.includes(b.stage) ? b.stage : 'other', scenes: cleanScenes(b.scenes),
+        stage: STAGES.includes(b.stage) ? b.stage : 'other', scenes: cleanScenes(b.scenes), unitIds: unitIdsJson(b.unitIds),
         createdById: req.user.sub, createdBy: req.user.name || null,
       } });
       res.json(tourDto(row));
@@ -784,6 +799,7 @@ module.exports = function clientRoutes(app, d) {
       if (b.description !== undefined) data.description = text(b.description, 4000);
       if (b.stage !== undefined) data.stage = STAGES.includes(b.stage) ? b.stage : 'other';
       if (b.scenes !== undefined) data.scenes = cleanScenes(b.scenes);
+      if (b.unitIds !== undefined) data.unitIds = unitIdsJson(b.unitIds);
       res.json(tourDto(await prismaBase.virtualTour.update({ where: { id: t.id }, data })));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -796,10 +812,10 @@ module.exports = function clientRoutes(app, d) {
       const t = await prismaBase.virtualTour.findUnique({ where: { id: req.params.id } });
       if (!t || t.projectId !== p.id) return res.status(404).json({ error: 'Tour not found' });
       const share = req.body?.shared !== false;
-      if (share && !(await hasClient(p.id))) return res.status(409).json({ error: NO_CLIENT });
+      if (share && !parse(t.unitIds).length && !(await hasClient(p.id)) && !(await prismaBase.projectUnit.findFirst({ where: { projectId: p.id }, select: { id: true } }))) return res.status(409).json({ error: NO_CLIENT });
       if (share && !parse(t.scenes).length) return res.status(400).json({ error: 'Add at least one 360° photo before sharing the tour.' });
       const row = await prismaBase.virtualTour.update({ where: { id: t.id }, data: { sharedAt: share ? (t.sharedAt || new Date()) : null } });
-      if (share && !t.sharedAt) emailClients(p.id, `360° tour of ${p.name}: ${t.title}`, `<b>${req.user.name || 'Your contractor'}</b> shared a 360° virtual tour of <b>${p.name}</b>: “${t.title}” (${parse(t.scenes).length} scene${parse(t.scenes).length > 1 ? 's' : ''}). Look around every room as if you were standing there.`);
+      if (share && !t.sharedAt) emailUnitsOrAll(p, t.unitIds, `360° tour of ${p.name}: ${t.title}`, `<b>${req.user.name || 'Your contractor'}</b> shared a 360° virtual tour of <b>${p.name}</b>: “${t.title}” (${parse(t.scenes).length} scene${parse(t.scenes).length > 1 ? 's' : ''}). Look around every room as if you were standing there.`);
       res.json(tourDto(row));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -901,7 +917,7 @@ module.exports = function clientRoutes(app, d) {
       await prisma.inspection.update({ where: { id: i.id }, data: { clientVisible: visible } });
       if (visible && !i.clientVisible) {
         const p = await prismaBase.project.findUnique({ where: { id: i.projectId } });
-        if (p) emailClients(p.id, `Inspection shared on ${p.name}`, `The <b>${i.type}</b> inspection (${i.status.replace(/_/g, ' ')}) is now visible to you in Buildsasa.`);
+        if (p) emailUnitsOrAll(p, i.unitIds, `Inspection shared on ${p.name}`, `The <b>${i.type}</b> inspection (${i.status.replace(/_/g, ' ')}) is now visible to you in Buildsasa.`);
       }
       res.json({ ok: true, clientVisible: visible });
     } catch (e) { res.status(500).json({ error: e.message }); }

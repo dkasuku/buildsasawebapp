@@ -4,13 +4,37 @@
 // invoices. Nothing about the other units or buyers. Light and plain: the reader
 // is a buyer on a phone, often abroad.
 import { useEffect, useState } from "react";
-import { Building2, Check, Loader2, Receipt } from "lucide-react";
+import { Building2, Camera, Check, Loader2, Receipt, Wrench } from "lucide-react";
 import api, { absoluteFileUrl, type PublicUnitDto, type UnitStage } from "../../services/api";
 
 const kes = (n: number) => `KES ${Math.round(Number(n) || 0).toLocaleString("en-KE")}`;
 const day = (d?: string | null) => { if (!d) return ""; const t = new Date(d); return isNaN(+t) ? String(d) : t.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); };
 const C = { ink: "#1B1F24", soft: "#5B6675", faint: "#8A95A5", line: "#E6E9EE", brand: "#F45B1E", navy: "#0B2A4A", green: "#16A34A" };
 const card: React.CSSProperties = { background: "#fff", borderRadius: 14, border: `1px solid ${C.line}`, boxShadow: "0 1px 3px rgba(0,0,0,.05)" };
+
+/** Snags in the unit: what is still being fixed before handover. Shared with the client account. */
+export function UnitSnags({ snags, dark }: { snags: { code?: string; title: string; area?: string; status: string; photos?: string[] }[]; dark?: boolean }) {
+  if (!snags.length) return null;
+  const open = snags.filter((s) => !["resolved", "closed", "rejected"].includes(s.status));
+  const ink = dark ? "#FFFFFF" : C.ink, soft = dark ? "#8A95A5" : C.soft;
+  return (
+    <div>
+      <div className="flex items-center gap-2" style={{ fontSize: 14, fontWeight: 600, color: ink }}><Wrench className="w-4 h-4" style={{ color: "#F59E0B" }} /> Snags before handover <span style={{ fontWeight: 400, fontSize: 12.5, color: soft }}>{open.length ? `${open.length} being fixed` : "all fixed"}</span></div>
+      <div className="mt-2 space-y-1.5">
+        {snags.map((s, i) => {
+          const fixed = !open.includes(s);
+          return (
+            <div key={(s.code || "") + i} className="flex items-center gap-2" style={{ fontSize: 13, color: fixed ? soft : ink }}>
+              <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: fixed ? C.green : "#F59E0B" }} />
+              <span className="flex-1" style={{ textDecoration: fixed ? "line-through" : "none" }}>{s.title}{s.area ? <span style={{ color: soft }}> · {s.area}</span> : null}</span>
+              <span style={{ fontSize: 11, color: fixed ? C.green : "#B45309" }}>{fixed ? "Fixed" : "Being fixed"}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 /** The unit's stages as a checklist with a progress bar. Shared with the client account. */
 export function UnitStages({ code, type, progress, statusLabel, stages, dark }: { code: string; type?: string | null; progress: number; statusLabel?: string; stages: UnitStage[]; dark?: boolean }) {
@@ -80,6 +104,22 @@ export function PublicUnitView({ token }: { token: string }) {
               </div>
             ))}
             {owed > 0 && <div style={{ fontSize: 12.5, color: C.soft, marginTop: 6 }}>Outstanding on invoices: <b style={{ color: C.ink }}>{kes(owed)}</b></div>}
+          </div>
+        )}
+
+        {(d.snags?.length || 0) > 0 && <div style={{ ...card, padding: 16 }}><UnitSnags snags={d.snags!} /></div>}
+
+        {(d.photos?.length || 0) > 0 && (
+          <div style={{ ...card, padding: 16 }}>
+            <div className="flex items-center gap-2" style={{ fontSize: 14, fontWeight: 600 }}><Camera className="w-4 h-4" style={{ color: C.brand }} /> Site photos</div>
+            <div className="grid grid-cols-3 gap-1.5 mt-2.5">
+              {d.photos!.flatMap((l) => l.photos.map((p) => ({ p, l }))).slice(0, 12).map(({ p, l }) => (
+                <button key={p} onClick={() => setBig(absoluteFileUrl(p))} className="relative aspect-square rounded-lg overflow-hidden" title={day(l.date)}>
+                  <img src={absoluteFileUrl(p)} alt="" className="w-full h-full object-cover" />
+                  {l.scope === "unit" && <span className="absolute bottom-1 left-1 text-[10px] px-1.5 rounded" style={{ background: C.brand, color: "#fff" }}>Your unit</span>}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 

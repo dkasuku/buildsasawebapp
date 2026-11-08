@@ -1323,7 +1323,7 @@ app.get('/api/projects/:projectId/daily-log', auth, async (req, res) => {
 });
 app.post('/api/projects/:projectId/daily-log', auth, async (req, res) => {
   try {
-    const { date, crew, crewId, headcount, location, notes, weather, labour, plant, materials, photos, videos, lat, lng, clientVisible, placeName } = req.body;
+    const { date, crew, crewId, headcount, location, notes, weather, labour, plant, materials, photos, videos, lat, lng, clientVisible, placeName, unitIds } = req.body;
     if (!crew || !String(crew).trim()) return res.status(400).json({ error: 'Pick or type the crew on site' });
     // An absent/invalid date used to become `Invalid Date` and be rejected by
     // Postgres with an opaque error; default to today instead.
@@ -1339,6 +1339,7 @@ app.post('/api/projects/:projectId/daily-log', auth, async (req, res) => {
         lat: lat == null || lat === '' ? null : Number(lat), lng: lng == null || lng === '' ? null : Number(lng),
         clientVisible: clientVisible === undefined ? true : !!clientVisible,
         placeName: placeName ? String(placeName).slice(0, 300) : null,
+        unitIds: unitIdsJson(unitIds),
         projectId: req.params.projectId,
       },
     });
@@ -1347,8 +1348,9 @@ app.post('/api/projects/:projectId/daily-log', auth, async (req, res) => {
 });
 app.put('/api/projects/:projectId/daily-log/:id', auth, async (req, res) => {
   try {
-    const { date, crew, crewId, headcount, location, notes, weather, labour, plant, materials, photos, videos, lat, lng, clientVisible, placeName } = req.body;
+    const { date, crew, crewId, headcount, location, notes, weather, labour, plant, materials, photos, videos, lat, lng, clientVisible, placeName, unitIds } = req.body;
     const data = {};
+    if (unitIds !== undefined) data.unitIds = unitIdsJson(unitIds);
     if (videos !== undefined) data.videos = Array.isArray(videos) && videos.length ? JSON.stringify(videos) : null;
     if (lat !== undefined) data.lat = lat == null || lat === '' ? null : Number(lat);
     if (lng !== undefined) data.lng = lng == null || lng === '' ? null : Number(lng);
@@ -1407,9 +1409,11 @@ app.delete('/api/projects/:projectId/punch/:id', auth, async (req, res) => {
 });
 
 // ===== PUNCH LIST (rich, item-centric, Procore-inspired) =====
-const PUNCH_FIELDS = ['code', 'area', 'desc', 'status', 'location', 'title', 'category', 'trade', 'priority', 'punchManagerId', 'finalApproverId', 'dueDate', 'createdById', 'costImpact', 'scheduleImpact', 'costCode', 'reference', 'isPrivate', 'linkedTaskId', 'linkedDrawingId', 'projectId'];
+const PUNCH_FIELDS = ['unitId', 'code', 'area', 'desc', 'status', 'location', 'title', 'category', 'trade', 'priority', 'punchManagerId', 'finalApproverId', 'dueDate', 'createdById', 'costImpact', 'scheduleImpact', 'costCode', 'reference', 'isPrivate', 'linkedTaskId', 'linkedDrawingId', 'projectId'];
 const PUNCH_JSON = ['photos', 'videos', 'assignees', 'distribution', 'drawingRef', 'drawingCoordinates'];
 const PUNCH_STATUSES = ['open', 'in_progress', 'ready_for_review', 'resolved', 'closed', 'rejected'];
+// Which units something is for (apartments/estates); none = the whole project.
+const unitIdsJson = (v) => { const a = (Array.isArray(v) ? v : []).filter((x) => typeof x === 'string' && x).slice(0, 500); return a.length ? JSON.stringify([...new Set(a)]) : null; };
 const pickPunch = (body) => {
   const data = {};
   for (const f of PUNCH_FIELDS) if (body[f] !== undefined) data[f] = body[f];
@@ -1420,9 +1424,10 @@ const pickPunch = (body) => {
 // List + filter — query: projectId, status, trade, priority, assignee, q
 app.get('/api/punch', auth, async (req, res) => {
   try {
-    const { projectId, status, trade, priority, assignee, q } = req.query;
+    const { projectId, status, trade, priority, assignee, q, unitId } = req.query;
     const where = {};
     if (projectId) where.projectId = projectId;
+    if (unitId) where.unitId = String(unitId);
     if (status) where.status = status;
     if (trade) where.trade = trade;
     if (priority) where.priority = priority;
@@ -1490,6 +1495,11 @@ app.post('/api/punch/:id/status', auth, async (req, res) => {
     const before = item.status;
     const row = await prisma.punchItem.update({ where: { id: req.params.id }, data: { status } });
     await prisma.punchItemActivity.create({ data: { punchItemId: row.id, actorId: req.user && req.user.sub, actionType: 'status_change', field: 'status', before, after: status } });
+    // The last snag on a finished unit closed: the unit is ready for handover.
+    if (row.unitId && ['resolved', 'closed', 'rejected'].includes(status)) {
+      const open = await prismaBase.punchItem.count({ where: { unitId: row.unitId, status: { notIn: ['resolved', 'closed', 'rejected'] } } });
+      if (!open) await prismaBase.projectUnit.updateMany({ where: { id: row.unitId, status: 'snagging', progress: 100 }, data: { status: 'ready' } }).catch(() => {});
+    }
     res.json(row);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3056,7 +3066,7 @@ async function portalPayload(p) {
       // carry internal matters, so they stay inside the workspace.
       photos: logs
         .map((l) => ({
-          date: l.date, location: l.location,
+          date: l.date, location: l.location, unitIds: parseJsonArr(l.unitIds),
           photos: parseJsonArr(l.photos).filter((u) => typeof u === 'string' && u && !/^(blob:|data:)/i.test(u)),
           videos: parseJsonArr(l.videos).filter((u) => typeof u === 'string' && u && !/^(blob:|data:)/i.test(u)),
         }))
@@ -3573,7 +3583,7 @@ app.get('/api/inspections/:id', auth, async (req, res) => {
 
 app.post('/api/projects/:projectId/inspections', auth, async (req, res) => {
   try {
-    const { type, inspector, date, status, notes, checklist, photos, videos, readinessPhotos, assignedTo, createdBy, checklistId, templateId, drawingRef } = req.body;
+    const { type, inspector, date, status, notes, checklist, photos, videos, readinessPhotos, assignedTo, createdBy, checklistId, templateId, drawingRef, unitIds } = req.body;
     const initialStatus = status && INSPECTION_STATUSES.includes(status) ? status : 'draft';
     const row = await prisma.inspection.create({
       data: {
@@ -3586,6 +3596,7 @@ app.post('/api/projects/:projectId/inspections', auth, async (req, res) => {
         assignedTo, createdBy: createdBy || req.user.sub,
         checklistId, templateId,
         drawingRef: drawingRef ? JSON.stringify(drawingRef) : null,
+        unitIds: unitIdsJson(unitIds),
         projectId: req.params.projectId,
       },
     });
@@ -3606,6 +3617,7 @@ app.put('/api/projects/:projectId/inspections/:id', auth, async (req, res) => {
     if (videos !== undefined) data.videos = videos ? JSON.stringify(videos) : null;
     if (readinessPhotos !== undefined) data.readinessPhotos = readinessPhotos ? JSON.stringify(readinessPhotos) : null;
     if (drawingRef !== undefined) data.drawingRef = drawingRef ? JSON.stringify(drawingRef) : null;
+    if (req.body.unitIds !== undefined) data.unitIds = unitIdsJson(req.body.unitIds);
     const row = await prisma.inspection.update({ where: { id: req.params.id }, data });
     res.json(row);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -6190,7 +6202,7 @@ Clients get a client portal link per project (progress, photos, shared 360° tou
 Buildsasa AI (this chat) can: answer from the workspace data, price jobs and write quotes, write daily logs, reports, letters and client updates, build checklists, generate interior designs (with or without a photo, shown right here in the chat with a costed materials list), open any page, and save records after the user confirms. Every answer can be downloaded as a PDF, Word or Excel document, and any table can be saved as a quote in Quotes.
 A quote you write appears as an editable quote in the chat: the user can change lines, quantities, rates, VAT, discount and client details, add their logo, then download or save it. When they ask you to change a quote, reply with the complete updated table.
 ATTACHMENTS: users can attach photos and documents (PDF, Word, Excel, CSV). Use them: price a BOQ, drawing or handwritten list; summarise or check a contract, tender or report; assess a site photo (progress, defects, safety hazards, likely causes and fixes); read a supplier quotation and compare it.
-UNITS (apartment blocks, estates, gated communities): in a project's Units tab the team adds units (a whole block at once: floors × units per floor, or House 1…40), each with its own buyer, fit-out stages and progress. Each buyer gets a private link (no account needed) or a client account fenced to their unit: they see their unit's stages, photos, updates and invoices plus news about the whole project, and never the other buyers'. Updates can go to one unit or to everyone; "Send reports" emails every buyer their own unit's report, and each unit has a WhatsApp report button. Invoices can be billed to a unit.
+UNITS (apartment blocks, estates, gated communities): in a project's Units tab the team adds units (a whole block at once: floors × units per floor, or House 1…40), each with its own buyer, fit-out stages and progress. Each buyer gets a private link (no account needed) or a client account fenced to their unit: they see their unit's stages, photos, updates and invoices plus news about the whole project, and never the other buyers'. Updates can go to one unit or to everyone; "Send reports" emails every buyer their own unit's report, and each unit has a WhatsApp report button. Invoices can be billed to a unit. Daily-log photos, inspections and 360° tours have a "Which units is this for?" picker (empty = the whole building, everyone sees it). Snags can be logged per unit; the buyer sees their snag list, and a unit cannot be marked ready while snags are open (it becomes ready when the last one is fixed). Each unit has a branded PDF progress report (stages, snags, payments, photos) to download or send by WhatsApp/email, and reports can go out automatically every week or month (Units tab, "Automatic reports").
 VOICE: the mic button turns speech into a message; "Voice chat" is hands-free: the user talks, you answer out loud, and they can say "yes, do it" to confirm your action cards. In voice chat keep answers short and spoken (no tables unless asked; say "I've put the details on screen").
 DAILY ALLOWANCES: besides monthly Sasa Credits, each company has a daily allowance of AI images, documents, uploads to the AI and voice messages (more on paid plans). Past it, extra use is paid from top-up credits, which can be bought instantly (M-Pesa or card) from the prompt that appears, so nobody has to wait for tomorrow.`;
 
@@ -7433,7 +7445,7 @@ app.post('/api/billing/verify', auth, async (req, res) => {
 });
 
 // Client accounts, sharing with clients, client jobs and Buildsasa site reporting.
-Object.assign(clientRouteDeps, { prisma, prismaBase, auth, currentWs, hasRole, CAN_SHARE_PORTAL, sendEmail, emailShell, button, paystackRequest, PAYSTACK_SECRET, isPlatformAdmin, portalPayload, companyPublic, APP_URL, freeAccessEmails: () => [...new Set([...FREE_ACCESS_EMAILS, ...PLATFORM_ADMIN_EMAILS, ...dbAdminEmails])] });
+Object.assign(clientRouteDeps, { unitIdsJson, prisma, prismaBase, auth, currentWs, hasRole, CAN_SHARE_PORTAL, sendEmail, emailShell, button, paystackRequest, PAYSTACK_SECRET, isPlatformAdmin, portalPayload, companyPublic, APP_URL, freeAccessEmails: () => [...new Set([...FREE_ACCESS_EMAILS, ...PLATFORM_ADMIN_EMAILS, ...dbAdminEmails])] });
 require('./client-routes')(app, clientRouteDeps);
 
 // Paystack webhook — activates on charge.success. (Signature checked when key is set.)

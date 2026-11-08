@@ -13,6 +13,7 @@ import api, { type InspectionDto } from "../../services/api";
 import jsPDF from "jspdf";
 import { ImageLightbox } from "./ImageLightbox";
 import { clientApi } from "./client/clientData";
+import { UnitPicker, parseUnitIds } from "./UnitPicker";
 
 
 const STATUS_COLOR: Record<string, string> = {
@@ -537,6 +538,13 @@ export default function Inspections({ role = "Contractor" }: { role?: Role }) {
               </div>
             </div>
 
+            <div className="mb-4">
+              <UnitPicker projectId={projectId} value={parseUnitIds((detailInspection as any).unitIds)} what="this inspection"
+                onChange={async (ids) => {
+                  setInspections((xs) => xs.map((x) => (x.id === detailInspection.id ? ({ ...x, unitIds: JSON.stringify(ids) } as any) : x)));
+                  try { await api.updateInspection(projectId, detailInspection.id, { unitIds: ids } as any); } catch (e: any) { toast.error(e?.message || "Couldn't save"); }
+                }} />
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[12px] mb-5">
               <div className="space-y-1">
                 <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Inspector / Requester</div>

@@ -5,7 +5,8 @@
 // Each buyer sees only their unit plus news about the whole project.
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Building2, Check, Copy, Link2, Loader2, Mail, MessageCircle, Plus, Search, Send, Trash2, UserPlus } from "lucide-react";
+import { Building2, Check, Copy, FileText, Link2, Loader2, Mail, MessageCircle, Plus, Search, Send, Trash2, UserPlus, Wrench } from "lucide-react";
+import { unitReportPdf } from "./unitPdf";
 import api, { type UnitDto } from "../../../services/api";
 import { MediaPicker } from "../client/ClientParts";
 import type { Media } from "../client/clientData";
@@ -29,7 +30,14 @@ export function UnitsFolder({ projectId, projectName, canShare }: { projectId: s
   const [status, setStatus] = useState("");
   const [block, setBlock] = useState("");
   const [sending, setSending] = useState(false);
-  const load = () => api.getUnits(projectId).then(setUnits).catch((e) => { setUnits([]); toast.error(e?.message || "Couldn't load units"); });
+  const load = () => api.getUnits(projectId).then((list) => { setUnits(list); setOpen((o) => (o ? list.find((x) => x.id === o.id) || o : o)); }).catch((e) => { setUnits([]); toast.error(e?.message || "Couldn't load units"); });
+  const [auto, setAuto] = useState<"weekly" | "monthly" | null>(null);
+  useEffect(() => { api.getUnitSettings(projectId).then((r) => setAuto(r.frequency)).catch(() => {}); }, [projectId]);
+  const changeAuto = async (v: string) => {
+    const f = (v || null) as "weekly" | "monthly" | null;
+    try { const r = await api.setUnitSettings(projectId, f); setAuto(r.frequency); toast.success(f ? `Every buyer with an email now gets their unit's report ${f === "weekly" ? "every week" : "every month"}.` : "Automatic reports switched off."); }
+    catch (e: any) { toast.error(e?.message || "Couldn't save."); }
+  };
   useEffect(() => { load(); }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const blocks = useMemo(() => [...new Set((units || []).map((u) => u.block || "").filter(Boolean))], [units]);
@@ -70,6 +78,13 @@ export function UnitsFolder({ projectId, projectName, canShare }: { projectId: s
           </div>
           <Panel title="Units" subtitle="Tap a unit to tick its stages, add the buyer, post photos for that unit and send its report."
             action={<div className="flex flex-wrap gap-2">
+              {canShare && (
+                <select aria-label="Automatic reports" value={auto || ""} onChange={(e) => changeAuto(e.target.value)} className={`${input} w-auto`} title="Email every buyer their own unit's report automatically">
+                  <option value="">Automatic reports: off</option>
+                  <option value="weekly">Automatic reports: weekly</option>
+                  <option value="monthly">Automatic reports: monthly</option>
+                </select>
+              )}
               {canShare && <button className={btnGhost} onClick={reportAll} disabled={sending}>{sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Send reports to all buyers</button>}
               <button className={btnPrimary} onClick={() => setAdding(true)}><Plus className="w-4 h-4" /> Add units</button>
             </div>}>
@@ -90,6 +105,7 @@ export function UnitsFolder({ projectId, projectName, canShare }: { projectId: s
                     <span className={`ml-auto text-[10.5px] px-1.5 py-0.5 rounded border ${statusOf(u.status).tone}`}>{statusOf(u.status).label}</span>
                   </div>
                   <div className="flex items-center gap-2 mt-2"><Bar pct={u.progress} tone={u.progress >= 100 ? "good" : "brand"} className="h-1.5 flex-1" /><span className="text-[11.5px] text-[#C2CAD6] tabular-nums w-9 text-right">{u.progress}%</span></div>
+                  {!!u.openSnags && <div className="text-[11px] text-[#FBBF24] mt-1.5 inline-flex items-center gap-1"><Wrench className="w-3 h-3" /> {u.openSnags} open snag{u.openSnags === 1 ? "" : "s"}</div>}
                   <div className="text-[11.5px] text-[#8A95A5] mt-1.5 truncate">{u.clientName ? `Buyer: ${u.clientName}` : "No buyer yet"}{u.link ? " · link shared" : ""}{u.updates ? ` · ${u.updates} update${u.updates === 1 ? "" : "s"}` : ""}</div>
                 </button>
               ))}
@@ -99,7 +115,7 @@ export function UnitsFolder({ projectId, projectName, canShare }: { projectId: s
         </>
       )}
       {adding && <AddUnits projectId={projectId} onClose={() => setAdding(false)} onAdded={() => { setAdding(false); load(); }} />}
-      {open && <UnitDrawer projectId={projectId} projectName={projectName} unit={open} canShare={canShare} onChange={replace} onClose={() => setOpen(null)} onDeleted={() => { setOpen(null); load(); }} />}
+      {open && <UnitDrawer projectId={projectId} projectName={projectName} unit={open} canShare={canShare} onChange={replace} onReload={load} onClose={() => setOpen(null)} onDeleted={() => { setOpen(null); load(); }} />}
     </div>
   );
 }
@@ -160,7 +176,45 @@ function AddUnits({ projectId, onClose, onAdded }: { projectId: string; onClose:
   );
 }
 
-function UnitDrawer({ projectId, projectName, unit, canShare, onChange, onClose, onDeleted }: { projectId: string; projectName: string; unit: UnitDto; canShare: boolean; onChange: (u: UnitDto) => void; onClose: () => void; onDeleted: () => void }) {
+function UnitDrawer({ projectId, projectName, unit, canShare, onChange, onReload, onClose, onDeleted }: { projectId: string; projectName: string; unit: UnitDto; canShare: boolean; onChange: (u: UnitDto) => void; onReload: () => void; onClose: () => void; onDeleted: () => void }) {
+  // Snags in this unit: fixed before handover, and seen by the buyer.
+  const [snags, setSnags] = useState<any[] | null>(null);
+  const [sn, setSn] = useState({ title: "", area: "" });
+  const loadSnags = () => api.listPunch({ projectId, unitId: unit.id }).then(setSnags).catch(() => setSnags([]));
+  useEffect(() => { loadSnags(); }, [unit.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const isOpen = (s: any) => !["resolved", "closed", "rejected"].includes(s.status);
+  const addSnag = async () => {
+    if (!sn.title.trim()) return toast.error("Describe the snag.");
+    try { await api.createPunchItem({ projectId, unitId: unit.id, title: sn.title.trim(), desc: sn.title.trim(), area: sn.area || unit.code, status: "open", priority: "medium", category: "other" }); setSn({ title: "", area: "" }); await loadSnags(); onReload(); }
+    catch (e: any) { toast.error(e?.message || "Couldn't add the snag."); }
+  };
+  const fixSnag = async (s: any) => {
+    try { await api.setPunchStatus(s.id, isOpen(s) ? "resolved" : "open", "manager"); await loadSnags(); onReload(); }
+    catch (e: any) { toast.error(e?.message || "Couldn't update the snag."); }
+  };
+  // The PDF report: made here, uploaded, then sent as a link.
+  const [pdf, setPdf] = useState<{ url?: string; busy: boolean }>({ busy: false });
+  const makePdf = async () => {
+    setPdf({ busy: true });
+    try {
+      const u = unit.link ? unit : await api.shareUnit(projectId, unit.id);
+      if (!unit.link) onChange(u);
+      const { blob, fileName } = await unitReportPdf(projectId, projectName, u);
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = fileName; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      let url: string | undefined;
+      if (canShare) { const up = await api.uploadFiles([new File([blob], fileName, { type: "application/pdf" })]); url = up.urls[0]; }
+      setPdf({ url, busy: false });
+      toast.success(url ? "PDF downloaded. Send it to the buyer below." : "PDF downloaded.");
+    } catch (e: any) { setPdf({ busy: false }); toast.error(e?.message || "Couldn't make the PDF."); }
+  };
+  const sendPdf = async (via: "email" | "whatsapp") => {
+    const w = via === "whatsapp" ? window.open("about:blank", "_blank") : null;
+    try {
+      const r = await api.unitReport(projectId, unit.id, via === "email", pdf.url);
+      if (w) w.location.href = wa(unit.clientPhone, r.text);
+      if (via === "email") toast.success(r.emailed.length ? `PDF report emailed to ${r.emailed.join(", ")}` : "No buyer email yet. Send it on WhatsApp.");
+    } catch (e: any) { w?.close(); toast.error(e?.message || "Couldn't send."); }
+  };
   const [f, setF] = useState({ code: unit.code, type: unit.type || "", clientName: unit.clientName || "", clientPhone: unit.clientPhone || "", clientEmail: unit.clientEmail || "", priceKES: unit.priceKES ?? "", paidKES: unit.paidKES ?? "", notes: unit.notes || "" });
   const [saving, setSaving] = useState(false);
   const [up, setUp] = useState({ title: "", body: "" });
@@ -230,6 +284,24 @@ function UnitDrawer({ projectId, projectName, unit, canShare, onChange, onClose,
           </div>
           <div className="flex gap-2 mt-2"><input className={input} value={newStage} onChange={(e) => setNewStage(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addStage()} placeholder="Add a stage" aria-label="Add a stage" /><button className={btnGhost} onClick={addStage}><Plus className="w-4 h-4" /></button></div>
 
+          <div className="mt-5 text-[12px] text-white mb-2 flex items-center gap-2"><Wrench className="w-3.5 h-3.5 text-[#FBBF24]" /> Snags
+            <span className="text-[#5B6675]">{snags ? `${snags.filter(isOpen).length} open · the buyer sees these` : ""}</span></div>
+          <div className="space-y-1">
+            {(snags || []).map((s) => (
+              <div key={s.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 bg-[#0A0E14] border border-[#222A35]">
+                <input type="checkbox" checked={!isOpen(s)} onChange={() => fixSnag(s)} aria-label={`Fixed: ${s.title || s.desc}`} className="accent-[#22C55E] w-4 h-4" />
+                <span className={`text-[12.5px] flex-1 min-w-0 truncate ${isOpen(s) ? "text-[#D5DBE3]" : "text-[#8A95A5] line-through"}`}>{s.title || s.desc}{s.area && s.area !== unit.code && s.area !== "—" ? <span className="text-[#5B6675]"> · {s.area}</span> : null}</span>
+                <span className="text-[10.5px] text-[#5B6675] capitalize">{String(s.status).replace(/_/g, " ")}</span>
+              </div>
+            ))}
+            {snags && !snags.length && <div className="text-[11.5px] text-[#5B6675]">No snags. Add any found at the walk-through; the unit can't be marked ready while any are open.</div>}
+          </div>
+          <div className="grid grid-cols-[1fr_110px_auto] gap-2 mt-2">
+            <input className={input} value={sn.title} onChange={(e) => setSn((x) => ({ ...x, title: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && addSnag()} placeholder="e.g. Cracked tile by the shower" aria-label="New snag" />
+            <input className={input} value={sn.area} onChange={(e) => setSn((x) => ({ ...x, area: e.target.value }))} placeholder="Room" aria-label="Snag room" />
+            <button className={btnGhost} onClick={addSnag} aria-label="Add snag"><Plus className="w-4 h-4" /></button>
+          </div>
+
           <div className="mt-5 text-[12px] text-white mb-2">Post an update for this unit only</div>
           <input className={input} value={up.title} onChange={(e) => setUp((x) => ({ ...x, title: e.target.value }))} placeholder="e.g. Kitchen tiles done" aria-label="Update title" />
           <textarea className={`${textarea} mt-2`} value={up.body} onChange={(e) => setUp((x) => ({ ...x, body: e.target.value }))} placeholder="Details (optional)" aria-label="Update details" />
@@ -259,11 +331,18 @@ function UnitDrawer({ projectId, projectName, unit, canShare, onChange, onClose,
               <div className="text-[12px] text-white">Keep the buyer informed</div>
               <div className="text-[11.5px] text-[#8A95A5] mt-0.5 mb-3">They see this unit's stages, photos and invoices plus news about the whole project, never other buyers' units.</div>
               <div className="flex flex-wrap gap-2">
+                <button className={btnGhost} onClick={makePdf} disabled={pdf.busy}>{pdf.busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />} PDF report</button>
                 <button className={btnGhost} onClick={() => report("whatsapp")}><MessageCircle className="w-4 h-4" /> WhatsApp report</button>
                 <button className={btnGhost} onClick={() => report("email")}><Mail className="w-4 h-4" /> Email report</button>
                 <button className={btnGhost} onClick={copyLink}>{unit.link ? <Copy className="w-4 h-4" /> : <Link2 className="w-4 h-4" />} {unit.link ? "Copy link" : "Make private link"}</button>
                 <button className={btnGhost} onClick={invite} disabled={!f.clientEmail}><UserPlus className="w-4 h-4" /> Invite to a client account</button>
               </div>
+              {pdf.url && (
+                <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[12px] text-[#C2CAD6]">PDF ready:
+                  <button className="text-[#25D366] inline-flex items-center gap-1" onClick={() => sendPdf("whatsapp")}><MessageCircle className="w-3.5 h-3.5" /> Send on WhatsApp</button>
+                  <button className="text-[#FF8A47] inline-flex items-center gap-1" onClick={() => sendPdf("email")}><Mail className="w-3.5 h-3.5" /> Email it</button>
+                </div>
+              )}
               {(unit.accounts?.length || unit.lastReportAt) ? <div className="text-[11px] text-[#5B6675] mt-2.5">{unit.accounts?.length ? `Account: ${unit.accounts.map((a) => `${a.email}${a.joined ? "" : " (invited)"}`).join(", ")}. ` : ""}{unit.lastReportAt ? `Last report ${new Date(unit.lastReportAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}.` : ""}</div> : null}
             </div>
           )}

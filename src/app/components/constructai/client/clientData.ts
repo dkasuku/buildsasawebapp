@@ -45,7 +45,7 @@ export type ClientUpdate = { id: string; unitId?: string | null; stage: string; 
 /** 360° tour: scenes are equirectangular photos; hotspots (radians) jump to another scene. */
 export type TourHotspot = { id: string; yaw: number; pitch: number; target: string; label?: string | null };
 export type TourScene = { id: string; name: string; url: string; yaw?: number; hotspots: TourHotspot[] };
-export type VirtualTour = { id: string; title: string; description?: string | null; stage: string; scenes: TourScene[]; createdBy?: string | null; sharedAt?: string | null; createdAt?: string };
+export type VirtualTour = { id: string; unitIds?: string[]; title: string; description?: string | null; stage: string; scenes: TourScene[]; createdBy?: string | null; sharedAt?: string | null; createdAt?: string };
 export type ClientComment = { id: string; targetType: string; targetId: string; authorType: "client" | "team"; authorName: string; body?: string | null; media: Media[]; createdAt: string };
 export type ClientQuote = { id: string; token: string; quoteNumber: string; title: string; total: number; status: string; validUntil?: string | null; sentAt?: string | null; company: string; comments: ClientComment[] };
 export type ClientMessage = { id: string; senderType: "client" | "team" | "buildsasa"; senderName: string; body?: string | null; media: Media[]; createdAt: string };

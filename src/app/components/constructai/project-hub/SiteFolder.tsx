@@ -25,6 +25,7 @@ import { MultiAssign } from "../MultiAssign";
 import { DocumentFolder } from "./DocumentFolder";
 import { Bar, Empty, Field, Kpi, Modal, Panel, Pill, btnGhost, btnPrimary, fmtDate, input, statusLabel, statusTone, textarea } from "./shared";
 import { Tabs } from "../PageShell";
+import { UnitSelect } from "../UnitPicker";
 
 type SubTab = "diary" | "progress" | "defects" | "safety";
 
@@ -250,6 +251,7 @@ function DefectForm({ projectId, onClose, onDone }: { projectId: string; onClose
   const [photos, setPhotos] = useState<string[]>([]);
   const [assignees, setAssignees] = useState<string[]>([]);
   const [f, setF] = useState({ title: "", desc: "", area: "", trade: "", priority: "medium", dueDate: "" });
+  const [unitId, setUnitId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF((x) => ({ ...x, [k]: e.target.value }));
   const addPhotos = async () => {
@@ -262,7 +264,7 @@ function DefectForm({ projectId, onClose, onDone }: { projectId: string; onClose
     if (!f.title.trim()) return toast.error("Describe the defect");
     setBusy(true);
     try {
-      await api.createPunchItem({ projectId, title: f.title.trim(), desc: f.desc || f.title.trim(), area: f.area || "—", trade: f.trade || undefined, assignees, priority: f.priority, dueDate: f.dueDate || undefined, photos, status: "open", category: "other" });
+      await api.createPunchItem({ projectId, title: f.title.trim(), desc: f.desc || f.title.trim(), area: f.area || "—", trade: f.trade || undefined, assignees, priority: f.priority, dueDate: f.dueDate || undefined, photos, status: "open", category: "other", unitId });
       toast.success("Defect logged");
       await onDone();
     } catch (e: any) { toast.error(e?.message || "Could not save"); }
@@ -273,6 +275,7 @@ function DefectForm({ projectId, onClose, onDone }: { projectId: string; onClose
       <div className="space-y-3">
         <Field label="Defect"><input autoFocus value={f.title} onChange={set("title")} placeholder="Cracked tiles at lobby entrance" className={input} /></Field>
         <Field label="Details"><textarea value={f.desc} onChange={set("desc")} placeholder="What is wrong and what is required to put it right." className={textarea} /></Field>
+        <UnitSelect projectId={projectId} value={unitId} onChange={setUnitId} />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Location / area"><input value={f.area} onChange={set("area")} placeholder="Ground floor lobby" className={input} /></Field>
           <Field label="Responsible trade"><input value={f.trade} onChange={set("trade")} placeholder="Tiling subcontractor" className={input} /></Field>

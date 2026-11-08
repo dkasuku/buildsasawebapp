@@ -19,6 +19,7 @@ import { UploadTray } from "../UploadTray";
 import { ImageLightbox } from "../ImageLightbox";
 import { MapPicker } from "../MapPicker";
 import { currentPosition, getForecast, logWeatherFor, describeWeather } from "../../../services/weather";
+import { UnitPicker, parseUnitIds } from "../UnitPicker";
 
 export const LOG_WEATHER = ["Clear", "Cloudy", "Light rain", "Heavy rain", "Windy", "Hot", "Cold"];
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -55,6 +56,7 @@ export function DailyLogEditor({ projectId, projectLatLng, log, onClose, onSaved
   const [photos, setPhotos] = useState<string[]>(parseUrls(log?.photos));
   const [videos, setVideos] = useState<string[]>(parseUrls(log?.videos));
   const [clientVisible, setClientVisible] = useState(log?.clientVisible ?? true);
+  const [unitIds, setUnitIds] = useState<string[]>(parseUnitIds((log as any)?.unitIds));
   const [more, setMore] = useState(!!(log?.labour || log?.plant || log?.materials));
   const [weatherNote, setWeatherNote] = useState("");
   const [fetchingWeather, setFetchingWeather] = useState(false);
@@ -101,7 +103,7 @@ export function DailyLogEditor({ projectId, projectLatLng, log, onClose, onSaved
     if (!f.notes.trim()) return toast.error("Write what was done today");
     if (uploader.busy) return toast.error("Wait for the uploads to finish");
     setBusy(true);
-    const payload = { ...f, crewId: f.crewId || null, headcount: Number(f.headcount) || 0, weather: f.weather || null, photos, videos, lat: latLng?.lat ?? null, lng: latLng?.lng ?? null, placeName: placeName || null, clientVisible } as any;
+    const payload = { ...f, crewId: f.crewId || null, headcount: Number(f.headcount) || 0, weather: f.weather || null, photos, videos, lat: latLng?.lat ?? null, lng: latLng?.lng ?? null, placeName: placeName || null, clientVisible, unitIds } as any;
     try {
       const row = editing ? await api.updateDailyLog(projectId, log!.id, payload) : await api.createDailyLog(projectId, payload);
       toast.success(editing ? "Entry updated" : "Daily log saved");
@@ -199,6 +201,7 @@ export function DailyLogEditor({ projectId, projectLatLng, log, onClose, onSaved
               <span className="block text-[10.5px] text-[#5B6675]">Untick for anything internal, like an accident or a supplier problem. The written notes are never shown to the client.</span>
             </span>
           </label>
+          {clientVisible && <UnitPicker projectId={projectId} value={unitIds} onChange={setUnitIds} what="this day's photos" />}
         </div>
 
         <div className="flex justify-end gap-2 px-5 py-4 border-t border-[#222A35]">

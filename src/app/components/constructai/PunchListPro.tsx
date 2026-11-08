@@ -21,6 +21,7 @@ import { MultiAssign } from "./MultiAssign";
 import api from "../../services/api";
 import { ImageLightbox } from "./ImageLightbox";
 import { warnSaveFailed } from "./saveFeedback";
+import { UnitBadge, UnitSelect } from "./UnitPicker";
 
 /* ─────────────────────────── Types ─────────────────────────── */
 export type PunchStatus = "open" | "in_progress" | "ready_for_review" | "resolved" | "closed" | "rejected";
@@ -212,7 +213,7 @@ export default function PunchListPro({ role }: { role: Role }) {
                 return (
                   <tr key={p.id} className="border-b border-[#222A35] hover:bg-[#161C24] cursor-pointer" onClick={() => setDetailId(p.id)}>
                     <td className="px-3 py-2.5" onClick={(e) => { e.stopPropagation(); toggleSel(p.id); }}>{selected.has(p.id) ? <CheckSquare className="w-4 h-4 text-[#FF6B1A]" /> : <Square className="w-4 h-4 text-[#5B6675]" />}</td>
-                    <td className="px-3 py-2.5 font-mono text-[#8A95A5]">{p.code}</td>
+                    <td className="px-3 py-2.5 font-mono text-[#8A95A5]">{p.code} {(p as any).unitId && <UnitBadge projectId={p.projectId} id={(p as any).unitId} />}</td>
                     <td className="px-3 py-2.5 text-white max-w-[220px] truncate">{p.title || p.desc}</td>
                     <td className="px-3 py-2.5 text-[#8A95A5]">{p.location || p.area || "—"}</td>
                     <td className="px-3 py-2.5 text-[#8A95A5]">{p.trade || "—"}</td>
@@ -240,7 +241,7 @@ export default function PunchListPro({ role }: { role: Role }) {
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <button onClick={(e) => { e.stopPropagation(); toggleSel(p.id); }} className="shrink-0">{selected.has(p.id) ? <CheckSquare className="w-4 h-4 text-[#FF6B1A]" /> : <Square className="w-4 h-4 text-[#5B6675]" />}</button>
-                  <span className="font-mono text-[11px] text-[#8A95A5] truncate">{p.code}</span>
+                  <span className="font-mono text-[11px] text-[#8A95A5] truncate">{p.code}</span>{(p as any).unitId && <UnitBadge projectId={p.projectId} id={(p as any).unitId} />}
                 </div>
                 <span className={`text-[10px] px-2 py-0.5 rounded-full border shrink-0 ${M.cls}`}>{M.label}</span>
               </div>
@@ -298,6 +299,7 @@ export function PunchForm({ role, projects, initial, onClose, onSaved }: { role:
     reference: initial.reference || "", costCode: initial.costCode || "", costImpact: initial.costImpact || "tbd",
     scheduleImpact: initial.scheduleImpact || "tbd", isPrivate: initial.isPrivate || false,
     linkedDrawingId: initial.linkedDrawingId || undefined, drawingCoordinates: initial.drawingCoordinates || undefined,
+    unitId: (initial as any).unitId || null,
   });
   const set = (k: string, v: any) => setF((p: any) => ({ ...p, [k]: v }));
   const [saving, setSaving] = useState(false);
@@ -334,6 +336,7 @@ export function PunchForm({ role, projects, initial, onClose, onSaved }: { role:
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Field label="Project"><select value={f.projectId} onChange={(e) => set("projectId", e.target.value)} className={inputCls}>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
             <Field label="Location"><input value={f.location} onChange={(e) => set("location", e.target.value)} placeholder="Bldg / Level / Room" className={inputCls} /></Field>
+            <UnitSelect projectId={f.projectId} value={f.unitId} onChange={(v) => set("unitId", v)} />
             <Field label="Type / Category"><select value={f.category} onChange={(e) => set("category", e.target.value)} className={inputCls}>{CATEGORIES.map((c) => <option key={c} value={c} className="capitalize">{c}</option>)}</select></Field>
             <Field label="Trade"><select value={f.trade} onChange={(e) => set("trade", e.target.value)} className={inputCls}>{TRADES.map((t) => <option key={t}>{t}</option>)}</select></Field>
             <Field label="Priority"><select value={f.priority} onChange={(e) => set("priority", e.target.value)} className={inputCls}><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></Field>

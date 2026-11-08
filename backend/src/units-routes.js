@@ -11,6 +11,7 @@ const APARTMENT_STAGES = ['Blockwork & partitions', 'Electrical first fix', 'Plu
 const HOUSE_STAGES = ['Foundation', 'Walling', 'Roofing', 'Plumbing & electrical', 'Plaster', 'Floors & tiling', 'Doors & windows', 'Kitchen & wardrobes', 'Painting', 'External works', 'Snagging', 'Handover'];
 const UNIT_STATUS = ['not_started', 'in_progress', 'snagging', 'ready', 'handed_over'];
 const STATUS_LABEL = { not_started: 'Not started', in_progress: 'In progress', snagging: 'Snagging', ready: 'Ready for handover', handed_over: 'Handed over' };
+const OPEN_SNAG = { notIn: ['resolved', 'closed', 'rejected'] };
 const isHouse = (type) => /house|villa|bungalow|maisonette|town ?house|mansion|cottage/i.test(type || '');
 const templateFor = (type) => (isHouse(type) ? HOUSE_STAGES : APARTMENT_STAGES).map((name) => ({ name, done: false }));
 
@@ -51,8 +52,10 @@ module.exports = function unitRoutes(app, h) {
     if (u.shareToken) return u;
     return prisma.projectUnit.update({ where: { id: u.id }, data: { shareToken: crypto.randomBytes(12).toString('base64url') } });
   }
+  const openSnags = (u) => prismaBase.punchItem.count({ where: { unitId: u.id, status: OPEN_SNAG } });
   /** A short progress report for one unit, as WhatsApp text and as an email. */
-  async function reportFor(p, u) {
+  async function reportFor(p, u, pdfUrl) {
+    const snags = await openSnags(u);
     const stages = parse(u.stages);
     const done = stages.filter((s) => s.done).map((s) => s.name);
     const next = stages.filter((s) => !s.done).slice(0, 2).map((s) => s.name);
@@ -65,12 +68,15 @@ module.exports = function unitRoutes(app, h) {
       done.length ? `Done: ${done.slice(-4).join(', ')}.` : null,
       next.length ? `Next: ${next.join(', ')}.` : null,
       latest ? `Latest news: ${latest.title}.` : null,
+      snags ? `Snags being fixed before handover: ${snags}.` : null,
+      pdfUrl ? `PDF report: ${pdfUrl}` : null,
       link ? `See photos and every update here: ${link}` : null,
       company ? `- ${company.name}` : null,
     ].filter(Boolean);
-    const html = p14(lines.slice(0, -2).filter((l) => !l.startsWith('See photos')).join('<br/>'))
+    const html = p14(lines.slice(0, -2).filter((l) => !l.startsWith('See photos') && !l.startsWith('PDF report')).join('<br/>'))
       + `<div style="margin:14px 0;height:10px;border-radius:6px;background:#EEE"><div style="height:10px;width:${u.progress}%;border-radius:6px;background:#FF6B1A"></div></div>`
-      + (link ? button(link, `Open unit ${u.code}`) : '');
+      + (link ? button(link, `Open unit ${u.code}`) : '')
+      + (pdfUrl ? `<p style="font-size:13px"><a href="${pdfUrl}">Download the PDF report</a></p>` : '');
     return { text: lines.join('\n'), html, link };
   }
 
@@ -84,10 +90,12 @@ module.exports = function unitRoutes(app, h) {
         prismaBase.projectClient.findMany({ where: { projectId: p.id, unitId: { not: null } }, select: { unitId: true, email: true, userId: true } }),
         prismaBase.clientUpdate.groupBy({ by: ['unitId'], where: { projectId: p.id, unitId: { not: null } }, _count: { _all: true } }).catch(() => []),
       ]);
+      const snagRows = await prismaBase.punchItem.groupBy({ by: ['unitId'], where: { projectId: p.id, unitId: { not: null }, status: OPEN_SNAG }, _count: { _all: true } }).catch(() => []);
+      const sn = Object.fromEntries(snagRows.map((c) => [c.unitId, c._count._all]));
       const n = Object.fromEntries(counts.map((c) => [c.unitId, c._count._all]));
       // Natural order: A-2 before A-10.
       units.sort((a, b) => String(a.block || '').localeCompare(String(b.block || ''), undefined, { numeric: true }) || a.code.localeCompare(b.code, undefined, { numeric: true }));
-      res.json(units.map((u) => dto(u, { updates: n[u.id] || 0, accounts: links.filter((l) => l.unitId === u.id).map((l) => ({ email: l.email, joined: !!l.userId })) })));
+      res.json(units.map((u) => dto(u, { openSnags: sn[u.id] || 0, updates: n[u.id] || 0, accounts: links.filter((l) => l.unitId === u.id).map((l) => ({ email: l.email, joined: !!l.userId })) })));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -161,8 +169,13 @@ module.exports = function unitRoutes(app, h) {
       data.stages = JSON.stringify(stages);
       data.progress = b.progress !== undefined && !stages.length ? Math.min(100, Math.max(0, parseInt(b.progress, 10) || 0)) : pct(stages);
       data.status = autoStatus(u.status, data.progress, b.status);
+      if (['ready', 'handed_over'].includes(data.status)) {
+        const open = await openSnags(u);
+        if (open && b.status && ['ready', 'handed_over'].includes(b.status)) return res.status(409).json({ error: `Unit ${u.code} still has ${open} open snag${open === 1 ? '' : 's'}. Close ${open === 1 ? 'it' : 'them'} before marking it ${b.status === 'ready' ? 'ready' : 'handed over'}.`, openSnags: open });
+        if (open) data.status = 'snagging';
+      }
       const row = await prisma.projectUnit.update({ where: { id: u.id }, data });
-      res.json(dto(row));
+      res.json(dto(row, { openSnags: await openSnags(row) }));
     } catch (e) {
       if (e.code === 'P2002') return res.status(409).json({ error: 'Another unit already has that number.' });
       res.status(500).json({ error: e.message });
@@ -218,7 +231,8 @@ module.exports = function unitRoutes(app, h) {
       const found = await ownUnit(req.params.projectId, req.params.id);
       if (!found.u) return res.status(404).json({ error: 'Unit not found' });
       const u = await ensureToken(found.u);
-      const r = await reportFor(found.p, u);
+      const pdfUrl = /^https?:\/\/\S+$/i.test(String(req.body?.pdfUrl || '')) ? String(req.body.pdfUrl) : null;
+      const r = await reportFor(found.p, u, pdfUrl);
       const to = await unitRecipients(u);
       if (req.body?.email !== false) for (const e of to) notify(e, `Progress on your unit ${u.code}: ${u.progress}%`, r.html);
       await prisma.projectUnit.update({ where: { id: u.id }, data: { lastReportAt: new Date() } });
@@ -277,6 +291,14 @@ module.exports = function unitRoutes(app, h) {
       if (!u) return res.status(404).json({ error: 'This unit link is no longer active. Please ask your developer for a new one.' });
       const p = await prismaBase.project.findUnique({ where: { id: u.projectId } });
       if (!p) return res.status(404).json({ error: 'This project is no longer available.' });
+      const [logs, snags] = await Promise.all([
+        prismaBase.dailyLog.findMany({ where: { projectId: p.id, clientVisible: true }, orderBy: { date: 'desc' }, take: 40 }),
+        prismaBase.punchItem.findMany({ where: { unitId: u.id, isPrivate: { not: true } }, orderBy: { createdAt: 'desc' }, take: 100 }),
+      ]);
+      const urls = (raw) => parse(raw).filter((x) => typeof x === 'string' && /^https?:\/\//i.test(x));
+      const photos = logs.filter((l) => { const a = parse(l.unitIds); return !a.length || a.includes(u.id); })
+        .map((l) => ({ date: l.date, photos: urls(l.photos), videos: urls(l.videos), scope: parse(l.unitIds).length ? 'unit' : 'project' }))
+        .filter((l) => l.photos.length || l.videos.length).slice(0, 20);
       const [ws, updates, invoices, all] = await Promise.all([
         prismaBase.workspace.findUnique({ where: { id: p.workspaceId } }),
         prismaBase.clientUpdate.findMany({ where: { projectId: p.id, OR: [{ unitId: u.id }, { unitId: null }] }, orderBy: { createdAt: 'desc' }, take: 120 }),
@@ -289,12 +311,62 @@ module.exports = function unitRoutes(app, h) {
         project: { name: p.name, city: p.city, status: p.status, progress: building, targetEndDate: p.targetEndDate, images: parse(p.images).filter((x) => typeof x === 'string' && /^https?:/i.test(x)).slice(0, 6) },
         unit: { code: u.code, block: u.block, floor: u.floor, type: u.type, sizeSqm: u.sizeSqm, status: u.status, statusLabel: STATUS_LABEL[u.status] || u.status, progress: u.progress, stages: parse(u.stages), clientName: u.clientName, priceKES: u.priceKES, paidKES: u.paidKES, updatedAt: u.updatedAt },
         updates: updates.map((x) => ({ ...updateDto(x), scope: x.unitId ? 'unit' : 'project' })),
+        photos,
+        snags: snags.map((x) => ({ code: x.code, title: x.title || x.desc, area: x.area, status: x.status, photos: urls(x.photos) })),
         invoices: invoices.map((i) => ({ invoiceNumber: i.invoiceNumber, amount: i.amount, paidAmount: i.paidAmount || 0, status: i.status, issueDate: i.issueDate, dueDate: i.dueDate })),
       });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  return { unitRecipients, unitLink, kes };
+  app.get('/api/projects/:projectId/units-settings', auth, async (req, res) => {
+    const p = await ownProject(req.params.projectId);
+    if (!p) return res.status(404).json({ error: 'Project not found' });
+    res.json({ frequency: p.unitReportFrequency || null, lastAt: p.unitReportLastAt });
+  });
+  app.put('/api/projects/:projectId/units-settings', auth, async (req, res) => {
+    try {
+      if (!hasRole(req, CAN_SHARE_PORTAL)) return res.status(403).json({ error: 'Your role cannot change client reports.' });
+      const p = await ownProject(req.params.projectId);
+      if (!p) return res.status(404).json({ error: 'Project not found' });
+      const f = ['weekly', 'monthly'].includes(req.body?.frequency) ? req.body.frequency : null;
+      // The first automatic report goes one period from now ("Send reports" sends one today).
+      const row = await prismaBase.project.update({ where: { id: p.id }, data: { unitReportFrequency: f, unitReportLastAt: f ? (p.unitReportLastAt || new Date()) : p.unitReportLastAt } });
+      res.json({ frequency: row.unitReportFrequency, lastAt: row.unitReportLastAt });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  /** Email every unit client of every project that is due a weekly or monthly report. */
+  async function runAutoReports() {
+    const nairobiHour = (new Date().getUTCHours() + 3) % 24;
+    if (nairobiHour < 8 || nairobiHour > 17) return;  // in working hours only
+    const now = Date.now();
+    const projects = await prismaBase.project.findMany({ where: { unitReportFrequency: { in: ['weekly', 'monthly'] } } });
+    for (const p of projects) {
+      const days = p.unitReportFrequency === 'weekly' ? 7 : 30;
+      if (p.unitReportLastAt && now - new Date(p.unitReportLastAt).getTime() < days * 864e5 - 3600e3) continue;
+      // Claim the run first, so two servers never send twice.
+      const claimed = await prismaBase.project.updateMany({ where: { id: p.id, unitReportLastAt: p.unitReportLastAt }, data: { unitReportLastAt: new Date() } });
+      if (!claimed.count) continue;
+      const list = await prismaBase.projectUnit.findMany({ where: { projectId: p.id } });
+      let sent = 0;
+      for (let u of list) {
+        const to = await unitRecipients(u);
+        if (!to.length) continue;
+        if (!u.shareToken) u = await prismaBase.projectUnit.update({ where: { id: u.id }, data: { shareToken: crypto.randomBytes(12).toString('base64url') } });
+        const r = await reportFor(p, u);
+        for (const e of to) notify(e, `${p.unitReportFrequency === 'weekly' ? 'Weekly' : 'Monthly'} progress on your unit ${u.code}: ${u.progress}%`, r.html);
+        await prismaBase.projectUnit.update({ where: { id: u.id }, data: { lastReportAt: new Date() } });
+        sent++;
+      }
+      console.log(`[unit-reports] ${p.name}: ${sent} report(s) sent`);
+    }
+  }
+  const tick = () => runAutoReports().catch((e) => console.error('[unit-reports]', e.message));
+  setInterval(tick, 60 * 60 * 1000).unref();
+  setTimeout(tick, 60 * 1000).unref();  // soon after a deploy too, so a restart never skips a due report
+  h.runUnitAutoReports = runAutoReports;
+
+  return { unitRecipients, unitLink, kes, runAutoReports };
 };
 module.exports.APARTMENT_STAGES = APARTMENT_STAGES;
 module.exports.HOUSE_STAGES = HOUSE_STAGES;

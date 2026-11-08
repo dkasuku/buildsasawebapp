@@ -12,6 +12,7 @@ import { ArrowLeft, Compass, Crosshair, Eye, EyeOff, Loader2, MapPin, Plus, Send
 import api from "../../../services/api";
 import { MAX_DOCUMENT_MB } from "../../../services/uploadPolicy";
 import { clientApi, STAGES, stageLabel, when, type TourScene, type VirtualTour } from "./clientData";
+import { UnitPicker } from "../UnitPicker";
 
 const input = "w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-3 text-[12.5px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]/60";
 const card = "rounded-xl border border-[#222A35] bg-[#11161D]";
@@ -245,6 +246,10 @@ function TourEditor({ projectId, tour, onChange, onBack, onShare, onDelete, hasC
         </div>
       </div>
 
+      <UnitPicker projectId={projectId} value={tour.unitIds || []} what="this tour" onChange={async (unitIds) => {
+        onChange({ ...tour, unitIds });
+        try { onChange(await clientApi.saveTour(projectId, tour.id, { unitIds })); } catch (e: any) { toast.error(e?.message || "Couldn't save"); }
+      }} />
       <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={(e) => upload(e.target.files)} />
       {!scene ? (
         <div className="rounded-xl border border-dashed border-[#2C3744] bg-[#11161D] p-8 text-center">
