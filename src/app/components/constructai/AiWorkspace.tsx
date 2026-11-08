@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import {
   ArrowUp, ArrowUpRight, Calculator, CalendarRange, ClipboardCheck, ClipboardList, Download, HardHat, History,
   Loader2, MessageSquare, Palette, PanelLeftClose, PanelLeftOpen, Pencil, Search, Sparkles, Square, SquarePen,
-  Trash2, Wallet, X, ImagePlus, Paperclip, Mic, Zap, Receipt, PiggyBank, Package, Users, Truck, DraftingCompass, AlertTriangle, Building2, CheckCircle2, FileText, ListChecks, ShieldAlert, Camera, FileSpreadsheet,
+  Trash2, Wallet, X, ChevronDown, ImagePlus, Paperclip, Mic, Zap, Receipt, PiggyBank, Package, Users, Truck, DraftingCompass, AlertTriangle, Building2, CheckCircle2, FileText, ListChecks, ShieldAlert, Camera, FileSpreadsheet,
 } from "lucide-react";
 import api, { type AiBriefItem } from "../../services/api";
 import { AnswerTools, SaveCard } from "./AiTools";
@@ -146,6 +146,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
   };
   const [showHistory, setShowHistory] = useState(() => { try { return localStorage.getItem("buildsasa-ai-history") !== "0" && window.innerWidth >= 1024; } catch { return true; } });
   const [find, setFind] = useState("");
+  const [catMenu, setCatMenu] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -337,11 +338,27 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
                 <input value={find} onChange={(e) => setFind(e.target.value)} placeholder="Search chats" className="w-full h-8 rounded-md bg-[#0A0E14] border border-[#222A35] pl-8 pr-2 text-[12.5px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]/50" />
               </div>
             </div>
-            <div className="px-2 pb-1 text-[10.5px] uppercase tracking-wider text-[#5B6675] px-4 pt-1">Categories</div>
-            <div className="px-2 pb-2 space-y-0.5">
-              {cats.map((c) => (
-                <button key={c.id} onClick={() => newChat(c.id)} className="w-full h-8 px-2.5 rounded-md text-[12.5px] text-[#C2CAD6] hover:bg-[#161C24] hover:text-white inline-flex items-center gap-2"><c.icon className="w-4 h-4 text-[#8A95A5]" /> {c.label}</button>
-              ))}
+            {/* Categories as a dropdown, so the history list keeps the room. */}
+            <div className="px-3 pb-2 relative">
+              <button onClick={() => setCatMenu((v) => !v)} aria-expanded={catMenu} aria-haspopup="listbox"
+                className="w-full h-9 px-2.5 rounded-lg border border-[#222A35] bg-[#0A0E14] text-[12.5px] text-[#C2CAD6] hover:text-white hover:border-[#2C3744] inline-flex items-center gap-2">
+                {cat ? <cat.icon className="w-4 h-4 text-[#FF6B1A]" /> : <Sparkles className="w-4 h-4 text-[#8A95A5]" />}
+                <span className="truncate flex-1 text-left">{cat ? cat.label : "Start a chat about…"}</span>
+                <ChevronDown className={`w-4 h-4 text-[#5B6675] transition-transform ${catMenu ? "rotate-180" : ""}`} />
+              </button>
+              {catMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setCatMenu(false)} />
+                  <div role="listbox" aria-label="Categories" className="absolute left-3 right-3 top-[calc(100%-4px)] z-50 max-h-[60vh] overflow-y-auto rounded-lg border border-[#222A35] bg-[#11161D] shadow-[0_12px_32px_rgba(0,0,0,0.25)] py-1">
+                    {cats.map((c) => (
+                      <button key={c.id} role="option" aria-selected={category === c.id} onClick={() => { setCatMenu(false); newChat(c.id); }}
+                        className={`w-full h-8 px-2.5 text-[12.5px] inline-flex items-center gap-2 ${category === c.id ? "bg-[#FF6B1A]/10 text-[#FF8A47]" : "text-[#C2CAD6] hover:bg-[#161C24] hover:text-white"}`}>
+                        <c.icon className="w-4 h-4 shrink-0" /> <span className="truncate">{c.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
             <div className="border-t border-[#222A35] mx-3" />
             <div className="flex-1 overflow-y-auto px-2 py-2">
