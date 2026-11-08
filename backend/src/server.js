@@ -5942,6 +5942,10 @@ app.get('/api/admin/ai-status', auth, async (req, res) => {
       out.lastError = aiHealth.lastError;
     }
   }
+  if (DEEPSEEK_API_KEY) {
+    try { await deepSeekRequest([{ role: 'user', content: 'ping' }], { temperature: 0, max_tokens: 1 }); out.deepseek.status = 'ok'; }
+    catch (e) { const m = String(e.message || ''); out.deepseek.status = /402|insufficient|balance/i.test(m) ? 'out_of_credit' : /401|auth/i.test(m) ? 'invalid_key' : 'error'; out.deepseek.detail = m.slice(0, 200); }
+  } else out.deepseek.status = 'not_configured';
   res.json(out);
 });
 
@@ -6043,7 +6047,7 @@ function noteOpenAiError(e, where) {
   aiHealth.alertedAt = Date.now();
   const to = [...new Set([...PLATFORM_ADMIN_EMAILS, ...dbAdminEmails])];
   const subject = kind === 'out_of_credit' ? 'Buildsasa AI is down: OpenAI is out of credit' : 'Buildsasa AI is down: the OpenAI key is not valid';
-  const html = `<p style="font-size:14px">${AI_PROBLEM_TEXT[kind]} AI images, voice and photo questions are failing for every company right now (chat answers fall back to DeepSeek).</p>`
+  const html = `<p style="font-size:14px">${AI_PROBLEM_TEXT[kind]} AI images, voice and questions about photos are failing for every company right now. Chat, quotes, reports and checklists keep working (they run on DeepSeek).</p>`
     + `<p style="font-size:13px;color:#5B6675">First failure: ${where}. OpenAI said: “${aiHealth.lastError.message.replace(/[<>]/g, '')}”</p>`
     + (kind === 'out_of_credit'
       ? '<p style="font-size:14px"><b>Fix:</b> add credit at <a href="https://platform.openai.com/settings/organization/billing/overview">platform.openai.com → Billing</a> in the organisation that owns the server\'s key, and turn on auto-recharge. It works again within a minute, no redeploy.</p>'
@@ -6057,18 +6061,35 @@ function noteOpenAiOk() { aiHealth.lastOkAt = new Date(); if (aiHealth.lastError
 // Unified chat helper: prefer OpenAI (GPT-4o) when configured, else DeepSeek.
 // Previously these endpoints called DeepSeek directly, so with only OPENAI_API_KEY
 // set every AI request failed and the UI fell back to canned answers.
+// Which model does what (cost): text (chat, quotes, reports, checklists,
+// support bots) goes to DeepSeek first, about 10x cheaper than gpt-4o and as
+// good for text; OpenAI's cheap gpt-4o-mini is the fallback. Messages with
+// pictures need vision, so they go to gpt-4o. AI_TEXT_PROVIDER=openai switches
+// text back to OpenAI first; OPENAI_TEXT_MODEL / OPENAI_VISION_MODEL override.
+// The workspace data sent with each question, capped (about 10k tokens) so a big
+// company's history can't make every question expensive or overflow the model.
+const capContext = (lines, max = 40000) => { const t = lines.join('\n\n'); return t.length > max ? `${t.slice(0, max)}\n…(older records not shown; ask about something specific to see it)` : t; };
+const OPENAI_TEXT_MODEL = process.env.OPENAI_TEXT_MODEL || 'gpt-4o-mini';
+const OPENAI_VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4o';
+const hasPictures = (messages) => messages.some((m) => Array.isArray(m.content) && m.content.some((c) => c && c.type === 'image_url'));
 async function callAi(messages, { temperature = 0.5, max_tokens = 2048 } = {}) {
+  const vision = hasPictures(messages);
+  if (!vision && DEEPSEEK_API_KEY && process.env.AI_TEXT_PROVIDER !== 'openai') {
+    try { return await deepSeekRequest(messages, { temperature, max_tokens: Math.min(max_tokens, 8000) }); }
+    catch (err) { console.error('[AI] DeepSeek failed, trying OpenAI:', err.message || err); }
+    if (!(typeof openai !== 'undefined' && openai)) throw new Error('The AI is unavailable right now. Please try again in a minute.');
+  }
   if (typeof openai !== 'undefined' && openai) {
     try {
-      const completion = await openai.chat.completions.create({ model: 'gpt-4o', messages, temperature, max_tokens });
+      const completion = await openai.chat.completions.create({ model: vision ? OPENAI_VISION_MODEL : OPENAI_TEXT_MODEL, messages, temperature, max_tokens });
       noteOpenAiOk();
       return completion.choices?.[0]?.message?.content || '';
     } catch (err) {
       // Surface the real reason in the server console (invalid key, quota, model access, etc.)
       console.error('[AI] OpenAI call failed:', err.status || '', err.message || err);
-      noteOpenAiError(err, 'a Buildsasa AI chat answer');
-      // Fall back to DeepSeek only if it's configured; otherwise rethrow so the route reports it.
-      if (DEEPSEEK_API_KEY) return await deepSeekRequest(messages);
+      noteOpenAiError(err, vision ? 'a Buildsasa AI answer about a photo' : 'a Buildsasa AI chat answer');
+      // Text can still be answered by DeepSeek (pictures can't: DeepSeek has no vision).
+      if (DEEPSEEK_API_KEY && !vision && process.env.AI_TEXT_PROVIDER === 'openai') return await deepSeekRequest(messages);
       throw err;
     }
   }
@@ -6101,7 +6122,19 @@ const SUPPORT_WHATSAPP = process.env.SUPPORT_WHATSAPP || '+254782223749';
 const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || 'hello@buildsasa.com';
 const SHEMMY_SYSTEM_PROMPT = `You are Shemmy, the friendly customer-support assistant for Buildsasa — a construction project-management software built for contractors, project managers and site teams in Kenya and East Africa (currency KES, payments via Paystack/M-Pesa). Help users understand and use the product, troubleshoot, and answer billing/account questions. Be warm, concise, and practical; use simple language; sentence case. Buildsasa's features include: Dashboard with AI insights; Projects; Change Orders with an approval pipeline; Checklists & digitized forms (with an Assignments by trade tab); Schedule (Gantt, dates, milestones); Daily Log (photos, short videos, weather filled from the forecast, location by GPS or map); Punch List; Plans & Drawings; Inspections; Safety Incidents; Observations (each with corrective actions); Coordination Issues; Financials (cash flow ledger, budget vs actual, commitments/payables, payment applications/progress claims with retention, cost codes); Client portal (share a private link per project so the client, with no account, can follow progress, the timeline, site photos and invoices, approve or reject change orders, and approve finish selections); Finish selections (tiles, paint, fittings and fixtures chosen room by room with photos, approved by the client in the portal, then tracked as ordered and installed); Quotes (price a job from templates like kitchen or bathroom remodels, send a link the client accepts or declines online, download a PDF, then turn an accepted quote into a project with its BOQ and a deposit invoice); Invoicing (line-item invoices with PDF download + emailed receipts); Inventory (materials with a stock-movement ledger plus an equipment register with hire/service/compliance tracking); Documents; Directory; Crews; Team & Role Manager; Attendance; Reports; and a Buildsasa AI assistant. Client accounts: property owners, landowners and investors (including Kenyans abroad) sign up free as a client at https://console.buildsasa.com by choosing "I'm a client". A contractor invites them to a project by email from the project's Client tab; the client then sees progress updates tagged by stage (land purchase, survey and beaconing, land clearing, fencing, gate, borehole and water, foundation, walling, roofing, plumbing and electrical, finishes, solar, CCTV and security, landscaping and gardening, garbage and clean-up, handover) with photos and short videos, shared daily logs (photos, weather and headcount), shared inspections, change orders, finish selections and invoices, and chats with the contractor in a team chat or a private chat with one team member, sending single or bulk photos and short videos. Contractors can also share their own weekly or monthly site reports, drawings and proposals as documents. Clients can comment on anything shared with them (updates, daily logs, inspections, change orders, finish selections) to ask for a change or improvement, attaching photos, and see quotes sent to their email under Quotes & proposals, where they can ask questions before accepting. A contractor invites a client by email or by sending the invite link on WhatsApp; the client signs up free with that email and the project appears. Clients who need a contractor (for a house, fencing, a borehole, solar, CCTV, landscaping or anything else) send a project request, from their client account or at https://buildsasa.com/request-project with no account needed, and the Buildsasa team finds qualified contractors for them. Clients do not browse or pick companies themselves, and there is no bidding or job board. Buildsasa neutral site reporting: a client who wants independent, unbiased reports can request it in their client account (or read https://buildsasa.com/site-reporting); Buildsasa staff visit the site anywhere in Kenya and post honest photo and video reports of every stage. It costs 10% of the total project cost, spread over the months of reporting and paid monthly, plus the reporter's transport and lunch on each visit day; the client agrees to this fee when requesting, then the Buildsasa team calls them and arranges payment directly (M-Pesa, bank or international transfer). Nothing is paid inside the app. Clients who do not want it can simply follow their site through their contractor's Buildsasa subscription at no cost to them. Billing is per company (workspace): every new company gets a 7-day free trial with full access and no card needed, then chooses a plan to continue; plans can include a number of team members with a price per extra member, and clients never count; plans are paid in KES via Paystack. When a question needs account-specific action you can't do (refunds, data changes, bugs), tell them to contact our team on WhatsApp at ${SUPPORT_WHATSAPP} or by email at ${SUPPORT_EMAIL}, or use the in-app billing page. Never invent features that aren't listed; if unsure, say so and offer to connect them to the team. Keep answers short unless asked for detail.`;
 
-app.post('/api/support/chat', async (req, res) => {
+// Suzy and Shemmy need no login, so each visitor gets a fair number of messages
+// an hour; bots can't run up the AI bill.
+const chatHits = new Map();
+function publicChatLimit(req, res, next) {
+  const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim() || 'unknown';
+  const now = Date.now(), hour = 3600e3;
+  const hits = (chatHits.get(ip) || []).filter((t) => now - t < hour);
+  if (hits.length >= 30) return res.status(429).json({ error: 'You\'ve sent a lot of messages. Please wait a little, or reach the team on WhatsApp.', reply: 'You\'ve sent a lot of messages in a short time. Please try again in a few minutes, or reach our team on WhatsApp.' });
+  hits.push(now); chatHits.set(ip, hits);
+  if (chatHits.size > 20000) for (const [k, v] of chatHits) if (!v.length || now - v[v.length - 1] > hour) chatHits.delete(k);
+  next();
+}
+app.post('/api/support/chat', publicChatLimit, async (req, res) => {
   try {
     const incoming = Array.isArray(req.body?.messages) ? req.body.messages : [];
     const recent = incoming
@@ -6129,7 +6162,7 @@ function suzyRateLimited(ip) {
   return hits.length > 30;
 }
 
-app.post('/api/website/chat', async (req, res) => {
+app.post('/api/website/chat', publicChatLimit, async (req, res) => {
   try {
     const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
     if (suzyRateLimited(ip)) {
@@ -6596,7 +6629,7 @@ ${AI_CATEGORY_GUIDE[category] ? `FOCUS FOR THIS CHAT: ${AI_CATEGORY_GUIDE[catego
 - Do NOT discuss budgets, financials, change orders, billing, invoices, reports, or subcontractor pricing. If asked, reply: "I can help with how-to and safety questions. For financials or reports, please ask your Project Manager or Superintendent."
 
 PROJECT CONTEXT (for how-to help only):
-${safeLines.join('\n\n')}
+${capContext(safeLines)}
 ${actionGuide}`;
     } else {
       systemPrompt = `You are Buildsasa AI, the management assistant for a construction company. You have the user's REAL project and financial data below (all money in USD). Use it to give specific, numbers-backed answers and reports.
@@ -6611,7 +6644,7 @@ You can produce on request:
 Formatting: when asked for a "report", use short clear headers and bulleted figures; always cite the actual numbers from the data; round money sensibly; be concise and decision-useful. If something isn't in the data, say so plainly instead of inventing it.
 
 DATA:
-${safeLines.concat(finLines).join('\n\n')}
+${capContext(safeLines.concat(finLines))}
 ${actionGuide}`;
     }
 
@@ -6763,8 +6796,9 @@ app.post('/api/ai/design', auth, withDaily('image'), withCredits((req) => (Array
     const adviceTask = (async () => {
       try {
         const content = [{ type: 'text', text: `You are a senior architect and interior designer advising a contractor in Kenya. Mode: ${mode}. Brief: ${prompt}.${refs.length ? ' Photos of the existing space/site are attached.' : ''} Give concise, practical recommendations in plain text with short headings and bullet points: layout/design ideas, materials and finishes available in Kenya, indicative considerations (ventilation, natural light, climate, building code/NCA approvals where relevant), and 3 things to confirm with the client. Under 220 words. No markdown symbols other than "- " bullets.` }];
-        for (const u of refs.slice(0, 2)) content.push({ type: 'image_url', image_url: { url: u.startsWith('/') ? `${req.protocol}://${req.get('host')}${u}` : u } });
-        const c = await openai.chat.completions.create({ model: 'gpt-4o', messages: [{ role: 'user', content }], temperature: 0.5, max_tokens: 500 });
+        for (const u of refs.slice(0, 2)) content.push({ type: 'image_url', image_url: { url: u.startsWith('/') ? `${req.protocol}://${req.get('host')}${u}` : u, detail: 'low' } });
+        if (!refs.length) return (await callAi([{ role: 'user', content: content[0].text }], { temperature: 0.5, max_tokens: 500 })) || null;
+        const c = await openai.chat.completions.create({ model: OPENAI_VISION_MODEL, messages: [{ role: 'user', content }], temperature: 0.5, max_tokens: 500 });
         return c.choices?.[0]?.message?.content || null;
       } catch (e) { console.error('[design] advice failed:', e.message); return null; }
     })();
@@ -6777,9 +6811,11 @@ app.post('/api/ai/design', auth, withDaily('image'), withCredits((req) => (Array
         const content = [{ type: 'text', text: `You are a quantity surveyor in Kenya. The client wants this space turned into: ${prompt}.${style} ${refs.length ? 'The attached photo shows the space as it is now; estimate its size from what you can see (ceiling height, doors, tiles) and say so.' : 'No photo was given; assume a typical room for the brief.'}
 Return JSON only: {"assumptions": "one or two sentences on the size and scope you assumed", "items": [{"item": "short name", "description": "specification", "quantity": number, "unit": "m² | m | pcs | bags | litres | sets | lump sum", "rate": number, "amount": number}], "notes": "two or three practical tips"}.
 6 to 12 items covering the finishes, fittings and labour needed. Rates and amounts in Kenyan shillings at current Nairobi market prices; amount = quantity × rate.` }];
-        for (const u of refs.slice(0, 2)) content.push({ type: 'image_url', image_url: { url: u.startsWith('/') ? `${req.protocol}://${req.get('host')}${u}` : u } });
-        const c = await openai.chat.completions.create({ model: 'gpt-4o', messages: [{ role: 'user', content }], temperature: 0.3, max_tokens: 1200, response_format: { type: 'json_object' } });
-        const j = JSON.parse(c.choices?.[0]?.message?.content || '{}');
+        for (const u of refs.slice(0, 2)) content.push({ type: 'image_url', image_url: { url: u.startsWith('/') ? `${req.protocol}://${req.get('host')}${u}` : u, detail: 'low' } });
+        let raw;
+        if (!refs.length) raw = await callAi([{ role: 'user', content: content[0].text }], { temperature: 0.3, max_tokens: 1200 });
+        else raw = (await openai.chat.completions.create({ model: OPENAI_VISION_MODEL, messages: [{ role: 'user', content }], temperature: 0.3, max_tokens: 1200, response_format: { type: 'json_object' } })).choices?.[0]?.message?.content;
+        const j = JSON.parse(String(raw || '{}').replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/, '$1'));
         const items = (Array.isArray(j.items) ? j.items : []).slice(0, 20).map((it) => {
           const quantity = Number(it.quantity) || 0; const rate = Number(it.rate) || 0;
           return { item: String(it.item || '').slice(0, 80), description: String(it.description || '').slice(0, 200), quantity, unit: String(it.unit || '').slice(0, 20), rate, amount: Math.round(Number(it.amount) || quantity * rate) };
@@ -6967,10 +7003,14 @@ ${truncated}`;
 };
 
 const callAiForExtraction = async (messages) => {
-  // Prefer OpenAI (GPT-4o) if available
+  // Text only, so DeepSeek first (much cheaper); OpenAI's cheap model if it fails.
+  if (DEEPSEEK_API_KEY && process.env.AI_TEXT_PROVIDER !== 'openai') {
+    try { return await deepSeekRequest(messages, { temperature: 0.2, max_tokens: 8000 }); }
+    catch (e) { console.error('[extract] DeepSeek failed, trying OpenAI:', e.message); }
+  }
   if (openai) {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: OPENAI_TEXT_MODEL,
       messages,
       temperature: 0.2,
       max_tokens: 8192,
