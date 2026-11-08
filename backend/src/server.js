@@ -5922,6 +5922,29 @@ const withDaily = (kind, count = 1) => async (req, res, next) => {
   next();
 };
 
+// Live AI status for Buildsasa staff: a tiny test call (a fraction of a cent)
+// that says whether OpenAI is working, out of credit or has a bad key. The key
+// itself is never shown.
+app.get('/api/admin/ai-status', auth, async (req, res) => {
+  if (!isPlatformAdmin(req.user && req.user.email)) return res.status(403).json({ error: 'Buildsasa staff only.' });
+  const out = { openai: { configured: !!openai, status: openai ? 'unknown' : 'not_configured' }, deepseek: { configured: !!DEEPSEEK_API_KEY }, lastError: aiHealth.lastError, lastOkAt: aiHealth.lastOkAt, checkedAt: new Date() };
+  if (openai) {
+    try {
+      await openai.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }, { timeout: 15000 });
+      noteOpenAiOk();
+      out.openai.status = 'ok';
+      out.lastError = null; out.lastOkAt = aiHealth.lastOkAt;
+    } catch (e) {
+      const kind = openAiProblem(e);
+      out.openai.status = kind || 'error';
+      out.openai.detail = String(e.message || '').slice(0, 300);
+      if (kind) aiHealth.lastError = { kind, where: 'the admin status check', at: new Date(), message: out.openai.detail };
+      out.lastError = aiHealth.lastError;
+    }
+  }
+  res.json(out);
+});
+
 // Today's allowances, for the usage meter in the AI page.
 app.get('/api/ai/limits', auth, async (req, res) => {
   try {
@@ -5959,6 +5982,7 @@ app.post('/api/ai/speak', auth, withDaily('voice'), async (req, res) => {
     res.json({ audio: `data:audio/mpeg;base64,${buf.toString('base64')}` });
   } catch (e) {
     console.error('[speak]', e.message);
+    noteOpenAiError(e, 'a spoken reply');
     res.status(502).json({ error: 'Couldn\'t make the voice reply.' });
   }
 });
@@ -5995,6 +6019,41 @@ function deepSeekRequest(messages, { temperature = 0.7, max_tokens = 2048 } = {}
   });
 }
 
+// ===== AI PROVIDER HEALTH =====
+// When OpenAI stops working because the account is out of credit or the key is
+// wrong, every AI image, voice message and photo question fails for every
+// company. Buildsasa staff get one email about it (at most every 6 hours) and
+// the admin panel shows a live status, instead of finding out from a customer.
+const aiHealth = { lastError: null, lastOkAt: null, alertedAt: 0 };
+function openAiProblem(e) {
+  const m = String((e && e.message) || e || '');
+  if (/insufficient_quota|no credits remaining|exceeded your current quota|billing/i.test(m) || (e && e.status === 429 && /credit|quota/i.test(m))) return 'out_of_credit';
+  if ((e && e.status === 401) || /incorrect api key|invalid api key|invalid_api_key/i.test(m)) return 'invalid_key';
+  return null;
+}
+const AI_PROBLEM_TEXT = {
+  out_of_credit: 'The OpenAI account behind Buildsasa AI has run out of credit.',
+  invalid_key: 'The OpenAI API key on the server is not valid (revoked, mistyped or from a deleted project).',
+};
+function noteOpenAiError(e, where) {
+  const kind = openAiProblem(e);
+  if (!kind) return;
+  aiHealth.lastError = { kind, where, at: new Date(), message: String((e && e.message) || '').slice(0, 300) };
+  if (Date.now() - aiHealth.alertedAt < 6 * 3600e3) return;
+  aiHealth.alertedAt = Date.now();
+  const to = [...new Set([...PLATFORM_ADMIN_EMAILS, ...dbAdminEmails])];
+  const subject = kind === 'out_of_credit' ? 'Buildsasa AI is down: OpenAI is out of credit' : 'Buildsasa AI is down: the OpenAI key is not valid';
+  const html = `<p style="font-size:14px">${AI_PROBLEM_TEXT[kind]} AI images, voice and photo questions are failing for every company right now (chat answers fall back to DeepSeek).</p>`
+    + `<p style="font-size:13px;color:#5B6675">First failure: ${where}. OpenAI said: “${aiHealth.lastError.message.replace(/[<>]/g, '')}”</p>`
+    + (kind === 'out_of_credit'
+      ? '<p style="font-size:14px"><b>Fix:</b> add credit at <a href="https://platform.openai.com/settings/organization/billing/overview">platform.openai.com → Billing</a> in the organisation that owns the server\'s key, and turn on auto-recharge. It works again within a minute, no redeploy.</p>'
+      : '<p style="font-size:14px"><b>Fix:</b> create a new secret key at <a href="https://platform.openai.com/api-keys">platform.openai.com → API keys</a> (in the organisation that has credit) and paste it into OPENAI_API_KEY on the Railway backend.</p>')
+    + '<p style="font-size:13px;color:#5B6675">Check the live status any time in the admin panel → AI Credits → AI status.</p>';
+  for (const e2 of to) sendEmail({ to: e2, subject, html: emailShell(subject, html) }).catch(() => {});
+  console.error(`[ai-health] ${kind} (${where}); alerted ${to.length} admin(s)`);
+}
+function noteOpenAiOk() { aiHealth.lastOkAt = new Date(); if (aiHealth.lastError) { aiHealth.lastError = null; aiHealth.alertedAt = 0; } }
+
 // Unified chat helper: prefer OpenAI (GPT-4o) when configured, else DeepSeek.
 // Previously these endpoints called DeepSeek directly, so with only OPENAI_API_KEY
 // set every AI request failed and the UI fell back to canned answers.
@@ -6002,10 +6061,12 @@ async function callAi(messages, { temperature = 0.5, max_tokens = 2048 } = {}) {
   if (typeof openai !== 'undefined' && openai) {
     try {
       const completion = await openai.chat.completions.create({ model: 'gpt-4o', messages, temperature, max_tokens });
+      noteOpenAiOk();
       return completion.choices?.[0]?.message?.content || '';
     } catch (err) {
       // Surface the real reason in the server console (invalid key, quota, model access, etc.)
       console.error('[AI] OpenAI call failed:', err.status || '', err.message || err);
+      noteOpenAiError(err, 'a Buildsasa AI chat answer');
       // Fall back to DeepSeek only if it's configured; otherwise rethrow so the route reports it.
       if (DEEPSEEK_API_KEY) return await deepSeekRequest(messages);
       throw err;
@@ -6289,11 +6350,13 @@ app.post('/api/ai/transcribe', auth, withDaily('voice'), singleFile('file'), asy
       // An account without the newer model still gets whisper.
       if (model === 'whisper-1') throw err;
       console.error('[transcribe] falling back to whisper-1:', err.message);
+      if (openAiProblem(err)) throw err;  // no credit / bad key: whisper fails the same way
       r = await openai.audio.transcriptions.create({ file: await toFile(audio, `voice.${ext}`, { type: req.file.mimetype || 'audio/webm' }), model: 'whisper-1', prompt: prompt.slice(0, 800) });
     }
     res.json({ text: String(r.text || '').trim() });
   } catch (e) {
     console.error('[transcribe]', e.message);
+    noteOpenAiError(e, 'voice transcription');
     res.status(502).json({ error: 'Couldn\'t understand the recording. Try again or type it.' });
   } finally { if (req.file) fs.unlink(req.file.path, () => {}); }
 });
@@ -6659,6 +6722,7 @@ async function fetchReference(req, url, i) {
 }
 
 const providerMessage = (e) => {
+  noteOpenAiError(e, 'an AI design');
   const m = String(e?.message || e || '');
   if (/safety|content policy|moderation|rejected/i.test(m)) return 'That request was declined by the AI\'s safety filter. Rephrase the prompt and try again.';
   if (/billing|quota|insufficient/i.test(m)) return 'AI design generation is unavailable right now (the AI account has run out of credit). Please contact Buildsasa support.';
