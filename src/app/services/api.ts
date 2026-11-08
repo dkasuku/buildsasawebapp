@@ -1534,7 +1534,7 @@ export const api = {
   supportChat: (messages: { role: string; content: string }[]) => http<{ reply: string }>("/api/support/chat", { method: "POST", body: JSON.stringify({ messages }) }),
   /** What needs attention today, worked out from the workspace data (free). */
   aiBrief: () => http<{ items: AiBriefItem[]; projects: number }>("/api/ai/brief"),
-  aiAssistant: (question: string, history?: { role: string; content: string }[], signal?: AbortSignal, page?: string, category?: string, extra: { images?: string[]; files?: { url: string; name: string }[]; logo?: boolean } = {}) => http<{ answer: string }>("/api/ai/assistant", { method: "POST", body: JSON.stringify({ question, history, page, category, ...extra }), signal }),
+  aiAssistant: (question: string, history?: { role: string; content: string }[], signal?: AbortSignal, page?: string, category?: string, extra: { images?: string[]; files?: { url: string; name: string }[]; logo?: boolean; voice?: boolean } = {}) => http<{ answer: string }>("/api/ai/assistant", { method: "POST", body: JSON.stringify({ question, history, page, category, ...extra }), signal }),
   /** An uploaded image as a data URL (for PDFs; the bucket has no CORS). */
   fileDataUrl: (url: string) => http<{ dataUrl: string }>(`/api/files/data-url?url=${encodeURIComponent(url)}`),
   // Saved AI chats, private to the signed-in user (the AI page's history).

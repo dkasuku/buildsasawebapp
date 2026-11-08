@@ -43,7 +43,7 @@ export const imageModeFor = (text: string, mode: ImageMode = "auto"): Exclude<Im
 
 /** Ask the assistant (or build a checklist when that's what was asked) and
  *  return the reply as a chat message. Never throws, except when stopped. */
-export async function askAi(text: string, before: Msg[], opts: { signal?: AbortSignal; page?: string; category?: string; images?: string[]; files?: { url: string; name: string }[]; imageMode?: ImageMode } = {}): Promise<Msg> {
+export async function askAi(text: string, before: Msg[], opts: { signal?: AbortSignal; page?: string; category?: string; images?: string[]; files?: { url: string; name: string }[]; imageMode?: ImageMode; voice?: boolean } = {}): Promise<Msg> {
   // A quote edited by hand goes back to the AI as it now stands.
   const history = before.filter((m) => !isGreeting(m)).map((m) => ({
     role: m.role === "ai" ? "assistant" : "user",
@@ -76,7 +76,7 @@ export async function askAi(text: string, before: Msg[], opts: { signal?: AbortS
         : "I couldn't turn that into checklist items. Try naming the trade and what to inspect.");
       return items.length ? { role: "ai", text: reply, form: { title: res.title || "Untitled checklist", trade, category, items } } : { role: "ai", text: reply };
     }
-    const res = await api.aiAssistant(text, history, opts.signal, opts.page, opts.category, { images: opts.images, files, logo: mode === "logo" });
+    const res = await api.aiAssistant(text, history, opts.signal, opts.page, opts.category, { images: opts.images, files, logo: mode === "logo", voice: opts.voice });
     // [[logo]]: the AI saw that the attached image is a company logo.
     let raw = res.answer || "No answer.";
     const sawLogo = /\[\[logo\]\]/i.test(raw);

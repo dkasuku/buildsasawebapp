@@ -6255,8 +6255,30 @@ app.post('/api/ai/transcribe', auth, withDaily('voice'), singleFile('file'), asy
     if (req.file.size > 20 * 1024 * 1024) return res.status(400).json({ error: 'That recording is too long. Keep it under a few minutes.' });
     const { toFile } = require('openai');
     const ext = (/(webm|ogg|mp4|m4a|mpeg|mp3|wav|aac)/.exec(req.file.mimetype || '') || [null, 'webm'])[1].replace('mp4', 'm4a').replace('mpeg', 'mp3');
-    const file = await toFile(fs.readFileSync(req.file.path), `voice.${ext}`, { type: req.file.mimetype || 'audio/webm' });
-    const r = await openai.audio.transcriptions.create({ file, model: 'whisper-1', prompt: 'Construction in Kenya: Buildsasa, project, quote, BOQ, invoice, KES, bags of cement, mabati, ballast, rebar, slab, ring beam, foreman, site.' });
+    const audio = fs.readFileSync(req.file.path);
+    // The words this company actually uses (its projects, people, units and
+    // contacts) so names come out spelled right instead of guessed.
+    const safe = (p) => p.catch(() => []);
+    const [projects, team, units, contacts] = await Promise.all([
+      safe(prisma.project.findMany({ select: { name: true, city: true }, orderBy: { updatedAt: 'desc' }, take: 30 })),
+      safe(prisma.user.findMany({ select: { name: true }, take: 40 })),
+      safe(prisma.projectUnit.findMany({ select: { code: true, clientName: true }, take: 60 })),
+      safe(prisma.directoryContact.findMany({ select: { name: true, company: true }, take: 30 })),
+    ]);
+    const vocab = [...new Set([
+      ...projects.flatMap((x) => [x.name, x.city]), ...team.map((x) => x.name),
+      ...units.flatMap((x) => [x.code, x.clientName]), ...contacts.flatMap((x) => [x.name, x.company]),
+    ].filter((v) => v && v !== '—'))].join(', ').slice(0, 700);
+    const prompt = `Construction site in Kenya, spoken in English, Swahili or a mix. Buildsasa, project, quote, BOQ, invoice, KES, shillings, bags of cement, mabati, ballast, murram, rebar, Y12, slab, ring beam, DPC, foreman, fundi, site, unit, block. Names: ${vocab}`;
+    const model = process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-transcribe';
+    let r;
+    try { r = await openai.audio.transcriptions.create({ file: await toFile(audio, `voice.${ext}`, { type: req.file.mimetype || 'audio/webm' }), model, prompt }); }
+    catch (err) {
+      // An account without the newer model still gets whisper.
+      if (model === 'whisper-1') throw err;
+      console.error('[transcribe] falling back to whisper-1:', err.message);
+      r = await openai.audio.transcriptions.create({ file: await toFile(audio, `voice.${ext}`, { type: req.file.mimetype || 'audio/webm' }), model: 'whisper-1', prompt: prompt.slice(0, 800) });
+    }
     res.json({ text: String(r.text || '').trim() });
   } catch (e) {
     console.error('[transcribe]', e.message);
@@ -6541,7 +6563,11 @@ ${actionGuide}`;
     const logoNote = req.body.logo
       ? '\n(The user attached their company logo. The app puts it on the letterhead of any PDF or Word document; do not describe the logo, just do the task.)'
       : pictures.length ? '\n(If an attached image is a company logo or brand mark, do not analyse it: just do the task and end your reply with [[logo]] on its own line, and the app puts it on the letterhead of their quote and documents.)' : '';
-    const text = `${question}${logoNote}${attached}`;
+    // Spoken: speech recognition mishears names, numbers and emails.
+    const voiceNote = req.body.voice
+      ? '\n(This message was SPOKEN and turned into text by speech recognition, so some words may be misheard. Match names to PROJECTS, TEAM MEMBERS, UNITS and contacts above (e.g. "kiting gela" = Kitengela), turn spoken emails and numbers into their written form ("jane at gmail dot com" = jane@gmail.com, "five hundred k" = 500000). If a name, amount, phone or email is still unclear, ask instead of guessing. When you propose actions, say the key details back in one short sentence (who, what, how much) so the user can confirm by voice.)'
+      : '';
+    const text = `${question}${voiceNote}${logoNote}${attached}`;
     const answer = await callAi([
       { role: 'system', content: systemPrompt },
       ...hist,

@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Mic, MicOff, Volume2, VolumeX, X } from "lucide-react";
 import api from "../../services/api";
-import { transcribe } from "./MediaInputs";
+import { MIC, recorderFor, transcribe } from "./MediaInputs";
 
 /** Markdown → something worth saying out loud: no tables, links or symbols. */
 export function speakable(md: string, max = 520): string {
@@ -79,9 +79,8 @@ export function VoiceChat({ onTurn, onClose }: { onTurn: (text: string) => Promi
 
   /** Record until the speaker goes quiet; null if nothing was said. */
   const listen = async (): Promise<string | null> => {
-    const stream = streamRef.current || (streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }));
-    const type = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"].find((t) => MediaRecorder.isTypeSupported?.(t)) || "";
-    const rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+    const stream = streamRef.current || (streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: MIC }));
+    const rec = recorderFor(stream);
     const chunks: Blob[] = [];
     rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
     const Ctx = (window.AudioContext || (window as any).webkitAudioContext);
@@ -90,7 +89,7 @@ export function VoiceChat({ onTurn, onClose }: { onTurn: (text: string) => Promi
     ctx.createMediaStreamSource(stream).connect(an);
     const buf = new Uint8Array(an.fftSize);
     return new Promise((resolve) => {
-      let spoke = false, quietSince = 0, raf = 0, finished = false;
+      let spoke = false, quietSince = 0, raf = 0, finished = false, floor = 0.01, quietest = 0.01, loudFor = 0;
       const began = Date.now();
       const finish = (send: boolean) => {
         if (finished) return; finished = true;
@@ -108,8 +107,16 @@ export function VoiceChat({ onTurn, onClose }: { onTurn: (text: string) => Promi
         const rms = Math.sqrt(sum / buf.length);
         setLevel(Math.min(1, rms * 8));
         const now = Date.now();
-        if (rms > 0.035) { spoke = true; quietSince = 0; } else if (spoke) quietSince ||= now;
-        if (spoke && quietSince && now - quietSince > 1300) return finish(true);   // finished talking
+        // Background noise (generator, mixer, wind), learned only from the
+        // quietest moments (the gaps between words), so someone who starts
+        // talking straight away isn't mistaken for noise. Capped so a loud site
+        // still hears a raised voice.
+        quietest = Math.min(quietest * 1.002 + 0.00002, rms);
+        floor = Math.min(0.03, floor * 0.95 + quietest * 0.05);
+        const talking = rms > Math.max(0.02, floor * 3);
+        // A single click or knock isn't speech: it has to last about 50 ms.
+        if (talking) { loudFor += 1; if (loudFor >= 3) spoke = true; quietSince = 0; } else { loudFor = 0; if (spoke) quietSince ||= now; }
+        if (spoke && quietSince && now - quietSince > 1800) return finish(true);   // finished talking
         if (!spoke && now - began > 12000) return finish(false);                   // nobody spoke: pause
         if (now - began > 60000) return finish(true);                              // a minute at most
         raf = requestAnimationFrame(tick);
@@ -146,7 +153,7 @@ export function VoiceChat({ onTurn, onClose }: { onTurn: (text: string) => Promi
   // Start listening as soon as the voice chat opens (opening it was the tap).
   useEffect(() => { begin(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const label = { idle: "Tap to talk", listening: "Listening… just talk, I'll answer when you pause", thinking: "Working on it…", speaking: "Speaking. Tap to interrupt" }[phase];
+  const label = { idle: "Tap to talk", listening: "Listening… speak clearly, I'll answer when you pause", thinking: "Working on it…", speaking: "Speaking. Tap to interrupt" }[phase];
   return (
     <div className="fixed inset-0 z-[80] bg-[#0A0E14]/95 backdrop-blur flex flex-col items-center justify-center px-6 text-center" role="dialog" aria-modal="true" aria-label="Voice chat with Buildsasa AI">
       <button onClick={onClose} className="absolute top-4 right-4 h-10 px-3 rounded-full border border-[#222A35] text-[#C2CAD6] hover:text-white inline-flex items-center gap-1.5 text-[13px]" aria-label="End voice chat"><X className="w-4 h-4" /> End</button>

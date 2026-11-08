@@ -196,7 +196,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
     return { did, failed };
   };
   const patchQuote = (i: number, quote: QuoteDraft) => setMessages((m) => m.map((x, k) => (k === i ? { ...x, quote } : x)));
-  const send = async (raw?: string, imgs?: string[], fresh = false) => {
+  const send = async (raw?: string, imgs?: string[], fresh = false, spoken = false) => {
     // Attachments go with typed, spoken or one-tap questions; an ask-bar start brings its own.
     const images = imgs === undefined ? att.filter((a) => a.image).map((a) => a.url) : imgs;
     const files = imgs === undefined ? att.filter((a) => !a.image).map(({ url, name }) => ({ url, name })) : [];
@@ -210,7 +210,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const reply = await askAi(text, before, { signal: controller.signal, category: designing ? "design" : fresh ? "general" : category, page: (fresh && pageRef.current) || "Buildsasa AI", images, files, imageMode: mode });
+      const reply = await askAi(text, before, { signal: controller.signal, category: designing ? "design" : fresh ? "general" : category, page: (fresh && pageRef.current) || "Buildsasa AI", images, files, imageMode: mode, voice: spoken });
       // The reply lands after the question: its index is the old length + 1.
       const idx = (fresh ? 1 : before.length) + 1;
       setMessages((m) => [...m, reply]);
@@ -233,6 +233,16 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
     return null;
   };
   // ── Voice chat: talk, hear the answer, say "yes" to confirm its action cards ──
+  // One line per action with the details that matter, so a misheard name or
+  // amount is caught before anything is created.
+  const actionSummary = (a: AiAction) => {
+    if (a.kind !== "do") return "";
+    const d = a.data || {};
+    const lines = Array.isArray(d.items) ? d.items : [];
+    const total = lines.reduce((s: number, l: any) => s + (Number(l.quantity) || 0) * (Number(l.rate) || 0), 0);
+    const bits = [d.name, d.title, d.unit && `unit ${d.unit}`, d.clientName && `for ${d.clientName}`, d.city && `in ${d.city}`, d.email && `email ${d.email}`, d.role, d.amountKES && `${Number(d.amountKES).toLocaleString("en-KE")} shillings`, total && `${Math.round(total).toLocaleString("en-KE")} shillings`, d.date || d.dueDate].filter(Boolean);
+    return `${(a.label || a.action).replace(/-/g, " ")}${bits.length ? `: ${bits.join(", ")}` : ""}`;
+  };
   const [voiceChat, setVoiceChat] = useState(false);
   const lastTurn = useRef<{ list: Msg[]; idx: number } | null>(null);
   const voiceTurn = async (said: string): Promise<string> => {
@@ -244,7 +254,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
       return r.did.length ? `Done: ${r.did.join(", ")}.${r.failed.length ? ` But ${r.failed.join("; ")}. It's on screen to fix.` : ""}` : `That didn't work: ${r.failed.join("; ")}. Check the card on screen.`;
     }
     if (t && pending.length && /^(no|nope|cancel|don't|do not|stop|hapana)\b/i.test(said.trim())) { lastTurn.current = null; return "Okay, I won't do that."; }
-    const r = await send(said);
+    const r = await send(said, undefined, false, true);
     if (!r) return "Sorry, I couldn't do that. Try again.";
     lastTurn.current = { list: r.list, idx: r.idx };
     const m = r.reply;
@@ -252,11 +262,24 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
     return [speakable(m.text),
       m.quote ? "The quote is on screen. You can edit it or download it." : "",
       m.design ? "The design is on screen." : "",
-      acts.length ? `Shall I go ahead${acts.length > 1 ? ` with all ${acts.length}` : ""}? Say yes to do it.` : ""].filter(Boolean).join(" ");
+      acts.length ? `To check: ${acts.map(actionSummary).join("; ")}. Shall I go ahead? Say yes, or tell me what to change.` : ""].filter(Boolean).join(" ");
   };
   const stop = () => abortRef.current?.abort();
   // Speak: the words are sent as soon as they are transcribed, so the AI just does it.
-  const voice = useVoice((t) => send(t));
+  const [heardSend, setHeardSend] = useState(0);
+  const heardTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const cancelHeard = () => { if (heardTimer.current) clearInterval(heardTimer.current); heardTimer.current = null; setHeardSend(0); };
+  const voice = useVoice((t) => {
+    setQ(t); setHeardSend(5);
+    if (heardTimer.current) clearInterval(heardTimer.current);
+    heardTimer.current = setInterval(() => setHeardSend((n) => {
+      if (n <= 1) { if (heardTimer.current) clearInterval(heardTimer.current); heardTimer.current = null; setTimeout(() => sendHeard.current(), 0); return 0; }
+      return n - 1;
+    }), 1000);
+  });
+  const sendHeard = useRef(() => {});
+  sendHeard.current = () => send(undefined, undefined, false, true);
+  useEffect(() => () => { if (heardTimer.current) clearInterval(heardTimer.current); }, []);
   const edit = (i: number) => {
     if (busy || messages[i]?.role !== "user") return;
     setQ(messages[i].text); setMessages((m) => m.slice(0, i));
@@ -314,7 +337,14 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
         </div>
       )}
       <input ref={fileRef} type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf,.docx,.xlsx,.xls,.csv,.txt" className="hidden" onChange={(e) => attach(e.target.files)} />
-      <textarea ref={inputRef} aria-label="Message Buildsasa AI" value={q} onChange={(e) => setQ(e.target.value)} rows={big ? 2 : 1}
+      {heardSend > 0 && (
+        <div className="mx-1 mb-1.5 flex items-center gap-2 rounded-lg bg-[#FF6B1A]/10 border border-[#FF6B1A]/30 px-2.5 py-1.5 text-[12px] text-[#FF8A47]">
+          <Mic className="w-3.5 h-3.5 shrink-0" /><span className="flex-1">Check what I heard. Sending in {heardSend}s.</span>
+          <button onClick={() => { cancelHeard(); inputRef.current?.focus(); }} className="underline">Fix it</button>
+          <button onClick={() => { cancelHeard(); send(undefined, undefined, false, true); }} className="h-6 px-2 rounded-md bg-[#FF6B1A] text-[#ffffff]">Send now</button>
+        </div>
+      )}
+      <textarea ref={inputRef} aria-label="Message Buildsasa AI" value={q} onChange={(e) => { cancelHeard(); setQ(e.target.value); }} onFocus={cancelHeard} rows={big ? 2 : 1}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
         placeholder={cat ? `Ask about ${cat.label.toLowerCase()}…` : "How can I help with your projects today?"}
         className="w-full resize-none bg-transparent px-2 py-1 text-[16px] sm:text-[14px] text-white placeholder:text-[#5B6675] focus:outline-none" />

@@ -59,6 +59,13 @@ export function CameraModal({ onCapture, onClose }: { onCapture: (f: File) => vo
 
 /** Record a voice note and get it back as text. */
 /** Speech to text on the server. Past the daily voice allowance the app offers credits. */
+/** Microphone settings that help recognition on a noisy site. */
+export const MIC: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
+export const recorderFor = (s: MediaStream) => {
+  const type = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"].find((t) => MediaRecorder.isTypeSupported?.(t)) || "";
+  return new MediaRecorder(s, { ...(type ? { mimeType: type } : {}), audioBitsPerSecond: 96000 });
+};
+
 export async function transcribe(blob: Blob, mime?: string): Promise<string> {
   const fd = new FormData();
   const m = mime || blob.type || "audio/webm";
@@ -86,9 +93,8 @@ export function useVoice(onText: (text: string) => void) {
     if (state !== "idle") return;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") return toast.error("Voice isn't supported in this browser. Type instead.");
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const type = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"].find((t) => MediaRecorder.isTypeSupported?.(t)) || "";
-      const r = new MediaRecorder(s, type ? { mimeType: type } : undefined);
+      const s = await navigator.mediaDevices.getUserMedia({ audio: MIC });
+      const r = recorderFor(s);
       chunks.current = []; cancelled.current = false;
       r.ondataavailable = (e) => { if (e.data.size) chunks.current.push(e.data); };
       r.onstop = async () => {
