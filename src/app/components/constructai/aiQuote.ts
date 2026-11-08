@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 import { jsPDF, lastTableEnd } from "../../services/pdf";
 import { drawLetterhead } from "../../services/brandPdf";
 import type { QuoteDraft } from "./AiAssistantPanel";
-import { company, docBlocks, docLogo, docTitle, esc, fileName, firstQuoteTable, plain, save, toCsv, type DocFormat } from "./aiDocs";
+import { company, countDocument, docBlocks, docLogo, docTitle, esc, fileName, firstQuoteTable, plain, save, toCsv, type DocFormat } from "./aiDocs";
 
 export const quoteSums = (q: QuoteDraft) => {
   const subtotal = q.lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.rate) || 0), 0);
@@ -50,6 +50,7 @@ export { docTitle };
 
 /** Download a quote as a quotation document. */
 export async function exportQuote(q: QuoteDraft, format: DocFormat) {
+  if (format !== "csv") await countDocument();
   const t = quoteSums(q);
   const name = `${q.quoteNumber ? q.quoteNumber + " " : ""}${q.title || "Quote"}`;
   const c = await company();

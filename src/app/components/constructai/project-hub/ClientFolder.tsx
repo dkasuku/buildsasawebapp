@@ -8,6 +8,7 @@ import { Copy, Eye, Loader2, Lock, Mail, MessageCircle, Send, Trash2, UserPlus, 
 import { ChatThread, CommentThread, MediaPicker, UpdateFeed } from "../client/ClientParts";
 import { clientApi, STAGES, UPDATE_KINDS, when, type ClientComment, type ClientUpdate, type Media } from "../client/clientData";
 import { Tabs } from "../PageShell";
+import api, { type UnitDto } from "../../../services/api";
 // The 360° viewer pulls in three.js; load it only when the tours tab opens.
 const TourBuilder = lazy(() => import("../client/VirtualTour").then((m) => ({ default: m.TourBuilder })));
 
@@ -25,6 +26,12 @@ export function ClientFolder({ projectId, canInvite, onOpenPortal }: { projectId
   const [f, setF] = useState({ stage: "clearing", kind: "progress", title: "", body: "" });
   const [media, setMedia] = useState<Media[]>([]);
   const [posting, setPosting] = useState(false);
+  // Apartments and estates: an update or chat can be for one unit's buyer only.
+  const [units, setUnits] = useState<UnitDto[]>([]);
+  const [unitId, setUnitId] = useState("");
+  const [chatUnit, setChatUnit] = useState("");
+  useEffect(() => { api.getUnits(projectId).then(setUnits).catch(() => {}); }, [projectId]);
+  const unitCode = (id?: string | null) => units.find((u) => u.id === id)?.code;
 
   useEffect(() => {
     clientApi.projectClients(projectId).then(setClients).catch(() => setClients([]));
@@ -64,10 +71,10 @@ export function ClientFolder({ projectId, canInvite, onOpenPortal }: { projectId
     if (!f.title.trim()) return toast.error("Give the update a short title.");
     setPosting(true);
     try {
-      const u = await clientApi.postUpdate(projectId, { ...f, media });
+      const u = await clientApi.postUpdate(projectId, { ...f, media, ...(unitId ? { unitId } : {}) });
       setUpdates((x) => [u, ...(x || [])]);
       setF((x) => ({ ...x, title: "", body: "" })); setMedia([]);
-      toast.success(clients?.some((c) => c.joined) ? "Shared with your client." : "Shared. Your client sees it as soon as they create their account.");
+      toast.success(unitId ? `Shared with unit ${unitCode(unitId)}'s buyer only.` : clients?.some((c) => c.joined) ? "Shared with your client." : "Shared. Your client sees it as soon as they create their account.");
     } catch (e: any) { toast.error(e?.message || "Couldn't share the update."); }
     finally { setPosting(false); }
   };
@@ -112,7 +119,7 @@ export function ClientFolder({ projectId, canInvite, onOpenPortal }: { projectId
         <div className="mt-3 text-[11px] text-[#5B6675] flex items-start gap-1.5"><Eye className="w-3.5 h-3.5 mt-0.5 shrink-0" />Daily logs are shared by default (photos, videos, weather and headcount; your notes stay internal), and you can switch any log off. Inspections are shared one by one with the "Share with client" button on each inspection.</div>
       </section>
 
-      {clients !== null && clients.length === 0 ? (
+      {clients !== null && clients.length === 0 && !units.length ? (
         <div className="rounded-xl border border-dashed border-[#2C3744] bg-[#11161D] p-6 text-center">
           <div className="text-[13.5px] text-white">No client on this project yet</div>
           <p className="text-[12px] text-[#8A95A5] mt-1 max-w-md mx-auto">Invite the project owner above first. Then you can share progress updates, reports and documents, and chat with them. Nothing is shared until someone is invited.</p>
@@ -135,6 +142,14 @@ export function ClientFolder({ projectId, canInvite, onOpenPortal }: { projectId
                 <select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })} className={input}>{UPDATE_KINDS.map((k) => <option key={k.key} value={k.key}>{k.label}</option>)}</select>
               </label>
             </div>
+            {units.length > 0 && (
+              <label className="block"><span className="text-[11px] text-[#8A95A5]">Who sees this</span>
+                <select value={unitId} onChange={(e) => setUnitId(e.target.value)} className={input} aria-label="Who sees this">
+                  <option value="">Everyone on the project (all {units.length} unit buyers and the owner)</option>
+                  {units.map((u) => <option key={u.id} value={u.id}>Only unit {u.code}{u.clientName ? ` (${u.clientName})` : ""}</option>)}
+                </select>
+              </label>
+            )}
             <input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="e.g. Fence posts set along the north boundary" className={input} />
             <textarea value={f.body} onChange={(e) => setF({ ...f, body: e.target.value })} rows={3} placeholder="e.g. 48 concrete posts set at 3 m spacing. Chain-link goes up on Thursday if the weather holds." className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-3 py-2 text-[12.5px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]/60" />
             <MediaPicker value={media} onChange={setMedia} docs />
@@ -142,7 +157,7 @@ export function ClientFolder({ projectId, canInvite, onOpenPortal }: { projectId
             <button onClick={post} disabled={posting} className="h-9 px-4 rounded-md bg-[#FF6B1A] text-white text-[12.5px] inline-flex items-center gap-1.5 disabled:opacity-60">{posting && <Loader2 className="w-4 h-4 animate-spin" />}Share with client</button>
           </section>
           {updates === null ? <div className="text-[12px] text-[#5B6675]"><Loader2 className="w-3.5 h-3.5 animate-spin inline mr-1" />Loading…</div>
-            : <UpdateFeed updates={updates} onDelete={del} renderComments={(u) => reply("update", u.id)} empty="Nothing shared yet. Post photos of each stage (land clearing, fencing, foundation, roofing…) so the client sees the work as it happens." />}
+            : <UpdateFeed updates={updates.map((u) => (u.unitId && unitCode(u.unitId) ? { ...u, title: `Unit ${unitCode(u.unitId)} · ${u.title}` } : u))} onDelete={del} renderComments={(u) => reply("update", u.id)} empty="Nothing shared yet. Post photos of each stage (land clearing, fencing, foundation, roofing…) so the client sees the work as it happens." />}
         </>
       )}
       {tab === "tours" && <Suspense fallback={<div className="text-[12px] text-[#5B6675]"><Loader2 className="w-3.5 h-3.5 animate-spin inline mr-1" />Loading…</div>}><TourBuilder projectId={projectId} canShare={canInvite} hasClient={!!clients?.length} /></Suspense>}
@@ -152,8 +167,14 @@ export function ClientFolder({ projectId, canInvite, onOpenPortal }: { projectId
             <button onClick={() => setPriv(false)} className={`h-8 px-3 rounded-full text-[12px] border inline-flex items-center gap-1.5 ${!priv ? "bg-[#161C24] border-[#2C3744] text-white" : "border-[#222A35] text-[#8A95A5]"}`}><Users className="w-3.5 h-3.5" /> Team chat</button>
             <button onClick={() => setPriv(true)} className={`h-8 px-3 rounded-full text-[12px] border inline-flex items-center gap-1.5 ${priv ? "bg-[#161C24] border-[#2C3744] text-white" : "border-[#222A35] text-[#8A95A5]"}`}><Lock className="w-3.5 h-3.5" /> Private chat</button>
           </div>
+          {units.length > 0 && (
+            <select value={chatUnit} onChange={(e) => setChatUnit(e.target.value)} className={`${input} sm:w-auto`} aria-label="Chat with">
+              <option value="">The project's client (owner)</option>
+              {units.map((u) => <option key={u.id} value={u.id}>Buyer of unit {u.code}{u.clientName ? ` (${u.clientName})` : ""}</option>)}
+            </select>
+          )}
           <p className="text-[11.5px] text-[#8A95A5]">{priv ? "Only you and the client can read this chat. Your teammates can't see it." : "Everyone on your team who can open this project can read this chat with the client."}</p>
-          <ChatThread key={priv ? "p" : "g"} load={() => clientApi.projectMessages(projectId, priv)} send={(b, m) => clientApi.sendProjectMessage(projectId, b, m, priv)} mine={(m) => m.senderType === "team"} placeholder={priv ? "Private message to the client…" : "Message the client…"} />
+          <ChatThread key={`${priv ? "p" : "g"}-${chatUnit}`} load={() => clientApi.projectMessages(projectId, priv, chatUnit || undefined)} send={(b, m) => clientApi.sendProjectMessage(projectId, b, m, priv, chatUnit || undefined)} mine={(m) => m.senderType === "team"} placeholder={priv ? "Private message to the client…" : "Message the client…"} />
         </>
       )}
       {tab === "feedback" && (

@@ -225,8 +225,16 @@ export function toCsv(text: string, title: string) {
   save(new Blob(["﻿" + rows.map((r) => r.map(q).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" }), fileName(title, "csv"));
 }
 
+/** Each document counts towards the company's daily allowance. Past it the
+ *  server says so (and the app offers credits); a network hiccup never blocks a download. */
+export async function countDocument() {
+  try { await api.aiUseDocument(); }
+  catch (e: any) { if (/today's|Sasa Credits|credit pack/i.test(String(e?.message || ""))) throw e; }
+}
+
 /** Download an AI answer (or one of its tables, as markdown) in a format. */
 export async function exportAnswer(text: string, format: DocFormat, title: string) {
+  if (format !== "csv") await countDocument();
   // "Here's the quote…" / "Sure!" reads fine in a chat, not on a document.
   text = text.replace(/^\s*(here'?s|here is|sure|certainly|great|okay|ok)\b[^\n]*\n+/i, "");
   if (format === "pdf") return toPdf(text, title);

@@ -90,8 +90,12 @@ module.exports = function clientRoutes(app, d) {
   // Best-effort email; never blocks a request.
   const notify = (to, subject, html) => { if (to) sendEmail({ to, subject, html: emailShell(subject, html) }).catch(() => {}); };
   const p14 = (s) => `<p style="font-size:14px;color:#11161D">${s}</p>`;
-  async function emailClients(projectId, subject, line) {
-    const links = await prismaBase.projectClient.findMany({ where: { projectId } });
+  // scope: undefined = everyone on the project (news about the whole building);
+  // 'general' = the project's own clients, not unit buyers (the general chat);
+  // a unit id = only that unit's buyer.
+  async function emailClients(projectId, subject, line, scope) {
+    const where = { projectId, ...(scope === 'general' ? { unitId: null } : scope ? { unitId: scope } : {}) };
+    const links = await prismaBase.projectClient.findMany({ where });
     for (const l of links) notify(l.email, subject, p14(line) + button(`${APP_URL}/?as=client&project=${projectId}`, 'Open Buildsasa'));
   }
   async function emailTeam(workspaceId, subject, line) {
@@ -183,12 +187,18 @@ module.exports = function clientRoutes(app, d) {
       const companies = await prismaBase.workspace.findMany({ where: { id: { in: wsIds } } });
       const activeWs = new Set(await activeWorkspaceIds());
       const byWs = Object.fromEntries(companies.map((w) => [w.id, w]));
-      const [cos, sels, invs, lastUpdates] = await Promise.all([
+      // A unit buyer's to-do list holds only their own unit's invoices.
+      const unitOf = Object.fromEntries(links.filter((l) => l.unitId).map((l) => [l.projectId, l.unitId]));
+      const [cos0, sels0, invs0, lastUpdates0] = await Promise.all([
         prismaBase.changeOrder.findMany({ where: { projectId: { in: ids }, status: 'owner_approval' }, select: { id: true, projectId: true, title: true, number: true } }),
         prismaBase.selection.findMany({ where: { projectId: { in: ids }, status: 'awaiting_client' }, select: { id: true, projectId: true, name: true } }),
-        prismaBase.invoice.findMany({ where: { projectId: { in: ids }, status: { in: ['sent', 'overdue', 'partial', 'unpaid'] } }, select: { id: true, projectId: true, invoiceNumber: true, amount: true, paidAmount: true, dueDate: true } }),
-        prismaBase.clientUpdate.findMany({ where: { projectId: { in: ids } }, orderBy: { createdAt: 'desc' }, take: 40 }),
+        prismaBase.invoice.findMany({ where: { projectId: { in: ids }, status: { in: ['sent', 'overdue', 'partial', 'unpaid'] } }, select: { id: true, projectId: true, unitId: true, invoiceNumber: true, amount: true, paidAmount: true, dueDate: true } }),
+        prismaBase.clientUpdate.findMany({ where: { projectId: { in: ids } }, orderBy: { createdAt: 'desc' }, take: 80 }),
       ]);
+      const cos = cos0.filter((c) => !unitOf[c.projectId]);
+      const sels = sels0.filter((s) => !unitOf[s.projectId]);
+      const invs = invs0.filter((i) => !unitOf[i.projectId] || i.unitId === unitOf[i.projectId]);
+      const lastUpdates = lastUpdates0.filter((x) => !unitOf[x.projectId] || !x.unitId || x.unitId === unitOf[x.projectId]);
       const todo = [
         ...cos.map((c) => ({ kind: 'change_order', projectId: c.projectId, label: `Approve or reject change order ${c.number || ''}: ${c.title}`.replace('  ', ' ') })),
         ...sels.map((s) => ({ kind: 'selection', projectId: s.projectId, label: `Choose or approve a finish: ${s.name}` })),
@@ -241,19 +251,29 @@ module.exports = function clientRoutes(app, d) {
         token = require('crypto').randomBytes(12).toString('base64url');
         await prismaBase.project.update({ where: { id: p.id }, data: { portalToken: token, portalSharedAt: new Date() } });
       }
-      const [portal, updates, logs, inspections, tours] = await Promise.all([
+      // A buyer of one unit (apartments, estates) sees their unit and news about
+      // the whole project, never the other buyers' invoices, approvals or chats,
+      // and gets no project-wide portal link.
+      const unitId = hit.link.unitId || null;
+      const unit = unitId ? await prismaBase.projectUnit.findUnique({ where: { id: unitId } }) : null;
+      const [portal0, updates, logs, inspections, tours] = await Promise.all([
         portalPayload({ ...p, portalToken: token }),
-        prismaBase.clientUpdate.findMany({ where: { projectId: p.id }, orderBy: { createdAt: 'desc' }, take: 200 }),
+        prismaBase.clientUpdate.findMany({ where: { projectId: p.id, ...(unitId ? { OR: [{ unitId }, { unitId: null }] } : {}) }, orderBy: { createdAt: 'desc' }, take: 200 }),
         prismaBase.dailyLog.findMany({ where: { projectId: p.id, clientVisible: true }, orderBy: { date: 'desc' }, take: 90 }),
         prismaBase.inspection.findMany({ where: { projectId: p.id, clientVisible: true }, orderBy: { createdAt: 'desc' }, take: 100 }),
         prismaBase.virtualTour.findMany({ where: { projectId: p.id, sharedAt: { not: null } }, orderBy: { sharedAt: 'desc' }, take: 50 }),
       ]);
       const urls = (raw) => parse(raw).filter((x) => typeof x === 'string' && /^https?:\/\//i.test(x));
+      const portal = unitId
+        ? { ...portal0, changeOrders: [], selections: [], invoices: portal0.invoices.filter((i) => i.unitId === unitId) }
+        : portal0;
+      portal.invoices = portal.invoices.map(({ unitId: _u, ...i }) => i);
       res.json({
         // A lapsed contractor subscription never locks the client out: what was
         // shared stays theirs to see. The flag only explains why the team may be
         // slow to reply and why new updates may pause.
-        id: p.id, companyId: p.workspaceId, companyActive: (await activeWorkspaceIds()).includes(p.workspaceId), portalToken: token, ...portal,
+        id: p.id, companyId: p.workspaceId, companyActive: (await activeWorkspaceIds()).includes(p.workspaceId), portalToken: unitId ? null : token, ...portal,
+        unit: unit ? { id: unit.id, code: unit.code, block: unit.block, floor: unit.floor, type: unit.type, status: unit.status, progress: unit.progress, stages: parse(unit.stages), link: unit.shareToken ? `${APP_URL}/?unit=${unit.shareToken}` : null } : null,
         updates: updates.map(updateDto),
         tours: tours.map((t) => ({ id: t.id, title: t.title, description: t.description, stage: t.stage, createdBy: t.createdBy, sharedAt: t.sharedAt, scenes: parse(t.scenes) })),
         // Daily logs ARE shared (a client abroad wants to know the site was worked
@@ -277,7 +297,7 @@ module.exports = function clientRoutes(app, d) {
       const hit = await linkedProject(req, req.params.id);
       if (!hit) return res.status(404).json({ error: 'This site isn\'t linked to your account.' });
       const thread = req.query.thread && req.query.thread !== 'group' ? String(req.query.thread) : null;
-      const rows = await prismaBase.clientMessage.findMany({ where: { projectId: hit.p.id, threadUserId: thread }, orderBy: { createdAt: 'asc' }, take: 500 });
+      const rows = await prismaBase.clientMessage.findMany({ where: { projectId: hit.p.id, threadUserId: thread, unitId: hit.link.unitId || null }, orderBy: { createdAt: 'asc' }, take: 500 });
       res.json(rows.map(msgDto));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -290,12 +310,12 @@ module.exports = function clientRoutes(app, d) {
       if (!body && !media) return res.status(400).json({ error: 'Write a message or attach a photo.' });
       // A private reply is only allowed into a thread a team member opened.
       let thread = req.body?.threadUserId ? String(req.body.threadUserId) : null;
-      if (thread && !(await prismaBase.clientMessage.findFirst({ where: { projectId: hit.p.id, threadUserId: thread } }))) thread = null;
-      const row = await prismaBase.clientMessage.create({ data: { workspaceId: hit.p.workspaceId, projectId: hit.p.id, threadUserId: thread, senderType: 'client', senderId: hit.u.id, senderName: hit.u.name, body, media } });
+      if (thread && !(await prismaBase.clientMessage.findFirst({ where: { projectId: hit.p.id, threadUserId: thread, unitId: hit.link.unitId || null } }))) thread = null;
+      const row = await prismaBase.clientMessage.create({ data: { workspaceId: hit.p.workspaceId, projectId: hit.p.id, unitId: hit.link.unitId || null, threadUserId: thread, senderType: 'client', senderId: hit.u.id, senderName: hit.u.name, body, media } });
       if (thread) {
         const t = await prismaBase.user.findUnique({ where: { id: thread }, select: { email: true } });
         if (t) notify(t.email, `Private message from your client on ${hit.p.name}`, p14(`<b>${hit.u.name}</b> wrote: “${(body || 'sent photos').slice(0, 300)}”. Reply in the project's Client tab, Private chat.`) + button(APP_URL, 'Open Buildsasa'));
-      } else emailTeam(hit.p.workspaceId, `New message from your client on ${hit.p.name}`, `<b>${hit.u.name}</b> wrote: “${(body || 'sent photos').slice(0, 300)}”. Reply from the project's Client tab.`);
+      } else emailTeam(hit.p.workspaceId, `New message from your client on ${hit.p.name}`, `<b>${hit.u.name}</b>${hit.link.unitId ? ' (unit buyer)' : ''} wrote: “${(body || 'sent photos').slice(0, 300)}”. Reply from the project's Client tab.`);
       res.json(msgDto(row));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -305,7 +325,7 @@ module.exports = function clientRoutes(app, d) {
     try {
       const hit = await linkedProject(req, req.params.id);
       if (!hit) return res.status(404).json({ error: 'This site isn\'t linked to your account.' });
-      const rows = await prismaBase.clientMessage.findMany({ where: { projectId: hit.p.id, threadUserId: { not: null } }, select: { threadUserId: true, createdAt: true }, orderBy: { createdAt: 'desc' } });
+      const rows = await prismaBase.clientMessage.findMany({ where: { projectId: hit.p.id, threadUserId: { not: null }, unitId: hit.link.unitId || null }, select: { threadUserId: true, createdAt: true }, orderBy: { createdAt: 'desc' } });
       const ids = [...new Set(rows.map((r) => r.threadUserId))];
       const users = await prismaBase.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, role: true } });
       res.json(ids.map((id) => { const u = users.find((x) => x.id === id); return { userId: id, name: u ? u.name : 'Team member', role: u ? u.role : null }; }));
@@ -317,7 +337,7 @@ module.exports = function clientRoutes(app, d) {
     try {
       const hit = await linkedProject(req, req.params.id);
       if (!hit) return res.status(404).json({ error: 'This site isn\'t linked to your account.' });
-      res.json((await prismaBase.clientComment.findMany({ where: { projectId: hit.p.id }, orderBy: { createdAt: 'asc' }, take: 1000 })).map(msgDto));
+      res.json((await prismaBase.clientComment.findMany({ where: { projectId: hit.p.id, unitId: hit.link.unitId || null }, orderBy: { createdAt: 'asc' }, take: 1000 })).map(msgDto));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -329,7 +349,7 @@ module.exports = function clientRoutes(app, d) {
       if (!COMMENT_TARGETS.includes(b.targetType) || !b.targetId) return res.status(400).json({ error: 'What are you commenting on?' });
       const body = text(b.body, 3000); const media = cleanMedia(b.media);
       if (!body && !media) return res.status(400).json({ error: 'Write a comment or attach a photo.' });
-      const row = await prismaBase.clientComment.create({ data: { workspaceId: hit.p.workspaceId, projectId: hit.p.id, targetType: b.targetType, targetId: String(b.targetId), authorType: 'client', authorId: hit.u.id, authorName: hit.u.name, body, media } });
+      const row = await prismaBase.clientComment.create({ data: { workspaceId: hit.p.workspaceId, projectId: hit.p.id, unitId: hit.link.unitId || null, targetType: b.targetType, targetId: String(b.targetId), authorType: 'client', authorId: hit.u.id, authorName: hit.u.name, body, media } });
       emailTeam(hit.p.workspaceId, `Your client commented on ${hit.p.name}`, `<b>${hit.u.name}</b> commented on a shared ${b.targetType === 'dailylog' ? 'daily log' : b.targetType === 'changeorder' ? 'change order' : b.targetType === 'tour' ? '360° tour' : b.targetType}: “${(body || 'sent photos').slice(0, 300)}”. Reply from the project's Client tab, Client feedback.`);
       res.json(msgDto(row));
     } catch (e) { res.status(500).json({ error: e.message }); }
@@ -630,7 +650,7 @@ module.exports = function clientRoutes(app, d) {
       const p = await ownProject(req.params.projectId);
       if (!p) return res.status(404).json({ error: 'Project not found' });
       const rows = await prismaBase.projectClient.findMany({ where: { projectId: p.id }, orderBy: { createdAt: 'asc' } });
-      res.json(rows.map((r) => ({ id: r.id, email: r.email, name: r.name, joined: !!r.userId, createdAt: r.createdAt })));
+      res.json(rows.map((r) => ({ id: r.id, email: r.email, name: r.name, joined: !!r.userId, unitId: r.unitId || null, createdAt: r.createdAt })));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -695,17 +715,21 @@ module.exports = function clientRoutes(app, d) {
     try {
       const p = await ownProject(req.params.projectId);
       if (!p) return res.status(404).json({ error: 'Project not found' });
-      if (!(await hasClient(p.id))) return res.status(409).json({ error: NO_CLIENT });
       const b = req.body || {};
+      const unit = b.unitId ? await prismaBase.projectUnit.findFirst({ where: { id: String(b.unitId), projectId: p.id } }) : null;
+      if (b.unitId && !unit) return res.status(404).json({ error: 'Unit not found' });
+      const anyUnits = !unit && await prismaBase.projectUnit.findFirst({ where: { projectId: p.id, shareToken: { not: null } }, select: { id: true } });
+      if (!unit && !anyUnits && !(await hasClient(p.id))) return res.status(409).json({ error: NO_CLIENT });
       const title = text(b.title, 200);
       if (!title) return res.status(400).json({ error: 'Give the update a short title, e.g. "Fence posts set on the north side".' });
       const stage = STAGES.includes(b.stage) ? b.stage : 'other';
       const row = await prismaBase.clientUpdate.create({ data: {
-        workspaceId: p.workspaceId, projectId: p.id, stage, kind: UPDATE_KINDS.includes(b.kind) ? b.kind : 'progress',
+        workspaceId: p.workspaceId, projectId: p.id, unitId: unit ? unit.id : null, stage, kind: UPDATE_KINDS.includes(b.kind) ? b.kind : 'progress',
         title, body: text(b.body, 6000), media: cleanMedia(b.media),
         authorId: req.user.sub, authorName: req.user.name || null, authorRole: req.user.role || null,
       } });
-      emailClients(p.id, `New update on ${p.name}: ${title}`, `<b>${req.user.name || 'Your contractor'}</b> shared an update on <b>${p.name}</b>: “${title}”${parse(row.media).length ? ` with ${parse(row.media).length} photo${parse(row.media).length > 1 ? 's/videos' : ''}` : ''}.`);
+      if (unit) { for (const e of await units.unitRecipients(unit)) notify(e, `New update on your unit ${unit.code}: ${title}`, p14(`<b>${req.user.name || 'Your developer'}</b> shared an update on unit <b>${unit.code}</b> at <b>${p.name}</b>: “${title}”.`) + (unit.shareToken ? button(`${APP_URL}/?unit=${unit.shareToken}`, 'See it') : '')); }
+      else emailClients(p.id, `New update on ${p.name}: ${title}`, `<b>${req.user.name || 'Your contractor'}</b> shared an update on <b>${p.name}</b>: “${title}”${parse(row.media).length ? ` with ${parse(row.media).length} photo${parse(row.media).length > 1 ? 's/videos' : ''}` : ''}.`);
       res.json(updateDto(row));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -798,7 +822,9 @@ module.exports = function clientRoutes(app, d) {
       if (!p) return res.status(404).json({ error: 'Project not found' });
       // The team chat is visible to everyone on the team; a private chat only to its owner.
       const thread = req.query.thread === 'private' ? req.user.sub : null;
-      res.json((await prismaBase.clientMessage.findMany({ where: { projectId: p.id, threadUserId: thread }, orderBy: { createdAt: 'asc' }, take: 500 })).map(msgDto));
+      // ?unit=<id>: the chat with one unit's buyer; without it, the project's own client chat.
+      const unitId = req.query.unit ? String(req.query.unit) : null;
+      res.json((await prismaBase.clientMessage.findMany({ where: { projectId: p.id, threadUserId: thread, unitId }, orderBy: { createdAt: 'asc' }, take: 500 })).map(msgDto));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -806,11 +832,13 @@ module.exports = function clientRoutes(app, d) {
     try {
       const p = await ownProject(req.params.projectId);
       if (!p) return res.status(404).json({ error: 'Project not found' });
-      if (!(await hasClient(p.id))) return res.status(409).json({ error: NO_CLIENT });
+      const unit = req.body?.unitId ? await prismaBase.projectUnit.findFirst({ where: { id: String(req.body.unitId), projectId: p.id } }) : null;
+      if (req.body?.unitId && !unit) return res.status(404).json({ error: 'Unit not found' });
+      if (!unit && !(await hasClient(p.id))) return res.status(409).json({ error: NO_CLIENT });
       const body = text(req.body?.body, 4000); const media = cleanMedia(req.body?.media);
       if (!body && !media) return res.status(400).json({ error: 'Write a message or attach a photo.' });
-      const row = await prismaBase.clientMessage.create({ data: { workspaceId: p.workspaceId, projectId: p.id, threadUserId: req.body?.private ? req.user.sub : null, senderType: 'team', senderId: req.user.sub, senderName: req.user.name || 'Site team', body, media } });
-      emailClients(p.id, `New message about ${p.name}`, `<b>${req.user.name || 'Your contractor'}</b>: “${(body || 'sent photos').slice(0, 300)}”`);
+      const row = await prismaBase.clientMessage.create({ data: { workspaceId: p.workspaceId, projectId: p.id, unitId: unit ? unit.id : null, threadUserId: req.body?.private ? req.user.sub : null, senderType: 'team', senderId: req.user.sub, senderName: req.user.name || 'Site team', body, media } });
+      emailClients(p.id, `New message about ${unit ? `your unit ${unit.code} at ` : ''}${p.name}`, `<b>${req.user.name || 'Your contractor'}</b>: “${(body || 'sent photos').slice(0, 300)}”`, unit ? unit.id : 'general');
       res.json(msgDto(row));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -831,8 +859,14 @@ module.exports = function clientRoutes(app, d) {
       if (!COMMENT_TARGETS.includes(b.targetType) || !b.targetId) return res.status(400).json({ error: 'What are you replying to?' });
       const body = text(b.body, 3000); const media = cleanMedia(b.media);
       if (!body && !media) return res.status(400).json({ error: 'Write a reply or attach a photo.' });
-      const row = await prismaBase.clientComment.create({ data: { workspaceId: p.workspaceId, projectId: p.id, targetType: b.targetType, targetId: String(b.targetId), authorType: 'team', authorId: req.user.sub, authorName: req.user.name || 'Site team', body, media } });
-      emailClients(p.id, `${req.user.name || 'Your contractor'} replied on ${p.name}`, `“${(body || 'sent photos').slice(0, 300)}”`);
+      // The reply goes to whoever asked: a unit buyer's question is answered to that buyer only.
+      let unitId = b.unitId ? String(b.unitId) : undefined;
+      if (unitId === undefined) {
+        const last = await prismaBase.clientComment.findFirst({ where: { projectId: p.id, targetType: b.targetType, targetId: String(b.targetId), authorType: 'client' }, orderBy: { createdAt: 'desc' } });
+        unitId = last ? last.unitId : null;
+      }
+      const row = await prismaBase.clientComment.create({ data: { workspaceId: p.workspaceId, projectId: p.id, unitId: unitId || null, targetType: b.targetType, targetId: String(b.targetId), authorType: 'team', authorId: req.user.sub, authorName: req.user.name || 'Site team', body, media } });
+      emailClients(p.id, `${req.user.name || 'Your contractor'} replied on ${p.name}`, `“${(body || 'sent photos').slice(0, 300)}”`, unitId || 'general');
       res.json(msgDto(row));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -965,6 +999,8 @@ module.exports = function clientRoutes(app, d) {
       res.json(msgDto(row));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
+
+  const units = require('./units-routes')(app, { ...d, text, parse, cleanMedia, updateDto, notify, p14, button, ownProject, kes, STAGES, UPDATE_KINDS });
 
   app.get('/api/admin/clients', auth, requireStaff, async (_req, res) => {
     try {

@@ -31,7 +31,7 @@ const TENANT_MODELS = new Set([
   'DirectoryContact', 'CompanyDoc', 'Announcement', 'FormTemplate', 'Conversation',
   'PaymentApplication', 'RetentionRecord', 'CostCode', 'Approval',
   'InventoryItem', 'InventoryMovement',
-  'BoqRevision', 'RateLibraryItem', 'Quote', 'Selection', 'AiDesign',
+  'BoqRevision', 'RateLibraryItem', 'Quote', 'Selection', 'AiDesign', 'ProjectUnit',
 ]);
 const prismaBase = new PrismaClient();
 const delegateOf = (m) => prismaBase[m.charAt(0).toLowerCase() + m.slice(1)];
@@ -2690,6 +2690,7 @@ app.post('/api/projects/:projectId/invoices', auth, async (req, res) => {
         subtotal: invNum(b.subtotal),
         paidAmount: b.paidAmount === undefined ? null : Math.round(Number(b.paidAmount) || 0),
         paidDate: b.paidDate,
+        unitId: b.unitId ? String(b.unitId) : null,
         projectId: req.params.projectId,
       },
     });
@@ -2700,7 +2701,7 @@ app.put('/api/projects/:projectId/invoices/:id', auth, async (req, res) => {
   try {
     // Partial update — only touch provided fields (so "record payment" doesn't wipe others).
     const data = {};
-    for (const f of ['invoiceNumber', 'clientName', 'status', 'issueDate', 'dueDate', 'items', 'notes', 'paidDate', 'billToAddress', 'shipTo', 'poNumber', 'paymentTerms', 'terms']) if (req.body[f] !== undefined) data[f] = req.body[f];
+    for (const f of ['invoiceNumber', 'clientName', 'status', 'issueDate', 'dueDate', 'items', 'notes', 'paidDate', 'billToAddress', 'shipTo', 'poNumber', 'paymentTerms', 'terms', 'unitId']) if (req.body[f] !== undefined) data[f] = req.body[f];
     for (const f of ['taxRate', 'discount', 'shipping', 'subtotal']) if (req.body[f] !== undefined) data[f] = invNum(req.body[f]);
     if (req.body.amount !== undefined) data.amount = Math.round(Number(req.body.amount) || 0);
     if (req.body.paidAmount !== undefined) data.paidAmount = req.body.paidAmount === null ? null : Math.round(Number(req.body.paidAmount) || 0);
@@ -3071,7 +3072,7 @@ async function portalPayload(p) {
       })),
       invoices: invoices.map((i) => ({
         invoiceNumber: i.invoiceNumber, amount: i.amount, paidAmount: i.paidAmount || 0, status: i.status,
-        issueDate: i.issueDate, dueDate: i.dueDate, items: parseJsonArr(i.items),
+        issueDate: i.issueDate, dueDate: i.dueDate, items: parseJsonArr(i.items), unitId: i.unitId || null,
       })),
     };
 }
@@ -5694,7 +5695,7 @@ app.post('/api/ai-credits/checkout', auth, async (req, res) => {
     if (!PAYSTACK_SECRET) return res.status(400).json({ error: 'Online payments aren\'t set up yet. Contact Buildsasa support to buy credits.' });
     const init = await paystackRequest('/transaction/initialize', 'POST', {
       email: req.user.email || 'owner@buildsasa.com', amount: Math.round(Number(pack.kes) * 100), currency: 'KES',
-      callback_url: `${process.env.APP_URL || 'http://localhost:5173'}?credits=1`,
+      callback_url: `${process.env.APP_URL || 'http://localhost:5173'}?credits=${req.body?.returnTo === 'ai' ? 'ai' : '1'}`,
       metadata: { kind: 'ai_credits', workspaceId: ws, packId: pack.id, credits: pack.credits, userId: req.user.sub },
     });
     if (!init.status) return res.status(502).json({ error: init.message || 'The payment couldn\'t be started. Please try again.' });
@@ -5819,6 +5820,136 @@ const withCredits = (action) => async (req, res, next) => {
   };
   next();
 };
+
+
+// ===== DAILY AI ALLOWANCES =====
+// On top of the monthly Sasa Credits, each company gets a fair daily allowance
+// of the expensive things: AI images, documents (PDF / Excel / Word), uploads to
+// the AI and voice. The amount depends on the plan. Past it, nobody has to wait
+// for tomorrow: each extra one is paid from top-up credits, and a pack can be
+// bought on the spot (M-Pesa or card). Admins can change the numbers in the
+// ai_credits settings (daily / extra).
+const DAILY_DEFAULTS = {
+  trial: { image: 3, document: 10, upload: 15, voice: 30 },
+  paid: { image: 15, document: 60, upload: 80, voice: 200 },
+  comp: { image: 50, document: 300, upload: 300, voice: 600 },
+};
+const EXTRA_DEFAULTS = { image: 25, document: 2, upload: 1, voice: 1 };
+const DAILY_LABEL = { image: 'AI images', document: 'documents', upload: 'uploads to the AI', voice: 'voice messages' };
+const DAILY_ONE = { image: 'AI image', document: 'document', upload: 'upload', voice: 'voice message' };
+const nairobiDay = () => new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10);
+const nextNairobiMidnight = () => { const d = new Date(Date.now() + 3 * 3600e3); d.setUTCHours(24, 0, 0, 0); return new Date(d.getTime() - 3 * 3600e3); };
+async function dailyConfig() {
+  const s = await creditSettings();
+  const d = s.daily || {};
+  return {
+    daily: { trial: { ...DAILY_DEFAULTS.trial, ...(d.trial || {}) }, paid: { ...DAILY_DEFAULTS.paid, ...(d.paid || {}) }, comp: { ...DAILY_DEFAULTS.comp, ...(d.comp || {}) } },
+    extra: { ...EXTRA_DEFAULTS, ...(s.extra || {}) },
+    packs: s.packs,
+  };
+}
+async function dailyTier(ws, email) {
+  if (email && (hasFreeAccess(email) || isPlatformAdmin(email))) return 'comp';
+  const sub = await prismaBase.subscription.findFirst({ where: { workspaceId: ws, status: 'active' }, select: { id: true } });
+  return sub ? 'paid' : 'trial';
+}
+class DailyLimitError extends Error { constructor(msg, info) { super(msg); this.status = 402; this.info = info; } }
+const sendDailyError = (res, e) => res.status(402).json({ error: e.message, code: 'DAILY_LIMIT', ...e.info });
+
+/** Can this company do `n` more of `kind` today? Returns what to record
+ *  afterwards; throws DailyLimitError when it can't, saying what it would cost. */
+async function checkDaily(req, kind, n = 1) {
+  const ws = currentWs();
+  if (!ws || !n) return null;
+  const cfg = await dailyConfig();
+  const tier = await dailyTier(ws, req.user?.email);
+  const limit = Number(cfg.daily[tier][kind]) || 0;
+  const day = nairobiDay();
+  const row = await prismaBase.aiDailyUsage.findUnique({ where: { workspaceId_day_kind: { workspaceId: ws, day, kind } } });
+  const used = row ? row.count : 0;
+  const over = Math.max(0, Math.min(n, used + n - limit));
+  const cost = over * (Number(cfg.extra[kind]) || 0);
+  if (!over || !cost) return { ws, day, kind, n, cost: 0 };
+  const w = await ensureCredits(ws, req.user?.email);
+  const topup = w?.aiTopupCredits || 0;
+  if (topup >= cost) return { ws, day, kind, n, cost, over };
+  const per = Number(cfg.extra[kind]) || 0;
+  throw new DailyLimitError(
+    `You've used today's ${limit} ${DAILY_LABEL[kind]}. They renew at midnight, or keep going now: each extra ${DAILY_ONE[kind]} costs ${per} top-up credit${per === 1 ? '' : 's'}${topup ? ` and you have ${topup}` : ''}. Buy a credit pack to continue straight away.`,
+    { kind, limit, used, tier, cost, topup, perExtra: per, resetsAt: nextNairobiMidnight(), packs: cfg.packs, payments: !!PAYSTACK_SECRET },
+  );
+}
+/** Record the use (and pay for the part past today's allowance from top-ups). */
+async function commitDaily(req, plan) {
+  if (!plan) return;
+  await prismaBase.aiDailyUsage.upsert({
+    where: { workspaceId_day_kind: { workspaceId: plan.ws, day: plan.day, kind: plan.kind } },
+    create: { workspaceId: plan.ws, day: plan.day, kind: plan.kind, count: plan.n },
+    update: { count: { increment: plan.n } },
+  });
+  if (plan.cost) {
+    const w = await prismaBase.workspace.findUnique({ where: { id: plan.ws }, select: { aiTopupCredits: true } });
+    const take = Math.min(plan.cost, w?.aiTopupCredits || 0);
+    if (!take) return;
+    await prismaBase.workspace.update({ where: { id: plan.ws }, data: { aiTopupCredits: { decrement: take } } });
+    await prismaBase.aiCreditTxn.create({ data: { workspaceId: plan.ws, delta: -take, bucket: 'topup', kind: 'usage', action: `extra_${plan.kind}`, note: `${plan.over} extra ${plan.over > 1 ? DAILY_LABEL[plan.kind] : DAILY_ONE[plan.kind]} after today's allowance`, userId: req.user?.sub || null, userName: req.user?.name || null } });
+  }
+}
+/** Route guard like withCredits: refuse before the work, record after success. */
+const withDaily = (kind, count = 1) => async (req, res, next) => {
+  const n = typeof count === 'function' ? count(req) : count;
+  let plan = null;
+  try { plan = await checkDaily(req, kind, n); }
+  catch (e) { if (e instanceof DailyLimitError) return sendDailyError(res, e); return res.status(500).json({ error: e.message }); }
+  if (!plan) return next();
+  const json = res.json.bind(res);
+  res.json = (body) => {
+    if (res.statusCode < 400) commitDaily(req, plan).catch((err) => console.error('[daily] record failed:', err.message));
+    return json(body);
+  };
+  next();
+};
+
+// Today's allowances, for the usage meter in the AI page.
+app.get('/api/ai/limits', auth, async (req, res) => {
+  try {
+    const ws = currentWs();
+    const cfg = await dailyConfig();
+    if (!ws) return res.json({ tier: 'trial', limits: cfg.daily.trial, used: {}, extra: cfg.extra, labels: DAILY_LABEL, packs: cfg.packs, topup: 0, balance: 0, resetsAt: nextNairobiMidnight(), payments: !!PAYSTACK_SECRET });
+    const tier = await dailyTier(ws, req.user?.email);
+    const rows = await prismaBase.aiDailyUsage.findMany({ where: { workspaceId: ws, day: nairobiDay() } });
+    const w = await ensureCredits(ws, req.user?.email);
+    res.json({
+      tier, limits: cfg.daily[tier], used: Object.fromEntries(rows.map((r) => [r.kind, r.count])), extra: cfg.extra, labels: DAILY_LABEL,
+      packs: cfg.packs, topup: w?.aiTopupCredits || 0, balance: (w?.aiPlanCredits || 0) + (w?.aiTopupCredits || 0), resetsAt: nextNairobiMidnight(), payments: !!PAYSTACK_SECRET,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Documents are drawn in the browser; it asks here first so they count.
+app.post('/api/ai/usage', auth, (req, res) => {
+  const kind = req.body?.kind === 'document' ? 'document' : null;
+  if (!kind) return res.status(400).json({ error: 'Unknown usage.' });
+  return withDaily(kind, 1)(req, res, () => res.json({ ok: true }));
+});
+
+// Spoken replies for voice chat. OpenAI's voice when the key is set; the app
+// falls back to the phone's own voice when this fails.
+app.post('/api/ai/speak', auth, withDaily('voice'), async (req, res) => {
+  try {
+    const input = String(req.body?.text || '').replace(/\s+/g, ' ').trim().slice(0, 1200);
+    if (!input) return res.status(400).json({ error: 'Nothing to say.' });
+    if (!openai) return res.status(503).json({ error: 'Voice needs the AI key on the server.' });
+    const voice = ['alloy', 'nova', 'onyx', 'shimmer', 'echo', 'fable'].includes(req.body?.voice) ? req.body.voice : 'nova';
+    const r = await openai.audio.speech.create({ model: 'tts-1', voice, input, response_format: 'mp3' });
+    const buf = Buffer.from(await r.arrayBuffer());
+    // res.json is what records the use; send the audio as base64 inside JSON.
+    res.json({ audio: `data:audio/mpeg;base64,${buf.toString('base64')}` });
+  } catch (e) {
+    console.error('[speak]', e.message);
+    res.status(502).json({ error: 'Couldn\'t make the voice reply.' });
+  }
+});
 
 
 // ===== DEEPSEEK AI =====
@@ -6034,7 +6165,7 @@ const AI_CATEGORY_GUIDE = {
   money: 'Money: budgets, spend, cash flow, invoices, change orders and commitments. Lead with the numbers from the data and flag risks.',
   checklists: 'Checklists, inspections and quality: build itemised checklists by trade and explain standards in plain language.',
   planning: 'Planning and scheduling: stage-by-stage programmes, durations, sequencing, critical path and lead times, as a table of tasks with durations. Offer to add the tasks to a project schedule with add-task actions.',
-  projects: 'Projects and clients: setting up projects (from a description, drawing, contract or photo), status and progress, client updates and the client portal link. Use create-project and share-portal actions.',
+  projects: 'Projects and clients: setting up projects (from a description, drawing, contract or photo), status and progress, client updates and the client portal link, and apartment blocks or estates with many units, each with its own buyer and progress report. Use create-project, share-portal, add-units, update-unit, share-update and unit-report actions.',
   invoices: 'Invoices and payments: raise invoices from a description, payment schedules, deposits, retention, chasing overdue payments (draft WhatsApp/email reminders). Use create-invoice actions.',
   materials: 'Materials, stock and equipment: material take-offs, stock levels, reorders, wastage, suppliers, plant and equipment (owned or hired). Use add-material and add-equipment actions.',
   budget: 'Budgeting and cost control: project budgets and BOQs by stage, budget vs actual, cash flow forecasts, cost-saving ideas. Use add-budget actions to put a budget on a project.',
@@ -6058,7 +6189,10 @@ Buildsasa is construction management software for contractors in Kenya and East 
 Clients get a client portal link per project (progress, photos, shared 360° tours, invoices, quotes to accept). Company details and logo (printed on quotes and invoices) are in Settings. AI features cost Sasa Credits: a chat answer 1, a design image 20, a design from a photo 30; trial workspaces get 50 a month.
 Buildsasa AI (this chat) can: answer from the workspace data, price jobs and write quotes, write daily logs, reports, letters and client updates, build checklists, generate interior designs (with or without a photo, shown right here in the chat with a costed materials list), open any page, and save records after the user confirms. Every answer can be downloaded as a PDF, Word or Excel document, and any table can be saved as a quote in Quotes.
 A quote you write appears as an editable quote in the chat: the user can change lines, quantities, rates, VAT, discount and client details, add their logo, then download or save it. When they ask you to change a quote, reply with the complete updated table.
-ATTACHMENTS: users can attach photos and documents (PDF, Word, Excel, CSV). Use them: price a BOQ, drawing or handwritten list; summarise or check a contract, tender or report; assess a site photo (progress, defects, safety hazards, likely causes and fixes); read a supplier quotation and compare it.`;
+ATTACHMENTS: users can attach photos and documents (PDF, Word, Excel, CSV). Use them: price a BOQ, drawing or handwritten list; summarise or check a contract, tender or report; assess a site photo (progress, defects, safety hazards, likely causes and fixes); read a supplier quotation and compare it.
+UNITS (apartment blocks, estates, gated communities): in a project's Units tab the team adds units (a whole block at once: floors × units per floor, or House 1…40), each with its own buyer, fit-out stages and progress. Each buyer gets a private link (no account needed) or a client account fenced to their unit: they see their unit's stages, photos, updates and invoices plus news about the whole project, and never the other buyers'. Updates can go to one unit or to everyone; "Send reports" emails every buyer their own unit's report, and each unit has a WhatsApp report button. Invoices can be billed to a unit.
+VOICE: the mic button turns speech into a message; "Voice chat" is hands-free: the user talks, you answer out loud, and they can say "yes, do it" to confirm your action cards. In voice chat keep answers short and spoken (no tables unless asked; say "I've put the details on screen").
+DAILY ALLOWANCES: besides monthly Sasa Credits, each company has a daily allowance of AI images, documents, uploads to the AI and voice messages (more on paid plans). Past it, extra use is paid from top-up credits, which can be bought instantly (M-Pesa or card) from the prompt that appears, so nobody has to wait for tomorrow.`;
 
 // ── Files attached in the AI chat ──
 // Only our own uploads are read (local /uploads or the storage bucket), never an
@@ -6113,7 +6247,7 @@ app.get('/api/files/data-url', auth, async (req, res) => {
 
 // ── Voice ── speak to Buildsasa AI: a short recording becomes text (Whisper).
 // Works in every browser that can record audio, unlike the Web Speech API.
-app.post('/api/ai/transcribe', auth, singleFile('file'), async (req, res) => {
+app.post('/api/ai/transcribe', auth, withDaily('voice'), singleFile('file'), async (req, res) => {
   const fs = require('fs');
   try {
     if (!req.file) return res.status(400).json({ error: 'No recording was received.' });
@@ -6223,7 +6357,7 @@ app.delete('/api/ai/conversations/:id', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/ai/assistant', auth, withCredits('assistant'), async (req, res) => {
+app.post('/api/ai/assistant', auth, withCredits('assistant'), withDaily('upload', (req) => (Array.isArray(req.body?.images) ? req.body.images.filter(Boolean).length : 0) + (Array.isArray(req.body?.files) ? req.body.files.filter(Boolean).length : 0)), async (req, res) => {
   try {
     const userId = req.user.sub;
     const { question, history, page, category } = req.body;
@@ -6247,6 +6381,7 @@ app.post('/api/ai/assistant', auth, withCredits('assistant'), async (req, res) =
     ]);
     const quotes = await prisma.quote.findMany({ orderBy: { createdAt: 'desc' }, take: 15, select: { quoteNumber: true, title: true, clientName: true, total: true, status: true, sentAt: true, viewedAt: true } }).catch(() => []);
     const team = await prisma.user.findMany({ where: { role: { not: 'Client' } }, take: 60, select: { name: true, email: true, role: true, trade: true } }).catch(() => []);
+    const units = await prisma.projectUnit.findMany({ take: 400, orderBy: { code: 'asc' }, select: { id: true, projectId: true, code: true, type: true, status: true, progress: true, clientName: true, clientEmail: true, clientPhone: true, shareToken: true, stages: true } }).catch(() => []);
 
     const fmt = (n) => '$' + Math.round(n || 0).toLocaleString('en-US');
     const group = (arr) => { const m = {}; (arr || []).forEach((r) => { (m[r.projectId] = m[r.projectId] || []).push(r); }); return m; };
@@ -6263,6 +6398,18 @@ app.post('/api/ai/assistant', auth, withCredits('assistant'), async (req, res) =
     if (safetyIncidents.length) safeLines.push('SAFETY INCIDENTS:\n' + safetyIncidents.map((s) => `  - ${s.incidentType} | ${s.severity} | ${s.status} | ${s.date}`).join('\n'));
     if (dailyLogs.length) safeLines.push('DAILY LOGS:\n' + dailyLogs.map((d) => `  - ${d.date.toISOString().split('T')[0]} | ${d.crew} | ${d.headcount} crew | ${d.location} | ${d.notes}`).join('\n'));
     if (equipment.length) safeLines.push('EQUIPMENT:\n' + equipment.map((e) => `  - ${e.name} | ${e.category} | ${e.status} | ${e.location || 'N/A'}`).join('\n'));
+    if (units.length) {
+      const byP = {};
+      units.forEach((u) => { (byP[u.projectId] = byP[u.projectId] || []).push(u); });
+      safeLines.push('UNITS (apartments / estate houses, each with its own buyer):\n' + Object.entries(byP).map(([pid, list]) => {
+        const avg = Math.round(list.reduce((s2, u) => s2 + u.progress, 0) / list.length);
+        return `  ${pName(pid)} [id ${pid}]: ${list.length} units, average ${avg}%\n` + list.slice(0, 80).map((u) => {
+          let next = '';
+          try { next = (JSON.parse(u.stages || '[]').find((x) => !x.done) || {}).name || ''; } catch { /* */ }
+          return `    - ${u.code}${u.type ? ` (${u.type})` : ''} | ${u.progress}% | ${u.status}${next ? ` | next: ${next}` : ''} | buyer: ${u.clientName || 'none'}${u.clientEmail ? ' (email on file)' : ''}${u.clientPhone ? ' (phone on file)' : ''}${u.shareToken ? ' | link shared' : ''}`;
+        }).join('\n');
+      }).join('\n'));
+    }
     if (team.length) safeLines.push('TEAM MEMBERS:\n' + team.map((u) => `  - ${u.name} <${u.email}> | ${u.role}${u.trade ? ` | ${u.trade}` : ''}`).join('\n'));
 
     // ---- Financial context — managers only ----
@@ -6333,6 +6480,11 @@ DOING THINGS FOR THE USER (you are their hands in Buildsasa): when the user asks
   [[do:schedule-inspection|{"projectId":"<id>","type":"...","date":"YYYY-MM-DD","inspector":"..."}]]
   [[do:report-incident|{"projectId":"<id>","incidentType":"near_miss|injury|property_damage|environmental|other","severity":"minor|moderate|major","date":"YYYY-MM-DD","description":"...","correctiveAction":"..."}]]
   [[do:announce|{"title":"...","body":"...","priority":"normal|high"}]] (an announcement to the team)
+  [[do:add-units|{"projectId":"<id or new>","block":"A","floors":5,"perFloor":4,"groundFloor":true,"type":"2 bedroom"}]] (an apartment block: makes A-G01…A-504) or {"projectId":"...","count":40,"prefix":"House ","type":"3 bedroom bungalow"} (an estate)
+  [[do:update-unit|{"projectId":"<id>","unit":"<code from UNITS>","done":["Tiling","Painting"],"status":"snagging","clientName":"...","clientEmail":"...","clientPhone":"..."}]] (tick finished stages, set the buyer)
+  [[do:share-update|{"projectId":"<id>","unit":"<code, or omit for everyone on the project>","title":"...","body":"...","stage":"foundation|walling|roofing|services|finishes|handover|other"}]] (posts a progress update to the client(s) and emails them)
+  [[do:unit-report|{"projectId":"<id>","unit":"<code, or ALL for every buyer>"}]] (sends each buyer their own unit's progress report by email, with WhatsApp text)
+SHARING WITH CLIENTS AND OWNERS: Information about a client's or owner's project (progress, photos, invoices, prices, unit details) is theirs. Never share it, or offer links to it, unless the user asks you to share or send it. When sharing would clearly help (a milestone is reached, a unit is ready), ASK first ("Shall I send unit A-12's buyer a progress report?") instead of adding the tag. When the user asks you to share or send, add the share tag; the user still confirms the card. A unit's buyer only ever gets their own unit's details plus news about the whole project, never another buyer's unit, name or payments.
 When the user attaches a drawing, contract, BOQ or photo and says "create a project from this", read it and fill create-project (and add-budget lines if it has quantities). Briefly say what you set up; never claim it is done before the user confirms. Only ask a question if something essential is missing (e.g. an email to invite someone).
 DOCUMENTS: Every answer has buttons to download it as PDF, Word or Excel, and tables can be saved as quotes. When asked for a quote, BOQ, report, letter or log "in PDF/Excel/Word", just write the content well (the app downloads it in that format automatically); never say you can't create files. For a QUOTE: a markdown table with columns | Item | Description | Quantity | Unit | Rate (KES) | Amount (KES) |, one line per item (group by stage in the Item names where useful: Substructure, Walling, Roofing, Finishes, Labour…), then a bold subtotal, VAT 16% if appropriate and a bold total, then assumptions and exclusions. Offer to save it in Quotes for the client.
 ESTIMATES AND LISTS: For material estimates, bills of quantities, schedules, comparisons or any list of figures, answer with a markdown table (| Item | Description | Quantity | Unit | Rate (KES) | Amount (KES) |) followed by a bold total line. Use current Kenyan market rates in KES unless the user names another currency, and say they are estimates to confirm with suppliers. The user can export any table to CSV.
@@ -6477,7 +6629,7 @@ const providerMessage = (e) => {
   return 'The design couldn\'t be generated. Please try again.';
 };
 
-app.post('/api/ai/design', auth, withCredits((req) => (Array.isArray(req.body?.images) && req.body.images.filter(Boolean).length ? 'design_photos' : 'design')), async (req, res) => {
+app.post('/api/ai/design', auth, withDaily('image'), withCredits((req) => (Array.isArray(req.body?.images) && req.body.images.filter(Boolean).length ? 'design_photos' : 'design')), async (req, res) => {
   try {
     if (!openai) return res.status(503).json({ error: 'AI design generation isn\'t set up on this server yet.' });
     const ws = currentWs();

@@ -43,12 +43,13 @@ import { VariationsFolder } from "./project-hub/VariationsFolder";
 import { CertificatesFolder } from "./project-hub/CertificatesFolder";
 import { SiteFolder } from "./project-hub/SiteFolder";
 import { ClientFolder } from "./project-hub/ClientFolder";
+import { UnitsFolder } from "./project-hub/UnitsFolder";
 import { CostControlFolder } from "./project-hub/CostControlFolder";
 import { ReportFolder } from "./project-hub/ReportFolder";
 import { Field, Modal, Panel, btnGhost, btnPrimary, fmtDate, input, useMoney } from "./project-hub/shared";
 import { isStarter } from "./planTier";
 
-type Folder = "overview" | "analytics" | "contract" | "drawings" | "boq" | "variations" | "selections" | "certificates" | "site" | "costs" | "report" | "closeout" | "client";
+type Folder = "overview" | "analytics" | "contract" | "drawings" | "boq" | "variations" | "selections" | "certificates" | "site" | "costs" | "report" | "closeout" | "client" | "units";
 
 export function ProjectDetail({
   projectId,
@@ -114,6 +115,7 @@ export function ProjectDetail({
       { key: "selections", label: "Finishes" },
       { key: "site", label: "Site", count: c.punchOpen },
       ...(showFin ? [{ key: "costs" as Folder, label: "Cost control" }] : []),
+      { key: "units", label: "Units" },
       { key: "client", label: "Client" },
       ...(perms.viewReports ? [{ key: "report" as Folder, label: "Reports" }] : []),
       { key: "closeout", label: "Closeout" },
@@ -235,6 +237,7 @@ export function ProjectDetail({
           {folder === "site" && <SiteFolder projectId={projectId} site={data.site} progress={data.progress} schedule={data.schedule} docs={data.documents} canEdit={perms.completeTasks || canEditDocs} onChanged={refresh} />}
           {folder === "costs" && showFin && <CostControlFolder costs={costs} setView={setView} onSetContractSum={() => setContractModal(true)} />}
           {folder === "report" && perms.viewReports && <ReportFolder data={data} setView={setView} />}
+          {folder === "units" && <UnitsFolder projectId={projectId} projectName={data.project.name} canShare={canSharePortal} />}
           {folder === "client" && <ClientFolder projectId={projectId} canInvite={canSharePortal} onOpenPortal={canSharePortal ? () => setPortalOpen(true) : undefined} />}
           {folder === "closeout" && <ProjectCloseout projectId={projectId} canEdit={canManageBids(role)} />}
         </div>

@@ -603,6 +603,7 @@ model Invoice {
   shipping      Float?   // KES amount
   subtotal      Float?   // sum of line items (stored for reference)
   terms         String?  // terms & conditions text
+  unitId        String?  // billed to one unit's buyer
   project       Project  @relation(fields: [projectId], references: [id])
   projectId     String
   createdAt     DateTime @default(now())
@@ -1562,6 +1563,10 @@ model ProjectClient {
   name        String?
   userId      String?
   invitedBy   String?
+  // Set for a buyer of one unit in an apartment block or estate: they see that
+  // unit's progress, updates, invoices and chat, plus project-wide news, and
+  // nothing that belongs to the other buyers.
+  unitId      String?
   createdAt   DateTime @default(now())
 
   @@unique([projectId, email])
@@ -1578,6 +1583,7 @@ model ClientUpdate {
   workspaceId String?
   projectId   String?
   reportingId String?
+  unitId      String?  // null = the whole project (every client sees it)
   stage       String
   kind        String   @default("progress") // progress | inspection | milestone | issue
   title       String
@@ -1599,6 +1605,7 @@ model ClientMessage {
   workspaceId String?
   projectId   String?
   reportingId String?
+  unitId      String?  // a unit buyer's own chat with the team
   senderType  String   // client | team | buildsasa
   // Null = the project's team chat (everyone on the contractor's team sees it).
   // Set = a private chat between the client and this one team member.
@@ -1682,6 +1689,7 @@ model ClientComment {
   id          String   @id @default(cuid())
   workspaceId String
   projectId   String?
+  unitId      String?
   targetType  String   // update | inspection | dailylog | quote | changeorder | selection | invoice
   targetId    String
   authorType  String   // client | team
@@ -1730,4 +1738,46 @@ model AiConversation {
   updatedAt   DateTime @updatedAt
 
   @@index([userId, updatedAt])
+}
+
+// One unit in an apartment block, estate or multi-house project, with its own
+// buyer, its own fit-out stages and its own private progress link. Each buyer
+// follows their unit without seeing the others'.
+model ProjectUnit {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  projectId   String
+  code        String   // e.g. A-12, House 7
+  block       String?
+  floor       String?
+  type        String?  // e.g. 2 bedroom, Studio, 4 bedroom villa
+  sizeSqm     Float?
+  status      String   @default("not_started") // not_started | in_progress | snagging | ready | handed_over
+  stages      String?  // JSON [{ name, done, doneAt? }]
+  progress    Int      @default(0)
+  clientName  String?
+  clientEmail String?
+  clientPhone String?
+  priceKES    Float?
+  paidKES     Float?
+  notes       String?
+  shareToken  String?  @unique
+  lastReportAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([projectId, code])
+  @@index([projectId])
+}
+
+// How much of each daily AI allowance a company used on a day (Nairobi time):
+// image generations, documents, uploads to the AI and voice.
+model AiDailyUsage {
+  id          String @id @default(cuid())
+  workspaceId String
+  day         String // YYYY-MM-DD
+  kind        String // image | document | upload | voice
+  count       Int    @default(0)
+
+  @@unique([workspaceId, day, kind])
 }

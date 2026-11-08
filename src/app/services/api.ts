@@ -135,6 +135,24 @@ async function readError(res: Response): Promise<string> {
   }
 }
 
+export type AiLimitsDto = { tier: "trial" | "paid" | "comp"; limits: Record<string, number>; used: Record<string, number>; extra: Record<string, number>; labels?: Record<string, string>; packs: { id: string; name: string; credits: number; kes: number }[]; topup: number; balance: number; resetsAt: string; payments: boolean };
+export type UnitStage = { name: string; done: boolean; doneAt?: string };
+export type UnitDto = {
+  id: string; projectId: string; code: string; block?: string | null; floor?: string | null; type?: string | null; sizeSqm?: number | null;
+  status: string; statusLabel?: string; stages: UnitStage[]; progress: number; clientName?: string | null; clientEmail?: string | null; clientPhone?: string | null;
+  priceKES?: number | null; paidKES?: number | null; notes?: string | null; shareToken?: string | null; link?: string | null; lastReportAt?: string | null;
+  updates?: number; accounts?: { email: string; joined: boolean }[];
+};
+export type PublicUnitDto = {
+  company: CompanyDto | null;
+  project: { name: string; city: string; status: string; progress: number; targetEndDate?: string | null; images: string[] };
+  unit: { code: string; block?: string | null; floor?: string | null; type?: string | null; sizeSqm?: number | null; status: string; statusLabel: string; progress: number; stages: UnitStage[]; clientName?: string | null; priceKES?: number | null; paidKES?: number | null; updatedAt: string };
+  updates: { id: string; title: string; body?: string | null; stage: string; kind: string; media: { url: string; type: string; name?: string }[]; authorName?: string | null; createdAt: string; scope: "unit" | "project" }[];
+  invoices: { invoiceNumber: string; amount: number; paidAmount: number; status: string; issueDate: string; dueDate: string }[];
+};
+/** A 402 for credits or a daily allowance: the app offers to buy credits on the spot. */
+export const NEED_CREDITS_EVENT = "buildsasa:need-credits";
+
 export async function http<T>(path: string, init?: RequestInit, _retried = false): Promise<T> {
   const token = localStorage.getItem(TOKEN_KEY);
   const isFormData = init?.body instanceof FormData;
@@ -153,6 +171,14 @@ export async function http<T>(path: string, init?: RequestInit, _retried = false
     if (ok) return http<T>(path, init, true);
     forceLogout();
     throw new Error("Your session has expired. Please sign in again.");
+  }
+  if (res.status === 402) {
+    // Out of credits or past today's allowance: tell the app so it can offer a
+    // credit pack right there, then fail the call as usual.
+    const body = await res.clone().json().catch(() => null);
+    if (body && (body.code === "DAILY_LIMIT" || body.code === "NO_CREDITS")) {
+      try { window.dispatchEvent(new CustomEvent(NEED_CREDITS_EVENT, { detail: body })); } catch { /* */ }
+    }
   }
   if (!res.ok) {
     throw new Error(await readError(res));
@@ -1345,7 +1371,21 @@ export const api = {
   getCompanyLogoData: () => http<{ dataUrl: string | null; reason?: string }>(`/api/company/logo-data`),
   // Sasa Credits (AI allowance)
   getCredits: () => http<CreditsDto>(`/api/ai-credits`),
-  buyCredits: (packId: string) => http<{ authorizationUrl?: string; reference?: string }>(`/api/ai-credits/checkout`, { method: "POST", body: JSON.stringify({ packId }) }),
+  buyCredits: (packId: string, returnTo?: "ai") => http<{ authorizationUrl?: string; reference?: string }>(`/api/ai-credits/checkout`, { method: "POST", body: JSON.stringify({ packId, returnTo }) }),
+  // Daily AI allowances (images, documents, uploads, voice) and paying past them.
+  aiLimits: () => http<AiLimitsDto>(`/api/ai/limits`),
+  aiUseDocument: () => http<{ ok: boolean }>(`/api/ai/usage`, { method: "POST", body: JSON.stringify({ kind: "document" }) }),
+  aiSpeak: (text: string, signal?: AbortSignal) => http<{ audio: string }>(`/api/ai/speak`, { method: "POST", body: JSON.stringify({ text }), signal }),
+  // Units in apartment blocks and estates, each with its own buyer.
+  getUnits: (projectId: string) => http<UnitDto[]>(`/api/projects/${projectId}/units`),
+  addUnits: (projectId: string, payload: { generate?: Record<string, any>; units?: Partial<UnitDto>[]; stages?: string[] } & Partial<UnitDto>) => http<{ added: number; skipped: number }>(`/api/projects/${projectId}/units`, { method: "POST", body: JSON.stringify(payload) }),
+  updateUnit: (projectId: string, id: string, payload: Partial<Omit<UnitDto, "stages">> & { stages?: UnitStage[]; done?: string[]; undone?: string[] }) => http<UnitDto>(`/api/projects/${projectId}/units/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteUnit: (projectId: string, id: string) => http<{ ok: boolean }>(`/api/projects/${projectId}/units/${id}`, { method: "DELETE" }),
+  shareUnit: (projectId: string, id: string, invite?: { email?: string }) => http<UnitDto & { invited?: string | null }>(`/api/projects/${projectId}/units/${id}/share`, { method: "POST", body: JSON.stringify(invite ? { invite: true, ...invite } : {}) }),
+  unitReport: (projectId: string, id: string, email = true) => http<{ text: string; link: string; emailed: string[]; phone?: string | null }>(`/api/projects/${projectId}/units/${id}/report`, { method: "POST", body: JSON.stringify({ email }) }),
+  unitReportAll: (projectId: string) => http<{ sent: number; skipped: number }>(`/api/projects/${projectId}/units/report-all`, { method: "POST" }),
+  postUnitUpdate: (projectId: string, id: string, payload: { title: string; body?: string; stage?: string; kind?: string; media?: { url: string; type: string; name?: string }[] }) => http<any>(`/api/projects/${projectId}/units/${id}/updates`, { method: "POST", body: JSON.stringify(payload) }),
+  getPublicUnit: (token: string) => http<PublicUnitDto>(`/api/public/unit/${token}`),
   verifyCredits: (reference: string) => http<{ ok: boolean; credited?: number; already?: boolean; status?: string }>(`/api/ai-credits/verify`, { method: "POST", body: JSON.stringify({ reference }) }),
   // AI Design Studio (Plans & Drawings)
   getDesigns: () => http<{ designs: AiDesignDto[]; remainingToday: number; enabled: boolean }>(`/api/ai/designs`),

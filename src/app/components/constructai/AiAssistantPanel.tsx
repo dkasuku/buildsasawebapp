@@ -26,7 +26,7 @@ export type AiAction = { kind: "open"; view: string; label: string } | { kind: "
   | { kind: "save"; type: SaveKind; data: Record<string, any>; label: string; savedId?: string }
   // Something the AI will do in the app for the user (create a project, invite
   // a member, raise an invoice…), run once the user taps "Do it".
-  | { kind: "do"; action: string; data: Record<string, any>; label: string; done?: { id?: string; link?: string; note?: string } };
+  | { kind: "do"; action: string; data: Record<string, any>; label: string; done?: { id?: string; link?: string; note?: string; share?: string; phone?: string | null } };
 // An interior design the Visualizer generated from the user's photo.
 export type AiDesignResult = { id: string; before?: string; after: string; prompt: string; estimate?: import("../../services/api").DesignEstimate | null };
 // A quote the AI wrote, kept editable in the chat (lines, VAT, client, logo).

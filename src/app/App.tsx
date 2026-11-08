@@ -8,6 +8,8 @@ import { ResetPassword } from "./components/constructai/ResetPassword";
 import { PublicFormFill } from "./components/constructai/PublicFormFill";
 import { PublicBidSubmit } from "./components/constructai/PublicBidSubmit";
 import { PublicQuoteView } from "./components/constructai/PublicQuoteView";
+import { PublicUnitView } from "./components/constructai/PublicUnitView";
+import { BuyCreditsModal } from "./components/constructai/BuyCreditsModal";
 import { PublicPortalView } from "./components/constructai/PublicPortalView";
 import { ClientApp } from "./components/constructai/client/ClientApp";
 import { useWelcome, WelcomeModal } from "./components/constructai/Welcome";
@@ -407,6 +409,10 @@ export default function App() {
   const portalToken = (() => { try { return new URLSearchParams(window.location.search).get("portal"); } catch { return null; } })();
   if (portalToken) return <PublicPortalView token={portalToken} />;
 
+  // A buyer's private page for their unit (apartments, estates): /?unit=TOKEN.
+  const unitToken = (() => { try { return new URLSearchParams(window.location.search).get("unit"); } catch { return null; } })();
+  if (unitToken) return <PublicUnitView token={unitToken} />;
+
   // Public tender bid deep link: /?bid=TOKEN (no auth required)
   const bidToken = (() => { try { return new URLSearchParams(window.location.search).get("bid"); } catch { return null; } })();
   if (bidToken) {
@@ -657,6 +663,7 @@ export default function App() {
           </div>
         </div>
         <Toaster theme={theme} position="top-right" />
+        <BuyCreditsModal />
         {onboardingShowing && !paywalled && (
           <Onboarding
             role={role}

@@ -5,7 +5,8 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ArrowUpRight, Check, Copy, Loader2, MessageCircle, Plus, Trash2, X, Zap } from "lucide-react";
-import api, { type ProjectDto } from "../../services/api";
+import api, { type ProjectDto, type UnitDto } from "../../services/api";
+import { clientApi } from "./client/clientData";
 import type { AiAction } from "./AiAssistantPanel";
 
 type Field = { k: string; label: string; type?: "text" | "number" | "date" | "area" | "email" | "project" | "lines" | "select"; options?: string[]; half?: boolean; optional?: boolean };
@@ -19,6 +20,18 @@ const num = (v: any) => (v === "" || v == null ? null : Number(String(v).replace
 const portalUrl = (token: string) => `${window.location.origin}/?portal=${token}`;
 const linesTotal = (items: any[]) => (items || []).reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.rate) || 0), 0);
 const need = (v: any, what: string) => { if (!String(v ?? "").trim()) throw new Error(`Add ${what} first.`); };
+const listOf = (v: any): string[] => (Array.isArray(v) ? v : String(v ?? "").split(",")).map((x) => String(x).trim()).filter(Boolean);
+const squash = (s: string) => s.toLowerCase().replace(/[\s\-_.]/g, "");
+/** A unit by its number as the AI or the user wrote it ("A-12", "a12", "house 7"). */
+async function findUnit(projectId: string, code: string): Promise<UnitDto> {
+  need(code, "the unit number");
+  const units = await api.getUnits(projectId);
+  const u = units.find((x) => squash(x.code) === squash(code)) || units.find((x) => squash(x.code).endsWith(squash(code)));
+  if (!u) throw new Error(`No unit "${code}" on this project. Add it in the project's Units tab.`);
+  return u;
+}
+const UNIT_STATUS = ["not_started", "in_progress", "snagging", "ready", "handed_over"];
+const UPDATE_STAGES = ["foundation", "walling", "roofing", "services", "finishes", "handover", "other"];
 
 export const AGENT: Record<string, Spec> = {
   "create-project": {
@@ -162,6 +175,62 @@ export const AGENT: Record<string, Spec> = {
       return { id: (r as any).id, note: "Incident recorded" };
     },
   },
+  "add-units": {
+    title: "Add units", verb: "Add units", view: "projects",
+    fields: [{ k: "projectId", label: "Project", type: "project" }, { k: "type", label: "Unit type", half: true, optional: true }, { k: "block", label: "Block", half: true, optional: true },
+      { k: "floors", label: "Floors above ground", type: "number", half: true, optional: true }, { k: "perFloor", label: "Units per floor", type: "number", half: true, optional: true },
+      { k: "count", label: "Or: number of houses", type: "number", half: true, optional: true }, { k: "prefix", label: "Name them", half: true, optional: true }],
+    run: async (d) => {
+      const generate = Number(d.count) > 0
+        ? { count: Number(d.count), prefix: d.prefix ?? undefined, type: d.type || undefined, block: d.block || undefined }
+        : { block: d.block || undefined, floors: Number(d.floors) || 0, perFloor: Number(d.perFloor) || 0, groundFloor: d.groundFloor !== false, type: d.type || undefined };
+      if (!("count" in generate) && (!generate.floors || !generate.perFloor)) throw new Error("Say how many floors and units per floor, or how many houses.");
+      const r = await api.addUnits(d.projectId, { generate });
+      return { id: d.projectId, note: `${r.added} unit${r.added === 1 ? "" : "s"} added${r.skipped ? ` (${r.skipped} already existed)` : ""}. Add each buyer in the project's Units tab.` };
+    },
+  },
+  "update-unit": {
+    title: "Update unit", verb: "Save unit", view: "projects",
+    fields: [{ k: "projectId", label: "Project", type: "project" }, { k: "unit", label: "Unit", half: true }, { k: "status", label: "Status", type: "select", options: UNIT_STATUS, half: true, optional: true },
+      { k: "done", label: "Stages finished (comma separated)", optional: true },
+      { k: "clientName", label: "Buyer", half: true, optional: true }, { k: "clientPhone", label: "Buyer's phone", half: true, optional: true }, { k: "clientEmail", label: "Buyer's email", type: "email", optional: true }],
+    run: async (d) => {
+      const u = await findUnit(d.projectId, d.unit);
+      const payload: Record<string, any> = { done: listOf(d.done) };
+      for (const k of ["status", "clientName", "clientPhone", "clientEmail"]) if (String(d[k] ?? "").trim()) payload[k] = d[k];
+      const r = await api.updateUnit(d.projectId, u.id, payload);
+      return { id: r.id, note: `${r.code}: ${r.progress}% · ${r.statusLabel || r.status}` };
+    },
+  },
+  "share-update": {
+    title: "Share update with client", verb: "Share update", view: "projects",
+    fields: [{ k: "projectId", label: "Project", type: "project" }, { k: "unit", label: "Unit (empty = everyone)", half: true, optional: true }, { k: "stage", label: "Stage", type: "select", options: UPDATE_STAGES, half: true },
+      { k: "title", label: "Title" }, { k: "body", label: "Details", type: "area", optional: true }],
+    run: async (d) => {
+      need(d.title, "a title");
+      if (String(d.unit ?? "").trim()) {
+        const u = await findUnit(d.projectId, d.unit);
+        const r = await api.postUnitUpdate(d.projectId, u.id, { title: d.title, body: d.body || undefined, stage: d.stage || "finishes" });
+        return { id: r.id, note: `Shared with unit ${u.code}'s buyer.` };
+      }
+      const r = await clientApi.postUpdate(d.projectId, { stage: d.stage || "other", kind: "progress", title: d.title, body: d.body || "", media: [] });
+      return { id: r.id, note: "Shared with the project's clients." };
+    },
+  },
+  "unit-report": {
+    title: "Send unit progress report", verb: "Send report", view: "projects",
+    fields: [{ k: "projectId", label: "Project", type: "project" }, { k: "unit", label: "Unit (ALL = every buyer)" }],
+    run: async (d) => {
+      need(d.unit, "the unit, or ALL");
+      if (/^all$/i.test(String(d.unit).trim())) {
+        const r = await api.unitReportAll(d.projectId);
+        return { id: d.projectId, note: `Reports emailed to ${r.sent} buyer${r.sent === 1 ? "" : "s"}${r.skipped ? `; ${r.skipped} unit${r.skipped === 1 ? " has" : "s have"} no buyer email yet` : ""}.` };
+      }
+      const u = await findUnit(d.projectId, d.unit);
+      const r = await api.unitReport(d.projectId, u.id);
+      return { id: u.id, link: r.link, share: r.text, phone: r.phone, note: r.emailed.length ? `Emailed to ${r.emailed.join(", ")}. Send it on WhatsApp too:` : `No email on file for ${u.code}. Send it on WhatsApp:` };
+    },
+  },
   announce: {
     title: "Post announcement", verb: "Post", view: "announcements",
     fields: [{ k: "title", label: "Title" }, { k: "body", label: "Message", type: "area" }, { k: "priority", label: "Priority", type: "select", options: ["normal", "high"], half: true }],
@@ -246,7 +315,7 @@ export function ActionCard({ action, newProjectId, onDone, onDismiss, onOpen, on
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <code className="flex-1 min-w-0 truncate rounded-md bg-[#0A0E14] border border-[#222A35] px-2 py-1.5 text-[11.5px] text-[#D5DBE3]">{action.done.link}</code>
           <button onClick={() => navigator.clipboard?.writeText(action.done!.link!).then(() => toast.success("Link copied"))} className="h-8 px-2.5 rounded-md border border-[#222A35] text-[12px] inline-flex items-center gap-1.5 hover:text-white"><Copy className="w-3.5 h-3.5" /> Copy</button>
-          <a href={`https://wa.me/?text=${encodeURIComponent(`Hello, you can follow progress on your project, see site photos and invoices, and approve changes here: ${action.done.link}`)}`} target="_blank" rel="noreferrer" className="h-8 px-2.5 rounded-md bg-[#25D366] text-[#ffffff] text-[12px] inline-flex items-center gap-1.5"><MessageCircle className="w-3.5 h-3.5" /> WhatsApp</a>
+          <a href={`https://wa.me/${String(action.done.phone || "").replace(/\D/g, "").replace(/^0/, "254")}?text=${encodeURIComponent(action.done.share || `Hello, you can follow progress on your project, see site photos and invoices, and approve changes here: ${action.done.link}`)}`} target="_blank" rel="noreferrer" className="h-8 px-2.5 rounded-md bg-[#25D366] text-[#ffffff] text-[12px] inline-flex items-center gap-1.5"><MessageCircle className="w-3.5 h-3.5" /> WhatsApp</a>
         </div>
       )}
     </div>

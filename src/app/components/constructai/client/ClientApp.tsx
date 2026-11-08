@@ -11,6 +11,7 @@ import {
 import { ChatThread, Chip, CommentThread, MediaGrid, MediaPicker, UpdateFeed } from "./ClientParts";
 import { PublicQuoteView } from "../PublicQuoteView";
 import { PublicPortalView } from "../PublicPortalView";
+import { UnitStages } from "../PublicUnitView";
 import { RateDialog, Stars, TrustBadge } from "./Trust";
 // The 360° viewer pulls in three.js; load it only when a tour is opened.
 const TourGallery = lazy(() => import("./VirtualTour").then((m) => ({ default: m.TourGallery })));
@@ -317,7 +318,7 @@ function SiteView({ id, initialTab, go }: { id: string; initialTab?: string; go:
     { key: "tours", label: "360° tour", icon: Compass, n: d.tours?.length },
     { key: "logs", label: "Daily logs", icon: CalendarDays, n: d.dailyLogs.length },
     { key: "inspections", label: "Inspections", icon: ClipboardCheck, n: d.inspections.length },
-    { key: "approvals", label: "Approvals & invoices", icon: Wallet, n: pending, alert: pending > 0 },
+    { key: "approvals", label: d.unit ? "Invoices" : "Approvals & invoices", icon: Wallet, n: pending, alert: pending > 0 },
     { key: "chat", label: "Chat", icon: MessageCircle },
   ];
   const company = d.company;
@@ -345,6 +346,7 @@ function SiteView({ id, initialTab, go }: { id: string; initialTab?: string; go:
       </div>
       {tab === "progress" && (
         <>
+          {d.unit && <section className={`${card} p-4 mb-4`}><UnitStages dark code={d.unit.code} type={d.unit.type} progress={d.unit.progress} stages={d.unit.stages || []} /><p className="text-[11.5px] text-[#8A95A5] mt-3">You see your own unit and news about the whole project. Other buyers can't see your unit, your payments or your chats.</p></section>}
           <StageStrip updates={d.updates} />
           <UpdateFeed updates={d.updates} renderComments={(u) => thr("update", u.id)} empty="Your contractor hasn't shared progress updates yet. Photos and videos of each stage will appear here. You can ask for them in the Chat tab." />
           {d.photos?.length > 0 && <div className="mt-5"><div className="text-[13px] font-medium mb-2">Site photos from daily logs</div><MediaGrid media={d.photos.flatMap((l: any) => [...toMedia(l.photos), ...l.videos.map((u: string) => ({ url: u, type: "video" as const }))])} max={16} /></div>}
@@ -383,7 +385,18 @@ function SiteView({ id, initialTab, go }: { id: string; initialTab?: string; go:
       ))}
       {tab === "approvals" && (
         <>
-          <PublicPortalView token={d.portalToken} embedded />
+          {d.portalToken ? <PublicPortalView token={d.portalToken} embedded /> : (
+            <section className={`${card} p-4`}>
+              <div className="text-[13px] mb-2">Invoices for unit {d.unit?.code}</div>
+              {(d.invoices || []).length === 0 ? <div className="text-[12.5px] text-[#8A95A5]">No invoices for your unit yet.</div> : (d.invoices || []).map((i: any) => (
+                <div key={i.invoiceNumber} className="flex items-center gap-2 py-2 border-t border-[#222A35] text-[12.5px]">
+                  <span className="flex-1 text-white">{i.invoiceNumber} <span className="text-[#8A95A5]">· due {String(i.dueDate || "").slice(0, 10)}</span></span>
+                  <span className="text-white">{kes(i.amount)}</span>
+                  <span className={`text-[10.5px] px-2 py-0.5 rounded-full ${i.status === "paid" ? "bg-[#22C55E]/10 text-[#22C55E]" : "bg-[#F59E0B]/10 text-[#F59E0B]"}`}>{i.status}</span>
+                </div>
+              ))}
+            </section>
+          )}
           {/* Change orders, selections and invoices can be discussed here too, with photos. */}
           {[...(d.changeOrders || []).map((c: any) => ({ type: "changeorder", id: c.id, label: `Change order ${c.number || ""}: ${c.title}` })),
             ...(d.selections || []).map((s: any) => ({ type: "selection", id: s.id, label: `Selection: ${s.name}${s.room ? ` (${s.room})` : ""}` }))].length > 0 && (

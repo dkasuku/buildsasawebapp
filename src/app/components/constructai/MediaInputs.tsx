@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Camera, Loader2, RefreshCw, X } from "lucide-react";
+import { NEED_CREDITS_EVENT } from "../../services/api";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 export const isTouch = () => typeof window !== "undefined" && (window.matchMedia?.("(pointer: coarse)").matches || "ontouchstart" in window);
@@ -57,6 +58,18 @@ export function CameraModal({ onCapture, onClose }: { onCapture: (f: File) => vo
 }
 
 /** Record a voice note and get it back as text. */
+/** Speech to text on the server. Past the daily voice allowance the app offers credits. */
+export async function transcribe(blob: Blob, mime?: string): Promise<string> {
+  const fd = new FormData();
+  const m = mime || blob.type || "audio/webm";
+  fd.append("file", blob, `voice.${m.includes("mp4") ? "m4a" : m.includes("ogg") ? "ogg" : "webm"}`);
+  const res = await fetch(`${API_URL}/api/ai/transcribe`, { method: "POST", headers: { Authorization: `Bearer ${localStorage.getItem("constructai-token") || ""}` }, body: fd });
+  const j = await res.json().catch(() => ({}));
+  if (res.status === 402 && j?.code) { try { window.dispatchEvent(new CustomEvent(NEED_CREDITS_EVENT, { detail: j })); } catch { /* */ } }
+  if (!res.ok) throw new Error(j.error || "Couldn't understand the recording.");
+  return String(j.text || "").trim();
+}
+
 export function useVoice(onText: (text: string) => void) {
   const [state, setState] = useState<"idle" | "recording" | "transcribing">("idle");
   const [seconds, setSeconds] = useState(0);
@@ -86,12 +99,8 @@ export function useVoice(onText: (text: string) => void) {
         if (blob.size < 1200) { setState("idle"); return toast.error("That was too short. Hold on and speak, then tap stop."); }
         setState("transcribing");
         try {
-          const fd = new FormData();
-          fd.append("file", blob, `voice.${(r.mimeType || "audio/webm").includes("mp4") ? "m4a" : (r.mimeType || "").includes("ogg") ? "ogg" : "webm"}`);
-          const res = await fetch(`${API_URL}/api/ai/transcribe`, { method: "POST", headers: { Authorization: `Bearer ${localStorage.getItem("constructai-token") || ""}` }, body: fd });
-          const j = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(j.error || "Couldn't understand the recording.");
-          if (j.text) cb.current(j.text); else toast.error("I didn't catch anything. Try again a little closer to the mic.");
+          const text = await transcribe(blob, r.mimeType);
+          if (text) cb.current(text); else toast.error("I didn't catch anything. Try again a little closer to the mic.");
         } catch (e: any) { toast.error(e?.message || "Couldn't understand the recording."); }
         setState("idle");
       };

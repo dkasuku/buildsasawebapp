@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import {
   ArrowUp, ArrowUpRight, Calculator, CalendarRange, ClipboardCheck, ClipboardList, Download, HardHat, History,
   Loader2, MessageSquare, Palette, PanelLeftClose, PanelLeftOpen, Pencil, Search, Sparkles, Square, SquarePen,
-  Trash2, Wallet, X, ChevronDown, ImagePlus, Paperclip, Mic, Zap, Receipt, PiggyBank, Package, Users, Truck, DraftingCompass, AlertTriangle, Building2, CheckCircle2, FileText, ListChecks, ShieldAlert, Camera, FileSpreadsheet,
+  Trash2, Wallet, X, ChevronDown, ImagePlus, Paperclip, Mic, AudioLines, Zap, Receipt, PiggyBank, Package, Users, Truck, DraftingCompass, AlertTriangle, Building2, CheckCircle2, FileText, ListChecks, ShieldAlert, Camera, FileSpreadsheet,
 } from "lucide-react";
 import api, { type AiBriefItem } from "../../services/api";
 import { AnswerTools, SaveCard } from "./AiTools";
@@ -19,6 +19,8 @@ import { askAi, imageModeFor, type AiSession, type ImageMode } from "./aiSession
 import { QuoteCard, QuoteEditor } from "./QuoteEditor";
 import { ActionCard, runAction } from "./aiAgent";
 import { CameraModal, isTouch, useVoice } from "./MediaInputs";
+import { VoiceChat, speakable } from "./VoiceChat";
+import { UsageMeter } from "./UsageMeter";
 import { draftFromAnswer, exportQuote } from "./aiQuote";
 import { FinancialReports } from "./BuildflexAI";
 import { DesignStudio } from "./DesignStudio";
@@ -169,10 +171,11 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
   // "Do all": run the reply's pending actions in order; a project created first
   // is used by the later steps that say "projectId":"new".
   const [doingAll, setDoingAll] = useState(false);
-  const doAll = async (i: number) => {
+  const doAll = async (i: number, list: Msg[] = messages) => {
     setDoingAll(true);
-    let created = createdProjectId(messages[i]);
-    const acts = messages[i]?.actions || [];
+    let created = createdProjectId(list[i]);
+    const acts = list[i]?.actions || [];
+    const did: string[] = [], failed: string[] = [];
     for (let k = 0; k < acts.length; k++) {
       const a = acts[k];
       if (a.kind !== "do" || a.done) continue;
@@ -180,7 +183,9 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
         const done = await runAction(a, created);
         if (a.action === "create-project" && done.id) created = done.id;
         patchActions(i, (as) => as.map((x, n) => (n === k && x.kind === "do" ? { ...x, done } : x)));
+        did.push(a.label || a.action);
       } catch (e: any) {
+        failed.push(`${a.label || a.action}: ${e?.message || "didn't work"}`);
         // One step failing (say, an invite to someone already on the team)
         // doesn't stop the rest; it stays on its card to fix and retry.
         toast.error(e?.message || "That step didn't work.");
@@ -188,6 +193,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
       }
     }
     setDoingAll(false);
+    return { did, failed };
   };
   const patchQuote = (i: number, quote: QuoteDraft) => setMessages((m) => m.map((x, k) => (k === i ? { ...x, quote } : x)));
   const send = async (raw?: string, imgs?: string[], fresh = false) => {
@@ -196,7 +202,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
     const files = imgs === undefined ? att.filter((a) => !a.image).map(({ url, name }) => ({ url, name })) : [];
     const mode: ImageMode = imgs === undefined ? imgMode : "auto";
     const text = (raw ?? q).trim() || (images.length ? (mode === "logo" ? "Use this as my logo on quotes" : "Turn this into a modern, finished interior") : files.length ? "Summarise this and tell me what needs my attention" : "");
-    if (!text || busy || uploading) return;
+    if (!text || busy || uploading) return null;
     const before = fresh ? [] : messages;
     const designing = images.length > 0 && imageModeFor(text, mode) === "design";
     setMessages((m) => [...m, { role: "user", text, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) }]);
@@ -217,10 +223,36 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
       else if (fmt && !reply.design && !reply.form && reply.text.length > 40) exportAnswer(reply.text, fmt, docTitle(text)).catch(() => {});
       // "Open the punch list": go there. The chat carries on in the docked panel.
       if (reply.actions?.[0] && (reply.actions[0].kind === "open" || reply.actions[0].kind === "project")) run(reply.actions[0]);
+      abortRef.current = null; setBusy(false);
+      const list: Msg[] = []; list[idx] = reply;  // doAll reads only the reply, at its index in the chat
+      return { reply, list, idx };
     } catch {
       setMessages((m) => [...m, { role: "ai", text: "Stopped." }]);
     }
     abortRef.current = null; setBusy(false);
+    return null;
+  };
+  // ── Voice chat: talk, hear the answer, say "yes" to confirm its action cards ──
+  const [voiceChat, setVoiceChat] = useState(false);
+  const lastTurn = useRef<{ list: Msg[]; idx: number } | null>(null);
+  const voiceTurn = async (said: string): Promise<string> => {
+    const t = lastTurn.current;
+    const pending = t ? (t.list[t.idx]?.actions || []).filter((a) => a.kind === "do" && !a.done) : [];
+    if (t && pending.length && /^(yes|yeah|yep|ok(ay)?|sure|go ahead|do it|do all|confirm|proceed|please do|ndio|sawa)\b/i.test(said.trim())) {
+      lastTurn.current = null;
+      const r = await doAll(t.idx, t.list);
+      return r.did.length ? `Done: ${r.did.join(", ")}.${r.failed.length ? ` But ${r.failed.join("; ")}. It's on screen to fix.` : ""}` : `That didn't work: ${r.failed.join("; ")}. Check the card on screen.`;
+    }
+    if (t && pending.length && /^(no|nope|cancel|don't|do not|stop|hapana)\b/i.test(said.trim())) { lastTurn.current = null; return "Okay, I won't do that."; }
+    const r = await send(said);
+    if (!r) return "Sorry, I couldn't do that. Try again.";
+    lastTurn.current = { list: r.list, idx: r.idx };
+    const m = r.reply;
+    const acts = (m.actions || []).filter((a) => a.kind === "do");
+    return [speakable(m.text),
+      m.quote ? "The quote is on screen. You can edit it or download it." : "",
+      m.design ? "The design is on screen." : "",
+      acts.length ? `Shall I go ahead${acts.length > 1 ? ` with all ${acts.length}` : ""}? Say yes to do it.` : ""].filter(Boolean).join(" ");
   };
   const stop = () => abortRef.current?.abort();
   // Speak: the words are sent as soon as they are transcribed, so the AI just does it.
@@ -312,6 +344,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
           <button onClick={() => useTool(cat.tool!)} className="h-8 px-2.5 rounded-full border border-[#222A35] text-[#C2CAD6] hover:text-white text-[12px] hidden sm:inline-flex items-center gap-1.5 whitespace-nowrap"><ArrowUpRight className="w-3.5 h-3.5" /> {cat.tool.label}</button>
         )}
         <div className="ml-auto flex items-center gap-1.5 shrink-0">
+          {!busy && <button onClick={() => setVoiceChat(true)} disabled={uploading} title="Voice chat: talk and hear the answer, hands-free" aria-label="Voice chat" className="h-9 px-2.5 rounded-xl border border-[#FF6B1A]/40 text-[#FF8A47] hover:bg-[#FF6B1A]/10 inline-flex items-center gap-1.5 text-[12.5px] disabled:opacity-60"><AudioLines className="w-4 h-4" /><span className="hidden sm:inline">Voice chat</span></button>}
           {!busy && <button onClick={voice.start} disabled={voice.state !== "idle" || uploading} title="Speak instead of typing" aria-label="Speak" className="h-9 w-9 rounded-xl border border-[#222A35] text-[#C2CAD6] hover:text-white flex items-center justify-center disabled:opacity-60">{voice.state === "transcribing" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}</button>}
           {busy
             ? <button onClick={stop} title="Stop" className="h-9 w-9 rounded-xl bg-[#222A35] text-white flex items-center justify-center"><Square className="w-3.5 h-3.5 fill-current" /></button>
@@ -324,6 +357,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
 
   return (
     <div className="h-full flex min-h-0 bg-[#0A0E14]">
+      {voiceChat && <VoiceChat onTurn={voiceTurn} onClose={() => { setVoiceChat(false); lastTurn.current = null; }} />}
       {/* History */}
       {showHistory && (
         <>
@@ -398,7 +432,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
                 <Sparkles className="w-8 h-8 text-[#FF6B1A]" /> {greeting()}{name ? `, ${name}` : ""}
               </h1>
               <p className="text-center text-[13.5px] text-[#8A95A5] mt-2">Type, talk or snap a photo. I can price jobs, design rooms and set things up for you: projects, invoices, budgets, your team and more.</p>
-              <div className="mt-7">{composer(true)}</div>
+              <div className="mt-7">{composer(true)}<UsageMeter /></div>
               {/* One tap to the jobs contractors do every day. */}
               <div className="flex flex-wrap justify-center gap-2 mt-4">
                 {QUICK.filter((x) => canSeeMoney || !x.money).map((x) => (

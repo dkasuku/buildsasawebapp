@@ -2,8 +2,9 @@
 // a photo with +) opens the Buildsasa AI page with the question already sent.
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowUp, Loader2, Plus, X } from "lucide-react";
+import { ArrowUp, Loader2, Mic, Plus, Sparkles, Square, X } from "lucide-react";
 import api from "../../services/api";
+import { useVoice } from "./MediaInputs";
 
 export function AskBar({ title, hint, onAsk }: { title: string; hint: string; onAsk: (text: string, images: string[]) => void }) {
   const [q, setQ] = useState("");
@@ -21,6 +22,8 @@ export function AskBar({ title, hint, onAsk }: { title: string; hint: string; on
     } catch (e: any) { toast.error(e?.message || "Upload failed. Try again."); }
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ""; }
   };
+  // Talk instead of typing: the words go straight to the AI.
+  const voice = useVoice((t) => onAsk(t, img ? [img] : []));
   const go = () => {
     const text = q.trim();
     if ((!text && !img) || busy) return;
@@ -43,13 +46,21 @@ export function AskBar({ title, hint, onAsk }: { title: string; hint: string; on
               <button type="button" onClick={() => setImg(null)} className="absolute inset-0 bg-black/50 opacity-0 hover:opacity-100 flex items-center justify-center text-[#ffffff]" aria-label="Remove photo"><X className="w-3.5 h-3.5" /></button>
             </span>
           )}
+          <Sparkles className="w-4 h-4 shrink-0 text-[#FF6B1A]" aria-hidden />
+          {voice.state === "recording" ? (
+            <span className="flex-1 min-w-0 text-[13.5px] text-white flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-[#EF4444] animate-pulse" /> Listening… {voice.seconds}s</span>
+          ) : (
           <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); go(); } }}
             placeholder={img ? "Describe the finish you want…" : hint} aria-label="Ask Buildsasa AI"
             className="flex-1 min-w-0 bg-transparent text-[16px] sm:text-[14px] text-white placeholder:text-[#5B6675] focus:outline-none" />
-          <button type="button" onClick={go} disabled={(!q.trim() && !img) || busy} aria-label="Ask Buildsasa AI"
+          )}
+          {!q.trim() && (voice.state === "recording"
+            ? <button type="button" onClick={voice.stop} aria-label="Stop and ask" className="h-9 px-3 shrink-0 rounded-full bg-[#FF6B1A] text-[#ffffff] text-[12px] inline-flex items-center gap-1.5"><Square className="w-3 h-3 fill-current" /> Ask</button>
+            : <button type="button" onClick={voice.start} disabled={voice.state !== "idle" || busy} title="Ask by voice" aria-label="Ask by voice" className="h-9 w-9 shrink-0 rounded-full text-[#8A95A5] hover:text-white hover:bg-[#161C24] flex items-center justify-center disabled:opacity-50">{voice.state === "transcribing" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}</button>)}
+          {(q.trim() || img || voice.state === "idle") && voice.state !== "recording" && <button type="button" onClick={go} disabled={(!q.trim() && !img) || busy} aria-label="Ask Buildsasa AI"
             className="h-9 w-9 shrink-0 rounded-full bg-[#FF6B1A] hover:bg-[#FF7E33] text-[#ffffff] flex items-center justify-center disabled:opacity-40">
             <ArrowUp className="w-4 h-4" />
-          </button>
+          </button>}
         </div>
       </div>
     </div>

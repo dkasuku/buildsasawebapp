@@ -41,7 +41,7 @@ export const UPDATE_KINDS: { key: string; label: string }[] = [
 ];
 
 export type Media = { url: string; type: "image" | "video" | "file"; name?: string };
-export type ClientUpdate = { id: string; stage: string; kind: string; title: string; body?: string | null; media: Media[]; authorName?: string | null; authorRole?: string | null; createdAt: string };
+export type ClientUpdate = { id: string; unitId?: string | null; stage: string; kind: string; title: string; body?: string | null; media: Media[]; authorName?: string | null; authorRole?: string | null; createdAt: string };
 /** 360° tour: scenes are equirectangular photos; hotspots (radians) jump to another scene. */
 export type TourHotspot = { id: string; yaw: number; pitch: number; target: string; label?: string | null };
 export type TourScene = { id: string; name: string; url: string; yaw?: number; hotspots: TourHotspot[] };
@@ -112,15 +112,15 @@ export const clientApi = {
   replyQuoteComment: (qid: string, body: string, media: Media[]) => http<ClientComment>(`/api/quotes/${qid}/client-comments`, j({ body, media })),
   removeClient: (pid: string, id: string) => http(`/api/projects/${pid}/clients/${id}`, { method: "DELETE" }),
   projectUpdates: (pid: string) => http<ClientUpdate[]>(`/api/projects/${pid}/client-updates`),
-  postUpdate: (pid: string, p: { stage: string; kind: string; title: string; body?: string; media: Media[] }) => http<ClientUpdate>(`/api/projects/${pid}/client-updates`, j(p)),
+  postUpdate: (pid: string, p: { stage: string; kind: string; title: string; body?: string; media: Media[]; unitId?: string }) => http<ClientUpdate>(`/api/projects/${pid}/client-updates`, j(p)),
   deleteUpdate: (pid: string, id: string) => http(`/api/projects/${pid}/client-updates/${id}`, { method: "DELETE" }),
   projectTours: (pid: string) => http<VirtualTour[]>(`/api/projects/${pid}/tours`),
   createTour: (pid: string, p: Partial<VirtualTour>) => http<VirtualTour>(`/api/projects/${pid}/tours`, j(p)),
   saveTour: (pid: string, id: string, p: Partial<VirtualTour>) => http<VirtualTour>(`/api/projects/${pid}/tours/${id}`, { method: "PUT", body: JSON.stringify(p) }),
   shareTour: (pid: string, id: string, shared = true) => http<VirtualTour>(`/api/projects/${pid}/tours/${id}/share`, j({ shared })),
   deleteTour: (pid: string, id: string) => http(`/api/projects/${pid}/tours/${id}`, { method: "DELETE" }),
-  projectMessages: (pid: string, priv?: boolean) => http<ClientMessage[]>(`/api/projects/${pid}/client-messages${priv ? "?thread=private" : ""}`),
-  sendProjectMessage: (pid: string, body: string, media: Media[], priv?: boolean) => http<ClientMessage>(`/api/projects/${pid}/client-messages`, j({ body, media, private: !!priv })),
+  projectMessages: (pid: string, priv?: boolean, unitId?: string) => http<ClientMessage[]>(`/api/projects/${pid}/client-messages?${new URLSearchParams({ ...(priv ? { thread: "private" } : {}), ...(unitId ? { unit: unitId } : {}) })}`),
+  sendProjectMessage: (pid: string, body: string, media: Media[], priv?: boolean, unitId?: string) => http<ClientMessage>(`/api/projects/${pid}/client-messages`, j({ body, media, private: !!priv, unitId })),
   shareInspection: (id: string, visible: boolean) => http(`/api/inspections/${id}/client-visible`, j({ visible })),
 };
 
