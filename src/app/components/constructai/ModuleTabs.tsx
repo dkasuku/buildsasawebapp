@@ -10,15 +10,14 @@ export function ModuleTabs({ view, allowed, starter, onNavigate, onAskAi }: {
   onNavigate: (v: View) => void; onAskAi?: () => void;
 }) {
   const m = moduleOf(view);
-  if (!m) return null;
+  if (!m || view === "project-detail") return null;
   const tabs = m.tabs.filter((t) => allowed(t.key));
-  if (tabs.length < 2 && view !== "project-detail") return null;
-  const current = view === "project-detail" ? "projects" : view;
+  if (tabs.length < 2) return null;
   return (
     <div className="ws-moduletabs sticky top-0 z-20 border-b border-[#222A35] bg-[#0A0E14]/95 backdrop-blur px-4 sm:px-7">
       <div className="flex items-center gap-1 overflow-x-auto -mb-px" role="tablist" aria-label={`${m.label} pages`}>
         {tabs.map((t) => {
-          const on = t.key === current;
+          const on = t.key === view;
           return (
             <button key={t.key} role="tab" aria-selected={on} onClick={() => onNavigate(t.key)}
               className={`shrink-0 h-11 px-3 text-[12.5px] border-b-2 inline-flex items-center gap-1.5 transition-colors ${on ? "border-[#FF6B1A] text-white" : "border-transparent text-[#8A95A5] hover:text-white"}`}>

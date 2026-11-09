@@ -251,16 +251,16 @@ function COForm({ projects, initial, canApprove, onClose, onSaved }: { projects:
   };
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-xl border border-[#222A35] bg-[#11161D]" onClick={(e) => e.stopPropagation()}>
-        <div className="px-5 py-4 border-b border-[#222A35] flex items-center justify-between sticky top-0 bg-[#11161D]">
+    <div className="fixed inset-0 z-[60] bg-black/60 flex justify-end" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label={initial.id ? "Edit change order" : "Create change order"} className="w-full lg:w-[72vw] lg:max-w-[1040px] h-[100dvh] flex flex-col border-l border-[#222A35] bg-[#11161D] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="shrink-0 px-6 py-4 border-b border-[#222A35] flex items-center justify-between">
           <div className="text-[15px] text-white font-display">{initial.id ? "Edit change order" : "Create change order"}</div>
           <button onClick={onClose} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button>
         </div>
-        <div className="p-5 space-y-3">
+        <div className="flex-1 overflow-y-auto overscroll-contain p-6 space-y-4">
           <F label="Title *"><input value={f.title} onChange={(e) => set("title", e.target.value)} placeholder="What changed and why" className={cls} /></F>
-          <F label="Description"><textarea placeholder="e.g. Add 2 extra windows on the east wall" value={f.description} onChange={(e) => set("description", e.target.value)} rows={2} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-2 py-1.5 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A] resize-none" /></F>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <F label="Description"><textarea placeholder="e.g. Add 2 extra windows on the east wall" value={f.description} onChange={(e) => set("description", e.target.value)} rows={4} className="w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-2 py-1.5 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A] resize-none" /></F>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             <F label="Project"><select value={f.projectId} onChange={(e) => set("projectId", e.target.value)} className={cls}>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></F>
             <F label="Number (auto if blank)"><input value={f.number} onChange={(e) => set("number", e.target.value)} placeholder="CO-####" className={cls} /></F>
             <F label="Area / Location"><input placeholder="e.g. Ground floor, Block B" value={f.area} onChange={(e) => set("area", e.target.value)} className={cls} /></F>
@@ -273,9 +273,9 @@ function COForm({ projects, initial, canApprove, onClose, onSaved }: { projects:
           </div>
           <MultiAssign value={f.assignees} onChange={(v) => set("assignees", v)} />
         </div>
-        <div className="px-5 py-4 border-t border-[#222A35] flex gap-2 sticky bottom-0 bg-[#11161D]">
-          <button onClick={onClose} className="flex-1 h-10 rounded-md border border-[#222A35] text-[12px] text-white">Cancel</button>
-          <button disabled={saving} onClick={save} className="flex-1 h-10 rounded-md bg-[#FF6B1A] text-white text-[12px] disabled:opacity-50">{saving ? "Saving…" : "Save"}</button>
+        <div className="shrink-0 px-6 py-4 border-t border-[#222A35] flex justify-end gap-2" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
+          <button onClick={onClose} className="h-10 px-5 rounded-md border border-[#222A35] text-[12px] text-white">Cancel</button>
+          <button disabled={saving} onClick={save} className="h-10 px-6 rounded-md bg-[#FF6B1A] text-white text-[12px] disabled:opacity-50">{saving ? "Saving…" : "Save"}</button>
         </div>
       </div>
     </div>

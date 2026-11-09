@@ -141,13 +141,6 @@ const CURRENCY_OPTIONS = ["$", "KSh"];
 const statusDot = (s: string) =>
   s === "On Track" ? "#22C55E" : s === "At Risk" ? "#EF4444" : s === "Planning" ? "#3B82F6" : s === "Archived" ? "#8A95A5" : "#F5A623";
 
-const statusColor = (s: string) =>
-  s === "On Track" ? "bg-[#22C55E]/15 text-[#22C55E] border-[#22C55E]/30"
-  : s === "At Risk" ? "bg-[#EF4444]/15 text-[#EF4444] border-[#EF4444]/30"
-  : s === "Planning" ? "bg-[#3B82F6]/15 text-[#3B82F6] border-[#3B82F6]/30"
-  : s === "Archived" ? "bg-[#5B6675]/15 text-[#8A95A5] border-[#222A35]"
-  : "bg-[#F5A623]/15 text-[#F5A623] border-[#F5A623]/30";
-
 // Maps a change-order status to a human label + accent color for the
 // Recent Activity panel.
 const CO_STATUS_DISPLAY: Record<string, { label: string; color: string }> = {
