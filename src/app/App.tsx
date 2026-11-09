@@ -175,6 +175,17 @@ export default function App() {
     if (firstRun && view !== "login" && storedUser()?.role !== "Client" && (role as string) !== "Client" && !(ROLES[role].isWorkspaceOwner || ROLES[role].manageTeam)) endFirstRun();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstRun, view, role]);
+  // "Unfiled documents" is a clean-up queue for old uploads with no project, so
+  // it is only offered while some exist. Clients have no such page.
+  const [unfiledDocs, setUnfiledDocs] = useState(0);
+  const signedIn = view !== "login";
+  useEffect(() => {
+    if (!signedIn || storedUser()?.role === "Client") return;
+    const count = () => api.getUnfiledDocuments().then((d) => setUnfiledDocs(d.length)).catch(() => { /* leave hidden */ });
+    count();
+    window.addEventListener("buildsasa:documents-filed", count);
+    return () => window.removeEventListener("buildsasa:documents-filed", count);
+  }, [signedIn]);
   // Buildsasa AI, docked on the right. On a desktop it stays open by default
   // (people work through it); on a phone it's a sheet opened on demand.
   const [aiPanelOpen, setAiPanelOpenRaw] = useState(() => {
@@ -531,6 +542,7 @@ export default function App() {
           starter={starter}
           activeProjectId={activeProjectId}
           onOpenProject={openProject}
+          unfiledDocs={unfiledDocs}
           collapsed={effectiveView === "buildflex-ai" ? !aiNavOpen : navCollapsed}
           onToggleCollapsed={() => {
             if (effectiveView === "buildflex-ai") { setAiNavOpen((x) => !x); return; }
@@ -548,7 +560,7 @@ export default function App() {
           />
           <div className={`flex-1 overflow-x-hidden relative ${effectiveView === "buildflex-ai" ? "overflow-hidden" : "overflow-y-auto"}`}>
             {!paywalled && (
-              <ModuleTabs view={effectiveView} allowed={(v) => allowed.includes(v)} starter={starter} onNavigate={navigate} />
+              <ModuleTabs view={effectiveView} allowed={(v) => allowed.includes(v) && (v !== "documents" || unfiledDocs > 0 || effectiveView === "documents")} starter={starter} onNavigate={navigate} />
             )}
             {!paywalled && effectiveView !== "buildflex-ai" && moduleOf(effectiveView) && moduleOf(effectiveView)!.id !== "projects" && (
               <AskBar key={effectiveView} title={askFor(effectiveView).q} hint={askFor(effectiveView).hint}

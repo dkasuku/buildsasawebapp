@@ -97,7 +97,7 @@ export function Documents() {
     <div className="px-4 sm:px-7 py-5 space-y-4">
       <div className="rounded-xl border border-[#222A35] bg-[#0A0E14] px-4 py-3 text-[12px] text-[#8A95A5] leading-relaxed">
         <span className="text-[#C2CAD6]">Project files live inside each project.</span> Open a project and use its
-        Contract Documents, Drawings, BOQ, Variations, Certificates or Site folders. Listed below are only documents
+        Drawings &amp; files tab. Listed below are only documents
         uploaded without a project, which is why they appear in no project's folders — file each one and it moves there.
       </div>
 

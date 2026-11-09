@@ -76,10 +76,13 @@ export function Sidebar({
   onOpenProject,
   collapsed = false,
   onToggleCollapsed,
+  unfiledDocs = 0,
 }: {
   /** Desktop only: a narrow rail of icons, labels on hover. */
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
+  /** Documents with no project; their page is only offered while some exist. */
+  unfiledDocs?: number;
   view: View;
   setView: (v: View) => void;
   open: boolean;
@@ -102,16 +105,6 @@ export function Sidebar({
   const { projects } = useProjects();
   const current = activeProjectId ? projects.find((p) => p.id === activeProjectId) : undefined;
 
-  // "Unfiled documents" is a queue, not a permanent home: project files live in
-  // each project's own folders. Show it only while documents without a project
-  // still exist, so a tidy workspace never sees it.
-  const [unfiledDocs, setUnfiledDocs] = useState(0);
-  useEffect(() => {
-    const count = () => apiClient.getUnfiledDocuments().then((d) => setUnfiledDocs(d.length)).catch(() => { /* leave hidden */ });
-    count();
-    window.addEventListener("buildsasa:documents-filed", count);
-    return () => window.removeEventListener("buildsasa:documents-filed", count);
-  }, []);
   const allowed = (v: View) => {
     // Keep the item while the user is standing on it, so it cannot vanish
     // underneath them as they file the last document.
