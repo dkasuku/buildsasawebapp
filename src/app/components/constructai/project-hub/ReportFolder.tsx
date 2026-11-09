@@ -259,8 +259,8 @@ export function ReportFolder({ data, setView }: { data: ProjectHubDto; setView: 
         <div className="flex-1 min-w-0">
           <div className="text-[13px] text-white font-display">{project.name} — project report</div>
           <div className="text-[11px] text-[#8A95A5]">
-            Everything on this page, as of today, in {currencyCode}. For cross-project analysis, regions and scheduled sends, use the{" "}
-            <button onClick={() => setView("reports")} className="text-[#FF6B1A] hover:underline">Reports module</button>.
+            Everything on this page, as of today, in {currencyCode}. For a report across all your sites,{" "}
+            <button onClick={() => setView("buildflex-ai")} className="text-[#FF6B1A] hover:underline">ask Buildsasa AI</button>.
           </div>
         </div>
         <div className="flex flex-wrap gap-2">

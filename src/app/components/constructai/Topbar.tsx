@@ -1,11 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import { Search, Bell, Plus, Menu, ChevronDown, ChevronsUpDown, Check, Sun, Moon, Sparkles, FileText, FolderKanban, NotebookPen, CalendarDays } from "lucide-react";
-import type { Role } from "./roles";
-import { ROLES } from "./roles";
+import { Search, Bell, Menu, ChevronsUpDown, Check, FolderKanban } from "lucide-react";
 import { useProjects } from "./useProjects";
 import { useTeam } from "./useTeam";
 import api from "../../services/api";
-import { useCurrency } from "./CurrencyContext";
 import { projectTone, TONE_DOT } from "./wsStatus";
 
 // Search results and notifications are built from the workspace's real projects,
@@ -34,32 +31,21 @@ const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigat
 export function Topbar({
   title,
   onMenu,
-  onNewOrder,
-  role,
   onNavigate,
   onOpenChangeOrder,
-  onOpenAi,
-  theme,
-  setTheme,
   projectId,
   onOpenProject,
 }: {
   title: string;
   onMenu: () => void;
-  onNewOrder: () => void;
-  role: Role;
   onNavigate: (v: any) => void;
   onOpenChangeOrder: (id: string) => void;
-  onOpenAi?: () => void;
-  theme: "dark" | "light";
-  setTheme: (t: "dark" | "light") => void;
   /** Set on a project page: the breadcrumb ends in a project switcher. */
   projectId?: string | null;
   onOpenProject?: (id: string) => void;
 }) {
   const [q, setQ] = useState("");
-  const [open, setOpen] = useState<null | "results" | "notifs" | "currency" | "new" | "project">(null);
-  const { currency, setCurrency, currencies } = useCurrency();
+  const [open, setOpen] = useState<null | "results" | "notifs" | "project">(null);
   const barRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
@@ -83,10 +69,9 @@ export function Topbar({
   // The sidebar's search and "new" icons drive these.
   useEffect(() => {
     const focus = () => { setMobileSearchOpen(true); setOpen("results"); requestAnimationFrame(() => searchInputRef.current?.focus()); };
-    const openNew = () => setOpen("new");
+    // "New" now starts a fresh chat with Buildsasa AI (handled in App).
     window.addEventListener("buildsasa:focus-search", focus);
-    window.addEventListener("buildsasa:open-new", openNew);
-    return () => { window.removeEventListener("buildsasa:focus-search", focus); window.removeEventListener("buildsasa:open-new", openNew); };
+    return () => window.removeEventListener("buildsasa:focus-search", focus);
   }, []);
 
   const { projects } = useProjects();
@@ -103,7 +88,7 @@ export function Topbar({
 
   const searchIndex: SearchHit[] = [
     ...projects.map((p) => ({ type: "Project", label: p.code ? `${p.code} · ${p.name}` : p.name, target: "projects", projectId: p.id })),
-    ...changeOrders.map((c) => ({ type: "CO", label: `${c.number ?? "CO"} · ${c.title ?? "Untitled"}`, target: "change-orders", coId: c.id })),
+    ...changeOrders.map((c) => ({ type: "Variation", label: `${c.number ?? "Variation"} · ${c.title ?? "Untitled"}`, target: "change-orders", coId: c.id })),
     ...team.map((m) => ({ type: "People", label: `${m.name} · ${m.role}`, target: "team" })),
   ];
   const results = q
@@ -122,7 +107,6 @@ export function Topbar({
       coId: c.id as string | undefined,
     }));
 
-  const perms = ROLES[role];
   const current = projectId ? projects.find((p) => p.id === projectId) : undefined;
   const pick = (hit: SearchHit) => {
     if (hit.coId) onOpenChangeOrder(hit.coId);
@@ -131,14 +115,6 @@ export function Topbar({
     setQ(""); setOpen(null); setMobileSearchOpen(false);
   };
   const toggle = (m: NonNullable<typeof open>) => setOpen((o) => (o === m ? null : m));
-
-  const newItems = [
-    perms.createCO && { label: "Change order", icon: FileText, run: onNewOrder },
-    perms.views.includes("projects") && { label: "Project", icon: FolderKanban, run: () => onNavigate("projects") },
-    perms.views.includes("daily-log") && { label: "Daily log", icon: NotebookPen, run: () => onNavigate("daily-log") },
-    perms.views.includes("schedule") && { label: "Schedule activity", icon: CalendarDays, run: () => onNavigate("schedule") },
-    onOpenAi && perms.useAI && { label: "Ask Buildsasa AI", icon: Sparkles, run: onOpenAi },
-  ].filter(Boolean) as { label: string; icon: any; run: () => void }[];
 
   return (
     <header ref={barRef} className="ws-topbar">
@@ -211,25 +187,6 @@ export function Topbar({
       <div className="flex items-center gap-2 ml-auto shrink-0">
         <button type="button" onClick={() => { setMobileSearchOpen(true); setOpen("results"); requestAnimationFrame(() => searchInputRef.current?.focus()); }} className="ws-icon-btn md:hidden" aria-label="Search"><Search /></button>
 
-        {/* Currency */}
-        <div className="relative hidden sm:block">
-          <button type="button" className="ws-btn" onClick={() => toggle("currency")} aria-haspopup="listbox" aria-expanded={open === "currency"} aria-label={`Currency: ${currency}`}>
-            {currency} <ChevronDown aria-hidden style={{ color: "var(--ws-muted)", width: 14, height: 14 }} />
-          </button>
-          {open === "currency" && (
-            <div className="ws-menu" role="listbox" style={{ right: 0, top: 42, width: 210 }}>
-              <div className="ws-menu-label">Show amounts in</div>
-              {(Object.keys(currencies) as Array<keyof typeof currencies>).map((c) => (
-                <button key={c} role="option" aria-selected={currency === c} className="ws-menu-item" onClick={() => { setCurrency(c); setOpen(null); }}>
-                  <span style={{ width: 34, fontWeight: 600 }}>{c}</span>
-                  <span className="flex-1 truncate" style={{ color: "var(--ws-muted)" }}>{currencies[c].name}</span>
-                  {currency === c && <Check aria-hidden />}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
         {/* Notifications */}
         <div className="relative">
           <button type="button" className="ws-icon-btn relative" onClick={() => toggle("notifs")} aria-label={notifications.length ? `Notifications, ${notifications.length} recent` : "Notifications"} aria-expanded={open === "notifs"}>
@@ -253,27 +210,6 @@ export function Topbar({
           )}
         </div>
 
-        <button type="button" className="ws-icon-btn" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
-          {theme === "dark" ? <Sun /> : <Moon />}
-        </button>
-
-        {/* + New */}
-        {newItems.length > 0 && (
-          <div className="relative">
-            <button type="button" className="ws-btn-primary" onClick={() => toggle("new")} aria-haspopup="menu" aria-expanded={open === "new"}>
-              <Plus aria-hidden /> <span className="hidden sm:inline">New</span> <ChevronDown aria-hidden style={{ width: 14, height: 14 }} />
-            </button>
-            {open === "new" && (
-              <div className="ws-menu" role="menu" style={{ right: 0, top: 42, width: 220 }}>
-                {newItems.map((it) => (
-                  <button key={it.label} role="menuitem" className="ws-menu-item" onClick={() => { setOpen(null); it.run(); }}>
-                    <it.icon aria-hidden /> {it.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </header>
   );

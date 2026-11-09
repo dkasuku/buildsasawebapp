@@ -66,41 +66,45 @@ const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }
   dashboard: { title: "Dashboard", subtitle: "Executive overview" },
   projects: { title: "Projects", subtitle: "Your sites and jobs" },
   "project-detail": { title: "Project", subtitle: "Contract, drawings, BOQ, variations, certificates, site & costs — in one place" },
-  "change-orders": { title: "Change orders", subtitle: "Cost & schedule impact · approvals" },
+  "change-orders": { title: "Variations", subtitle: "Extra work, its cost and the client's approval" },
   billing: { title: "Billing & plan", subtitle: "Subscription & payments" },
-  plans: { title: "Plans & drawings", subtitle: "Architectural sheets & sharing" },
+  plans: { title: "Drawings", subtitle: "Plans and their latest revisions" },
   tasks: { title: "Checklists", subtitle: "Checklist assignments and progress by trade" },
   schedule: { title: "Schedule", subtitle: "Project timeline — Gantt, dates & milestones" },
   documents: { title: "Unfiled documents", subtitle: "Documents with no project — file them into one" },
-  "daily-log": { title: "Daily log", subtitle: "Site record, weather, photos and video" },
-  "punch-list": { title: "Punch list", subtitle: "Deficiencies and closeouts" },
+  "daily-log": { title: "Daily log", subtitle: "What happened on site each day, with photos" },
+  "punch-list": { title: "Snags", subtitle: "What needs fixing before handover" },
   commitments: { title: "Commitments", subtitle: "Subcontracts, POs, obligations" },
   reports: { title: "Reports", subtitle: "Financial & operational analytics" },
-  financials: { title: "Financials", subtitle: "Cash flow, budgets, and exports" },
-  team: { title: "Team", subtitle: "Members, roles & workflows" },
-  "field-view": { title: "Field supervisor", subtitle: "Mobile — jobsite operations" },
-  inbox: { title: "Inbox", subtitle: "Internal messages & project conversations" },
+  financials: { title: "Budget & spending", subtitle: "What each site was budgeted, and what it has cost" },
+  team: { title: "Team", subtitle: "Who works with you, and what they can see" },
+  "field-view": { title: "Field view", subtitle: "Today's work on site" },
+  inbox: { title: "Messages", subtitle: "Conversations with your team and clients" },
   announcements: { title: "Announcements", subtitle: "Company-wide broadcasts & notices" },
   observations: { title: "Observations", subtitle: "Quality & safety site observations" },
   "action-plans": { title: "Observations", subtitle: "Site issues and their corrective actions" },
   coordination: { title: "Coordination issues", subtitle: "RFIs, clashes, design questions" },
   correspondence: { title: "Correspondence", subtitle: "Letters, submittals & transmittals" },
   crews: { title: "Crews", subtitle: "Crew rosters & schedules" },
-  directory: { title: "Directory", subtitle: "Global contacts & companies" },
+  directory: { title: "Contacts", subtitle: "Suppliers, subcontractors, consultants and clients" },
   subcontractors: { title: "Subcontractors", subtitle: "Subcontractor & supplier database · engagements & payments" },
-  "company-docs": { title: "Company documents", subtitle: "Organization-wide vault" },
+  "company-docs": { title: "Company documents", subtitle: "NCA, KRA, permits and certificates, with expiry reminders" },
   "role-manager": { title: "Role manager", subtitle: "Configure team roles and permissions" },
   bidding: { title: "Bidding", subtitle: "Subcontractor bids and tendering" },
   jobs: { title: "Jobs board", subtitle: "Work opportunities from Buildsasa, open for bids" },
   quotes: { title: "Quotes", subtitle: "Price jobs, send them for online acceptance, convert wins to projects" },
-  invoicing: { title: "Invoicing", subtitle: "Accounts receivable and invoice management" },
-  inspections: { title: "Inspections", subtitle: "Quality, safety, and compliance inspections" },
-  checklists: { title: "Checklists", subtitle: "Templates, assignments, and digital submissions" },
-  "safety-incidents": { title: "Safety incidents", subtitle: "OSHA-style incident reporting and tracking" },
-  equipment: { title: "Inventory", subtitle: "Materials, equipment, tools & stock levels" },
-  attendance: { title: "Attendance", subtitle: "Check in/out, breaks, leaves & time tracking" },
-  "buildflex-ai": { title: "Buildsasa AI", subtitle: "AI assistant for reports & building expertise" },
+  invoicing: { title: "Invoices", subtitle: "What clients owe you, and what's overdue" },
+  inspections: { title: "Inspections", subtitle: "Site and quality checks" },
+  checklists: { title: "Checklists", subtitle: "Checklists for your crews to fill in on site" },
+  "safety-incidents": { title: "Safety", subtitle: "Accidents, near misses and what was done" },
+  equipment: { title: "Materials & equipment", subtitle: "Stock on site, and plant owned or hired" },
+  attendance: { title: "Attendance", subtitle: "Who was on site, and for how long" },
+  "buildflex-ai": { title: "Buildsasa AI", subtitle: "Your site secretary" },
 };
+
+// Where to land when a page isn't available: Buildsasa AI is home.
+const homeView = (allowed: View[]): View =>
+  allowed.includes("buildflex-ai") ? "buildflex-ai" : (allowed[0] ?? "buildflex-ai");
 
 export default function App() {
   const [view, setView] = useState<View>(() => {
@@ -192,6 +196,16 @@ export default function App() {
   // navigation; only "New chat" or a page reload (which remounts App) resets it.
   const aiSession = useAiSession();
   const { messages: aiMessages, setMessages: setAiMessages } = aiSession;
+  // "New" (the sidebar's pen) is a fresh chat: you tell the AI what to create.
+  // The theme switch lives in the account menu, which doesn't hold the theme.
+  useEffect(() => {
+    const fresh = () => { aiSession.reset(); setView("buildflex-ai"); };
+    const flip = () => setTheme(theme === "dark" ? "light" : "dark");
+    window.addEventListener("buildsasa:open-new", fresh);
+    window.addEventListener("buildsasa:toggle-theme", flip);
+    return () => { window.removeEventListener("buildsasa:open-new", fresh); window.removeEventListener("buildsasa:toggle-theme", flip); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme]);
   // Sidebar: full, or a rail of icons. The AI page starts on the rail so the
   // chat gets the room; expanding it there only lasts for that visit.
   const [navCollapsed, setNavCollapsed] = useState(() => { try { return localStorage.getItem("buildsasa-nav-collapsed") === "1"; } catch { return false; } });
@@ -223,7 +237,7 @@ export default function App() {
   // No seed id. This used to default to "CO-1258", a demo record, so any route
   // that navigated without an id opened someone else's invented change order.
   const [activeChangeOrderId, setActiveChangeOrderId] = useState<string | null>(null);
-  const [returnView, setReturnView] = useState<View>("dashboard");
+  const [returnView, setReturnView] = useState<View>("buildflex-ai");
   // Which project the detail dashboard is showing. Set by drilling into a card.
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const openProject = (id: string) => {
@@ -272,7 +286,7 @@ export default function App() {
     if (view === "login") return;
     const allowed = visibleViewsFor(ROLES[role].views);
     if (!allowed.includes(view)) {
-      setView((allowed[0] ?? "dashboard") as View);
+      setView(homeView(allowed));
     }
   }, [role]);
 
@@ -479,7 +493,7 @@ export default function App() {
   // If current view isn't allowed for the role / hidden in this build, bounce
   // to the first allowed + visible view.
   const allowed = visibleViewsFor(ROLES[role].views);
-  const effectiveView: View = allowed.includes(view) ? view : ((allowed[0] ?? "dashboard") as View);
+  const effectiveView: View = allowed.includes(view) ? view : homeView(allowed);
   const meta = TITLES[effectiveView as Exclude<View, "login">];
   const backTarget: View = returnView;
   const backMeta = TITLES[backTarget as Exclude<View, "login">];
@@ -497,7 +511,6 @@ export default function App() {
   // Not a hook: this sits below early returns, where hooks would break the render order.
   setPlanTier(starter ? "starter" : "business");
   const invoiceBanner = !paywalled && !!gate.unpaidDue;
-  // The first-run setup wizard only applies to workspace owners/managers.
   // Only someone who sets up the workspace gets the setup conversation.
   const setsUpWorkspace = !!(ROLES[role].isWorkspaceOwner || ROLES[role].manageTeam);
 
@@ -528,15 +541,10 @@ export default function App() {
           <Topbar
             title={meta.title}
             onMenu={() => setDrawerOpen(true)}
-            onNewOrder={() => navigate("change-orders")}
-            role={role}
             onNavigate={(v: View) => navigate(v)}
             projectId={effectiveView === "project-detail" ? activeProjectId : null}
             onOpenProject={openProject}
             onOpenChangeOrder={openChangeOrder}
-            onOpenAi={() => setAiPanelOpen(true)}
-            theme={theme}
-            setTheme={setTheme}
           />
           <div className={`flex-1 overflow-x-hidden relative ${effectiveView === "buildflex-ai" ? "overflow-hidden" : "overflow-y-auto"}`}>
             {!paywalled && (
@@ -590,7 +598,7 @@ export default function App() {
               </div>
             )}
             {starter && BUSINESS_VIEWS.includes(effectiveView) ? <PlanUpgrade view={effectiveView} onUpgrade={() => navigate("billing")} /> : (
-            <ErrorBoundary resetKey={effectiveView} onReset={() => setView("dashboard")}>
+            <ErrorBoundary resetKey={effectiveView} onReset={() => setView(homeView(allowed))}>
             {effectiveView === "dashboard" && (
               <Dashboard
                 role={role}

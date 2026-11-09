@@ -17,6 +17,10 @@ export function UsageMeter() {
     return () => { clearInterval(t); window.removeEventListener("buildsasa:credits-updated", load); window.removeEventListener("focus", load); };
   }, []);
   if (!d) return null;
+  // A bill on the home screen makes people afraid to use the AI: stay out of
+  // sight until an allowance is nearly used up or credits are running low.
+  const low = d.balance < 50 || ORDER.some(([k]) => (d.used[k] || 0) >= 0.8 * (d.limits[k] || Infinity));
+  if (!low) return null;
   const topUp = () => window.dispatchEvent(new CustomEvent(NEED_CREDITS_EVENT, { detail: { code: "TOPUP", error: `Top-up credits never expire. Use them for AI answers and to keep going after today's allowances run out.${d.topup ? ` You have ${d.topup.toLocaleString()} top-up credits.` : ""}`, packs: d.packs, payments: d.payments } }));
   return (
     <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] text-[#5B6675]" aria-label="Today's AI allowance">

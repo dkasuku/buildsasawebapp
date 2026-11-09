@@ -1,6 +1,6 @@
 import {
   Settings, LifeBuoy, Eye, ChevronDown, CreditCard, LogOut,
-  Lock, Search, SquarePen, X, FolderOpen, Building2, Sparkles, PanelLeftClose, PanelLeftOpen,
+  Lock, Search, SquarePen, X, FolderOpen, Building2, Sparkles, PanelLeftClose, PanelLeftOpen, Coins, SunMoon,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import type { Role } from "./roles";
@@ -11,6 +11,7 @@ import { BUSINESS_VIEWS } from "./planTier";
 import { useProjects } from "./useProjects";
 import { projectTone, TONE_DOT } from "./wsStatus";
 import { MODULES, moduleOf, type Module } from "./modules";
+import { useCurrency } from "./CurrencyContext";
 
 export type View =
   | "login"
@@ -93,6 +94,7 @@ export function Sidebar({
   onOpenProject?: (id: string) => void;
 }) {
   const perms = ROLES[role];
+  const { currency, setCurrency } = useCurrency();
   const go = (v: View) => {
     setView(v);
     onClose();
@@ -187,7 +189,7 @@ export function Sidebar({
             </button>
           )}
           <button type="button" className="ws-icon-btn ws-ghost ws-hide-collapsed lg:hidden" style={{ width: 32, height: 32 }} aria-label="Search" onClick={() => { onClose(); window.dispatchEvent(new Event("buildsasa:focus-search")); }}><Search /></button>
-          <button type="button" className="ws-icon-btn ws-ghost ws-hide-collapsed" style={{ width: 32, height: 32 }} aria-label="Create new" onClick={() => { onClose(); window.dispatchEvent(new Event("buildsasa:open-new")); }}><SquarePen /></button>
+          <button type="button" className="ws-icon-btn ws-ghost ws-hide-collapsed" style={{ width: 32, height: 32 }} aria-label="New chat with Buildsasa AI" title="New chat" onClick={() => { onClose(); window.dispatchEvent(new Event("buildsasa:open-new")); }}><SquarePen /></button>
           <button type="button" className="ws-icon-btn ws-ghost lg:hidden" style={{ width: 32, height: 32 }} aria-label="Close menu" onClick={onClose}><X /></button>
           {menu === "workspace" && (
             <>
@@ -237,7 +239,7 @@ export function Sidebar({
           </div>
         </nav>
 
-        <div className="ws-viewing ws-hide-collapsed relative">
+        {ROLE_TESTING && <div className="ws-viewing ws-hide-collapsed relative">
           Viewing as <strong>{role}</strong>
           {ROLE_TESTING && setRole && (
             <>
@@ -257,13 +259,16 @@ export function Sidebar({
               )}
             </>
           )}
-        </div>
+        </div>}
         <div className="relative">
           {menu === "user" && (
             <>
               <div className="fixed inset-0 z-20" onClick={() => setMenu(null)} />
               <div className="ws-menu" role="menu" style={{ left: 10, right: 10, bottom: 52 }}>
                 <button role="menuitem" className="ws-menu-item" onClick={() => openSettings()}><Settings /> Settings</button>
+                {allowed("billing") && <button role="menuitem" className="ws-menu-item" onClick={() => { setMenu(null); go("billing"); }}><CreditCard /> Billing &amp; plan</button>}
+                <button role="menuitem" className="ws-menu-item" onClick={() => setCurrency(currency === "KES" ? "USD" : "KES")}><Coins /> Amounts in {currency} <span style={{ marginLeft: "auto", color: "var(--ws-muted)", fontSize: 12 }}>switch to {currency === "KES" ? "USD" : "KES"}</span></button>
+                <button role="menuitem" className="ws-menu-item" onClick={() => { setMenu(null); window.dispatchEvent(new Event("buildsasa:toggle-theme")); }}><SunMoon /> Light / dark mode</button>
                 <button role="menuitem" className="ws-menu-item" onClick={() => { setMenu(null); window.open("mailto:support@buildsasa.com?subject=Support%20Request", "_blank"); }}><LifeBuoy /> Help &amp; support</button>
                 <div className="ws-divider" style={{ margin: "4px 0" }} />
                 <button role="menuitem" className="ws-menu-item" style={{ color: "var(--ws-red)" }} onClick={signOut}><LogOut style={{ color: "var(--ws-red)" }} /> Sign out</button>

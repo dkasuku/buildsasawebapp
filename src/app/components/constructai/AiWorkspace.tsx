@@ -49,7 +49,7 @@ export const AI_CATEGORIES: Category[] = [
     prompts: ["What happened on my sites this week?", "Log today's site work: 12 workers, first-floor slab formwork, cement delivered"],
     tool: { label: "Open Daily log", view: "daily-log" } },
   { id: "team", label: "Team, roles & crews", icon: Users, blurb: "Invite people, set roles and permissions, organise crews and foremen.",
-    prompts: ["Invite jane@example.com as a Site Engineer", "Set up a masonry crew with Peter as foreman"],
+    prompts: ["Invite jane@example.com as a Site Engineer", "Who on my team can approve variations?"],
     tool: { label: "Open Team", view: "team" } },
   { id: "planning", label: "Planning & schedule", icon: CalendarRange, blurb: "Programmes, durations, sequencing and lead times, added to the schedule.",
     prompts: ["Draft a programme for a 4-bedroom maisonette", "Add 'Ring beam' to my latest project's schedule for next week"],
@@ -68,7 +68,7 @@ export const AI_CATEGORIES: Category[] = [
     tool: { label: "Open Reports", view: "reports" } },
   { id: "documents", label: "Letters & contracts", icon: FileText, blurb: "Client letters, delay notices, contracts, minutes and method statements, ready as Word or PDF.",
     prompts: ["Write a delay notice to the client: 2 weeks for heavy rain", "Draft a simple labour subcontract for a masonry crew"],
-    tool: { label: "Open Correspondence", view: "correspondence" } },
+  },
   { id: "design", label: "Interior design", icon: Palette, blurb: "Snap or attach a photo of a raw space to see it finished, with a costed materials list.",
     prompts: ["Design a modern living room for a 4 m × 5 m space with warm lighting", "Render a 3-bedroom bungalow facade with a hipped roof and stone cladding"],
     tool: { label: "Design from a photo", kind: "photo" } },
@@ -501,7 +501,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
               <h1 className="text-center text-[32px] sm:text-[38px] text-white font-display tracking-tight flex items-center justify-center gap-3">
                 <Sparkles className="w-8 h-8 text-[#FF6B1A]" /> {greeting()}{name ? `, ${name}` : ""}
               </h1>
-              <p className="text-center text-[13.5px] text-[#8A95A5] mt-2">Type, talk or snap a photo. I can price jobs, design rooms and set things up for you: projects, invoices, budgets, your team and more.</p>
+              <p className="text-center text-[13.5px] text-[#8A95A5] mt-2">Tell me what happened on site, or what you need done. Type, talk or snap a photo.</p>
               <div className="mt-7">{composer(true)}<UsageMeter /></div>
               {/* One tap to the jobs contractors do every day. */}
               <div className="flex flex-wrap justify-center gap-2 mt-4">
@@ -530,25 +530,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
                   </div>
                 </div>
               )}
-              {/* Every kind of construction work, one tap to focus the AI on it. */}
-              <div className="mt-7 text-[11px] uppercase tracking-wider text-[#5B6675] mb-2">What do you need help with?</div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-                {cats.map((c) => (
-                  <button key={c.id} onClick={() => pick(c)} aria-pressed={category === c.id}
-                    className={`rounded-xl border p-2.5 text-left transition-colors flex items-center gap-2 min-w-0 ${category === c.id ? "border-[#FF6B1A]/50 bg-[#FF6B1A]/5" : "border-[#222A35] bg-[#11161D] hover:border-[#2C3744]"}`}>
-                    <span className="w-7 h-7 shrink-0 rounded-lg bg-[#FF6B1A]/10 flex items-center justify-center"><c.icon className="w-4 h-4 text-[#FF6B1A]" /></span>
-                    <span className="text-[12.5px] text-white leading-tight">{c.label}</span>
-                  </button>
-                ))}
-              </div>
-              {cat && (
-                <div className="mt-3 rounded-xl border border-[#FF6B1A]/30 bg-[#11161D] p-3">
-                  <div className="text-[12px] text-[#8A95A5]">{cat.blurb}</div>
-                  <div className="mt-2 flex flex-col sm:flex-row gap-1.5">
-                    {cat.prompts.map((p) => <button key={p} onClick={() => send(p)} className="flex-1 text-left text-[12px] text-[#C2CAD6] hover:text-white rounded-md px-2.5 py-2 bg-[#0A0E14] border border-[#222A35] hover:border-[#2C3744]">{p}</button>)}
-                  </div>
-                </div>
-              )}
+
             </div>
           </div>
         ) : (

@@ -51,11 +51,31 @@ export function setSimpleMode(on: boolean): void {
 // invented data) was deleted rather than left hidden.
 const UNFINISHED_VIEWS: View[] = [];
 
+// Pages switched off for the Kenyan market (Nov 2026 simplification). They are
+// enterprise US-style workflows small and mid-size Kenyan contractors don't
+// run, or jobs Buildsasa AI now does from chat. Their data and APIs are kept:
+// delete a line here to bring a page back.
+export const HIDDEN_VIEWS: View[] = [
+  "dashboard",       // the AI home's "needs attention" brief does this job
+  "coordination",    // BIM clash coordination
+  "commitments",     // subcontract / PO ledgers
+  "observations",    // folded into snags, inspections and safety
+  "action-plans",    // enterprise QA corrective-action plans
+  "correspondence",  // the AI writes letters
+  "reports",         // the AI writes reports and client updates
+  "announcements",   // teams talk on WhatsApp; the AI drafts messages
+  "subcontractors",  // Contacts holds subcontractors and suppliers
+  "crews",           // Team covers it
+  "role-manager",    // roles are set when inviting, or by asking the AI
+  "tasks",           // "Assignments" is already a tab inside Checklists
+];
+
 // Is a given view allowed to appear right now?
 // Default: everything visible. Simple mode: only the core set.
 export function isViewVisible(v: View): boolean {
   if (v === "login") return true;
   if (UNFINISHED_VIEWS.includes(v)) return false; // never ship an unfinished screen
+  if (HIDDEN_VIEWS.includes(v)) return false;
   if (!simpleModeEnabled()) return true; // all features visible by default
   if (v === "project-detail") return CORE_VIEWS.includes("projects");
   return CORE_VIEWS.includes(v);
