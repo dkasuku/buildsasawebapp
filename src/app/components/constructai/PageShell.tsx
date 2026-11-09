@@ -71,7 +71,7 @@ export function TabSelect<T extends string>({ items, value, onChange, label = "S
   className?: string;
 }) {
   return (
-    <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value as T)} className={`ws-select h-9 px-3 rounded-md border border-[#222A35] text-[13px] min-w-[180px] ${className}`}>
+    <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value as T)} className={`ws-select min-w-[180px] ${className}`}>
       {items.filter((t) => !t.hidden).map((t) => (
         <option key={t.id} value={t.id}>{String(t.label)}{t.count != null && t.count > 0 ? ` (${t.count})` : ""}</option>
       ))}

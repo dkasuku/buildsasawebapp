@@ -139,7 +139,7 @@ const CURRENCY_OPTIONS = ["$", "KSh"];
 
 // The small coloured dot on a project card's status chip.
 const statusDot = (s: string) =>
-  s === "On Track" ? "#22C55E" : s === "At Risk" ? "#EF4444" : s === "Planning" ? "#3B82F6" : s === "Archived" ? "#8A95A5" : "#F5A623";
+  s === "On Track" || s === "Active" ? "#22C55E" : s === "At Risk" ? "#EF4444" : s === "Planning" ? "#3B82F6" : s === "Archived" ? "#8A95A5" : "#F5A623";
 
 // Maps a change-order status to a human label + accent color for the
 // Recent Activity panel.
@@ -645,7 +645,7 @@ export function Projects({
             placeholder="Find a project…"
             className="flex-1 lg:flex-none lg:w-[180px] h-8 px-3 rounded-md bg-[#11161D] border border-[#222A35] text-[12px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]"
           />
-          <select aria-label="Project status" value={tab} onChange={(e) => setTab(e.target.value)} className="ws-select h-8 px-2 rounded-md border border-[#222A35] text-[12px]">
+          <select aria-label="Project status" value={tab} onChange={(e) => setTab(e.target.value)} className="ws-select">
             {TABS.map((t) => <option key={t} value={t}>{t === "All" ? "All statuses" : t}</option>)}
           </select>
           <button onClick={() => { setCodeTouched(false); setShowNew(true); }} className="h-8 px-3 rounded-md bg-[#FF6B1A] text-white text-[12px] flex items-center gap-1.5">
@@ -721,7 +721,7 @@ export function Projects({
                   {p.status}
                 </span>
               </div>
-              <div className="absolute top-3 right-3 z-30" onClick={(e) => e.stopPropagation()}>
+              <div className="absolute top-[12px] right-3 z-30" onClick={(e) => e.stopPropagation()}>
                 <button
                   type="button"
                   onClick={(e) => {

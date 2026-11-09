@@ -252,7 +252,7 @@ function COForm({ projects, initial, canApprove, onClose, onSaved }: { projects:
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/60 flex justify-end" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label={initial.id ? "Edit change order" : "Create change order"} className="w-full lg:w-[72vw] lg:max-w-[1040px] h-[100dvh] flex flex-col border-l border-[#222A35] bg-[#11161D] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label={initial.id ? "Edit change order" : "Create change order"} className="w-full sm:w-[88vw] sm:max-w-[1040px] h-[100dvh] flex flex-col border-l border-[#222A35] bg-[#11161D] shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="shrink-0 px-6 py-4 border-b border-[#222A35] flex items-center justify-between">
           <div className="text-[15px] text-white font-display">{initial.id ? "Edit change order" : "Create change order"}</div>
           <button onClick={onClose} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button>
