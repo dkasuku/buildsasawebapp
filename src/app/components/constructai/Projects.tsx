@@ -262,6 +262,8 @@ export function Projects({
   const { currency } = useCurrency();
   const [tab, setTab] = useState("All");
   const [layout, setLayout] = useState<"grid" | "list">("grid");
+  // The New project form shows the essentials; photos, units and files on request.
+  const [newMore, setNewMore] = useState(false);
   const [query, setQuery] = useState("");
   // Start empty and show a loading state until the backend responds, so a fresh
   // workspace never flashes the seed/demo projects before the empty state. The
@@ -639,121 +641,16 @@ export function Projects({
     >
       <PageHeader
         title="Projects"
-        subtitle={<>{activeProjectsCount} active · {combinedValueLabel} in active contracts · {coExposureLabel} at risk in pending change orders</>}
+        subtitle={<>{activeProjectsCount} active · {combinedValueLabel} in contracts</>}
         actions={<div className="ws-toolbar" onClick={(e) => e.stopPropagation()}>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter projects..."
+            placeholder="Find a project…"
             className="flex-1 lg:flex-none lg:w-[180px] h-8 px-3 rounded-md bg-[#11161D] border border-[#222A35] text-[12px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]"
           />
-          <div className="relative" onClick={(e) => e.stopPropagation()}>
-            <button
-              onClick={() => setFiltersOpen((prev) => !prev)}
-              className={`h-8 px-3 rounded-md border text-[12px] flex items-center gap-1.5 ${activeFilterCount ? "border-[#FF6B1A]/60 text-white" : "border-[#222A35] text-[#8A95A5] hover:text-white"}`}
-            >
-              <Filter className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Filters</span>
-              {activeFilterCount > 0 && (
-                <span className="ml-1 rounded-full bg-[#FF6B1A] text-white text-[10px] px-1.5">{activeFilterCount}</span>
-              )}
-            </button>
-            {filtersOpen && (
-              <div className="absolute right-0 mt-2 w-72 rounded-xl border border-[#222A35] bg-[#0A0E14] shadow-2xl text-[11px] text-[#8A95A5] overflow-hidden z-20">
-                <div className="px-4 py-3 text-[10px] uppercase tracking-wider text-[#5B6675]">Status</div>
-                <div className="px-4 pb-3 grid grid-cols-2 gap-2">
-                  {STATUS_FILTERS.map((status) => (
-                    <label key={status} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={statusFilters.includes(status)}
-                        onChange={() => setStatusFilters((prev) => prev.includes(status)
-                          ? prev.filter((s) => s !== status)
-                          : [...prev, status]
-                        )}
-                        className="h-3.5 w-3.5 accent-[#FF6B1A]"
-                      />
-                      <span className="text-[#E6EAF0]">{status}</span>
-                    </label>
-                  ))}
-                </div>
-                <div className="border-t border-[#222A35] px-4 py-3">
-                  <div className="text-[10px] uppercase tracking-wider text-[#5B6675]">Progress %</div>
-                  <div className="grid grid-cols-2 gap-2 mt-2">
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={minProgress}
-                      onChange={(e) => setMinProgress(e.target.value)}
-                      placeholder="Min"
-                      className="h-8 px-2 rounded-md bg-[#11161D] border border-[#222A35] text-[11px] text-white focus:outline-none focus:border-[#FF6B1A]"
-                    />
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={maxProgress}
-                      onChange={(e) => setMaxProgress(e.target.value)}
-                      placeholder="Max"
-                      className="h-8 px-2 rounded-md bg-[#11161D] border border-[#222A35] text-[11px] text-white focus:outline-none focus:border-[#FF6B1A]"
-                    />
-                  </div>
-                </div>
-                <div className="border-t border-[#222A35] px-4 py-3 space-y-2">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={highExposureOnly}
-                      onChange={(e) => setHighExposureOnly(e.target.checked)}
-                      className="h-3.5 w-3.5 accent-[#FF6B1A]"
-                    />
-                    <span className="text-[#E6EAF0]">Over $1M at risk (pending changes)</span>
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={highCOOnly}
-                      onChange={(e) => setHighCOOnly(e.target.checked)}
-                      className="h-3.5 w-3.5 accent-[#FF6B1A]"
-                    />
-                    <span className="text-[#E6EAF0]">High change orders (25+)</span>
-                  </label>
-                </div>
-                <div className="border-t border-[#222A35] px-4 py-3 flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setStatusFilters([]);
-                      setMinProgress("");
-                      setMaxProgress("");
-                      setHighExposureOnly(false);
-                      setHighCOOnly(false);
-                    }}
-                    className="text-[11px] text-[#8A95A5] hover:text-white"
-                  >
-                    Clear filters
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFiltersOpen(false)}
-                    className="text-[11px] text-[#FF6B1A] hover:text-[#FF7E33]"
-                  >
-                    Done
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="flex border border-[#222A35] rounded-md overflow-hidden">
-            <button onClick={() => setLayout("grid")} className={`h-8 w-8 flex items-center justify-center ${layout === "grid" ? "bg-[#161C24] text-white" : "text-[#8A95A5]"}`}>
-              <LayoutGrid className="w-3.5 h-3.5" />
-            </button>
-            <button onClick={() => setLayout("list")} className={`h-8 w-8 flex items-center justify-center ${layout === "list" ? "bg-[#161C24] text-white" : "text-[#8A95A5]"}`}>
-              <List className="w-3.5 h-3.5" />
-            </button>
-          </div>
           <button onClick={() => { setCodeTouched(false); setShowNew(true); }} className="h-8 px-3 rounded-md bg-[#FF6B1A] text-white text-[12px] flex items-center gap-1.5">
-            <Plus className="w-3.5 h-3.5" /> <span className="hidden sm:inline">New</span>
+            <Plus className="w-3.5 h-3.5" /> <span className="hidden sm:inline">New project</span>
           </button>
         </div>}
         tabs={<Tabs label="Project status" value={tab} onChange={setTab} items={TABS.map((t) => ({ id: t, label: t }))} />}
@@ -1041,8 +938,8 @@ export function Projects({
           <div className="w-full sm:max-w-[560px] lg:max-w-[680px] h-[100dvh] sm:h-auto sm:max-h-[90vh] rounded-none sm:rounded-xl border-0 sm:border border-[#222A35] bg-[#11161D] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[#222A35] shrink-0">
               <div>
-                <div className="text-[15px] text-white font-display">New Project</div>
-                <div className="text-[11px] text-[#8A95A5]">Create a new project workspace</div>
+                <div className="text-[15px] text-white font-display">New project</div>
+                <div className="text-[11px] text-[#8A95A5]">Only the name is needed. Or just describe the job to Buildsasa AI and it sets it up.</div>
               </div>
               <button onClick={() => setShowNew(false)} className="w-8 h-8 rounded-md text-[#8A95A5] hover:text-white hover:bg-[#161C24] flex items-center justify-center">
                 <X className="w-4 h-4" />
@@ -1051,13 +948,9 @@ export function Projects({
             <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-3 overscroll-contain">
               <div>
                 <label className="text-[11px] text-[#8A95A5] block mb-1">Project name *</label>
-                <input value={form.name} onChange={(e) => { const name = e.target.value; setForm((f) => ({ ...f, name, code: codeTouched ? f.code : autoCode(name) })); }} placeholder="e.g. Eastside Office Park" className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]" />
+                <input value={form.name} onChange={(e) => { const name = e.target.value; setForm((f) => ({ ...f, name, code: codeTouched ? f.code : autoCode(name) })); }} placeholder="e.g. Kitengela 4-bedroom maisonette" className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]" />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11px] text-[#8A95A5] block mb-1">Project code <span className="text-[#5B6675] font-normal">(auto or edit)</span></label>
-                  <input value={form.code} onChange={(e) => { setCodeTouched(true); setForm({ ...form, code: e.target.value }); }} placeholder="auto — type a name" className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]" />
-                </div>
                 <div>
                   <label className="text-[11px] text-[#8A95A5] block mb-1">Contract value</label>
                   <div className="flex gap-2">
@@ -1098,72 +991,16 @@ export function Projects({
                   className="w-full px-3 py-2 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A] resize-y"
                 />
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11px] text-[#8A95A5] block mb-1">Progress %</label>
-                  <input placeholder="e.g. 25"
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={form.progress}
-                    onChange={(e) => setForm({ ...form, progress: Number(e.target.value) || 0 })}
-                    className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]"
-                  />
-                </div>
-                <div>
-                  <label className="text-[11px] text-[#8A95A5] block mb-1">Active Change Orders</label>
-                  <input placeholder="e.g. 0"
-                    type="number"
-                    min={0}
-                    value={form.changeOrders}
-                    onChange={(e) => setForm({ ...form, changeOrders: Number(e.target.value) || 0 })}
-                    className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]"
-                  />
-                  <div className="text-[10px] text-[#5B6675] mt-1">Count of change orders currently on this project</div>
+              <div className="rounded-lg border border-[#222A35] bg-[#0A0E14] p-3">
+                <label className="text-[11px] text-[#8A95A5] block">{newUnits.on ? "Owner or developer (optional): unit clients are added per unit" : "Client (optional): the person you're building for"}</label>
+                <p className="text-[11px] text-[#5B6675] mt-0.5 mb-2">They get a free client account to follow progress, approve changes and chat with you. You can also invite them later from the project's Client tab.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input value={newClient.name} onChange={(e) => setNewClient({ ...newClient, name: e.target.value })} placeholder="Client's name, e.g. Mary Wanjiru" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[12px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]/50" />
+                  <input type="email" value={newClient.email} onChange={(e) => setNewClient({ ...newClient, email: e.target.value })} placeholder="Client's email, e.g. mary@gmail.com" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[12px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]/50" />
                 </div>
               </div>
-              <div>
-                <label className="text-[11px] text-[#8A95A5] block mb-1">Money at risk from pending changes <span className="text-[#5B6675] font-normal">(optional)</span></label>
-                <div className="text-[10px] text-[#5B6675] mb-1.5">The value of change orders raised but not yet approved — extra cost the client has not agreed to yet. Leave at 0 if there are none.</div>
-                <div className="flex gap-2">
-                  <select
-                    value={form.exposureCurrency}
-                    onChange={(e) => setForm({ ...form, exposureCurrency: e.target.value })}
-                    className="h-9 px-2 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A] shrink-0"
-                  >
-                    {CURRENCY_OPTIONS.map((currency) => (
-                      <option key={currency} value={currency}>{currency}</option>
-                    ))}
-                  </select>
-                  <input
-                    value={form.exposureAmount}
-                    onChange={(e) => setForm({ ...form, exposureAmount: e.target.value })}
-                    placeholder="2.4M"
-                    className="flex-1 min-w-0 h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-[11px] text-[#8A95A5] block mb-1">Status</label>
-                <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="w-full h-9 px-3 rounded-md bg-[#0A0E14] border border-[#222A35] text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]">
-                  <option>Planning</option>
-                  <option>On Track</option>
-                  <option>At Risk</option>
-                  <option>Closing</option>
-                  <option>Archived</option>
-                </select>
-              </div>
-              <div className="rounded-md border border-[#222A35] bg-[#0A0E14] p-3 space-y-2">
-                <div className="text-[10px] text-[#8A95A5] uppercase tracking-wider">Project team assignments</div>
-                <div className="text-[10px] text-[#5B6675]">
-                  These roles define who is responsible for the project. The PM runs day-to-day operations, the Architect handles design & drawings, and the QS manages budgets & cost control. They will be notified of project updates.
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <MemberSelect label="PM / Site lead" value={form.pm} onChange={(v) => setForm({ ...form, pm: v })} members={team} />
-                  <MemberSelect label="Architect" value={form.architect} onChange={(v) => setForm({ ...form, architect: v })} members={team} />
-                  <MemberSelect label="Quantity Surveyor" value={form.qs} onChange={(v) => setForm({ ...form, qs: v })} members={team} />
-                </div>
-              </div>
+              <button type="button" onClick={() => setNewMore((v) => !v)} className="text-[12px] text-[#FF8A47] hover:underline">{newMore ? "Fewer details" : "More details: photos, units, documents"}</button>
+              {newMore && (<>
               <div>
                 <label className="text-[11px] text-[#8A95A5] block mb-2">Project images</label>
                 <label className="flex items-center gap-2 px-3 py-2 rounded-md border border-dashed border-[#222A35] bg-[#0A0E14] text-[11px] text-[#8A95A5] cursor-pointer hover:border-[#FF6B1A]/50 hover:text-white">
@@ -1285,19 +1122,12 @@ export function Projects({
                 )}
               </div>
 
-              <div className="rounded-lg border border-[#222A35] bg-[#0A0E14] p-3">
-                <label className="text-[11px] text-[#8A95A5] block">{newUnits.on ? "Owner or developer (optional): unit clients are added per unit" : "Client (optional): the person you're building for"}</label>
-                <p className="text-[11px] text-[#5B6675] mt-0.5 mb-2">They get a free client account to follow progress, approve changes and chat with you. You can also invite them later from the project's Client tab.</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <input value={newClient.name} onChange={(e) => setNewClient({ ...newClient, name: e.target.value })} placeholder="Client's name, e.g. Mary Wanjiru" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[12px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]/50" />
-                  <input type="email" value={newClient.email} onChange={(e) => setNewClient({ ...newClient, email: e.target.value })} placeholder="Client's email, e.g. mary@gmail.com" className="w-full h-9 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[12px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]/50" />
-                </div>
-              </div>
 
               <div>
                 <label className="text-[11px] text-[#8A95A5] block mb-2">Documents & drawings{pendingFileCount(newFiles) ? ` · ${pendingFileCount(newFiles)} queued` : ""}</label>
                 <ProjectFilesSection value={newFiles} onChange={setNewFiles} />
               </div>
+              </>)}
             </div>
             <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center sm:justify-end gap-2 px-4 sm:px-6 py-3 border-t border-[#222A35] shrink-0 bg-[#11161D]" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
               <button onClick={() => setShowNew(false)} className="h-10 sm:h-9 px-3 rounded-md border border-[#222A35] text-[12px] text-[#8A95A5] hover:text-white">Cancel</button>

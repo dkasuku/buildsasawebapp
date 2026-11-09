@@ -34,7 +34,6 @@ import { ProjectCloseout } from "./ProjectCloseout";
 import { clientApi } from "./client/clientData";
 import { projectTone, statusText } from "./wsStatus";
 import { Tabs } from "./PageShell";
-import { ProjectAnalytics } from "./project-hub/ProjectAnalytics";
 import { ActivityCard, AttentionCard, ReadinessCard } from "./project-hub/ProjectAside";
 import { DocumentFolder } from "./project-hub/DocumentFolder";
 import { DrawingsFolder } from "./project-hub/DrawingsFolder";
@@ -45,11 +44,14 @@ import { SiteFolder } from "./project-hub/SiteFolder";
 import { ClientFolder } from "./project-hub/ClientFolder";
 import { UnitsFolder } from "./project-hub/UnitsFolder";
 import { CostControlFolder } from "./project-hub/CostControlFolder";
-import { ReportFolder } from "./project-hub/ReportFolder";
 import { Field, Modal, Panel, btnGhost, btnPrimary, fmtDate, input, useMoney } from "./project-hub/shared";
 import { isStarter } from "./planTier";
 
-type Folder = "overview" | "analytics" | "contract" | "drawings" | "boq" | "variations" | "selections" | "certificates" | "site" | "costs" | "report" | "closeout" | "client" | "units";
+// Five tabs (plus Units and Handover when they apply). The older folder names
+// are still accepted by `go` so links inside the folders keep working.
+type Tab = "overview" | "site" | "files" | "money" | "client" | "units" | "closeout";
+type MoneyPart = "variations" | "boq" | "certificates" | "costs";
+type Folder = Tab | MoneyPart | "analytics" | "contract" | "drawings" | "selections" | "report";
 
 export function ProjectDetail({
   projectId,
@@ -77,7 +79,18 @@ export function ProjectDetail({
   const [data, setData] = useState<ProjectHubDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [folder, setFolder] = useState<Folder>("overview");
+  const [folder, setFolderRaw] = useState<Tab>("overview");
+  const [moneyPart, setMoneyPart] = useState<MoneyPart>("variations");
+  const setFolder = useCallback((f: Folder) => {
+    if (f === "variations" || f === "boq" || f === "certificates" || f === "costs") { setMoneyPart(f); setFolderRaw("money"); }
+    else if (f === "contract" || f === "drawings") setFolderRaw("files");
+    else if (f === "selections") setFolderRaw("client");
+    else if (f === "analytics" || f === "report") setFolderRaw("overview");
+    else setFolderRaw(f);
+  }, []);
+  // Units only matter on apartment blocks and estates.
+  const [unitCount, setUnitCount] = useState(0);
+  useEffect(() => { api.getUnits(projectId).then((u) => setUnitCount(Array.isArray(u) ? u.length : 0)).catch(() => setUnitCount(0)); }, [projectId]);
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
   const [contractModal, setContractModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -100,27 +113,29 @@ export function ProjectDetail({
   // Every folder calls this after a write; quiet so the page does not flash.
   const refresh = useCallback(() => load(true), [load]);
 
-  const folders = useMemo<{ key: Folder; label: string; count?: number }[]>(() => {
+  // The parts of the Money tab this person may see. Without money access it is
+  // just variations, and the tab is named for that.
+  const moneyParts = useMemo<{ key: MoneyPart; label: string }[]>(() => [
+    { key: "variations", label: "Variations" },
+    ...(starterPlan ? [] : [{ key: "boq" as MoneyPart, label: "BOQ" }]),
+    ...(showFin ? [{ key: "certificates" as MoneyPart, label: "Payment certificates" }, { key: "costs" as MoneyPart, label: "Costs" }] : []),
+  ], [starterPlan, showFin]);
+
+  const folders = useMemo<{ key: Tab; label: string; count?: number }[]>(() => {
     if (!data) return [];
     const c = data.counts;
-    const docsIn = (cat: string) => data.documents.filter((d) => (d.category || "general") === cat).length;
+    // Handover only once a job is nearly done.
+    const late = (data.progress.reported ?? 0) >= 75 || /complet|handover|closeout|snag/i.test(data.project.status || "");
     return [
       { key: "overview", label: "Overview" },
-      { key: "analytics", label: "Analytics" },
-      { key: "contract", label: "Contract", count: docsIn("contract") },
-      { key: "drawings", label: "Drawings", count: c.sheets },
-      ...(starterPlan ? [] : [{ key: "boq" as Folder, label: "BOQ", count: data.boq.itemCount }]),
-      { key: "variations", label: "Variations", count: c.variations },
-      ...(showFin ? [{ key: "certificates" as Folder, label: "Certificates", count: c.certificates }] : []),
-      { key: "selections", label: "Finishes" },
       { key: "site", label: "Site", count: c.punchOpen },
-      ...(showFin ? [{ key: "costs" as Folder, label: "Cost control" }] : []),
-      { key: "units", label: "Units" },
+      { key: "files", label: "Drawings & files", count: c.sheets },
+      { key: "money", label: moneyParts.length > 1 ? "Money" : "Variations", count: c.variations },
       { key: "client", label: "Client" },
-      ...(perms.viewReports ? [{ key: "report" as Folder, label: "Reports" }] : []),
-      { key: "closeout", label: "Closeout" },
+      ...(unitCount > 0 ? [{ key: "units" as Tab, label: "Units", count: unitCount }] : []),
+      ...(late || folder === "closeout" ? [{ key: "closeout" as Tab, label: "Handover" }] : []),
     ];
-  }, [data, showFin, perms.viewReports, starterPlan]);
+  }, [data, moneyParts, unitCount, folder]);
 
   if (loading) {
     return (
@@ -152,7 +167,7 @@ export function ProjectDetail({
   const tone = projectTone(project.status);
   const planning = tone === "blue";
   const client = clients?.[0];
-  const withAside = ["overview", "contract", "drawings", "variations", "site", "closeout"].includes(folder);
+  const withAside = ["overview", "site", "closeout"].includes(folder);
 
   return (
     <div>
@@ -198,7 +213,7 @@ export function ProjectDetail({
           </div>
         </div>
 
-        <Tabs<Folder> label="Project sections" className="mt-[14px]" value={folder} onChange={setFolder} items={folders.map((f) => ({ id: f.key, label: f.label, count: f.count }))} />
+        <Tabs<Tab> label="Project sections" className="mt-[14px]" value={folder} onChange={setFolder} items={folders.map((f) => ({ id: f.key, label: f.label, count: f.count }))} />
       </div>
       {portalOpen && (
         <ClientPortalDialog
@@ -218,27 +233,41 @@ export function ProjectDetail({
               <Overview data={data} images={images} onEdit={onEdit} onLightbox={(i) => setLightbox({ images, index: i })} go={setFolder} showFin={showFin} fmt={fmt} />
             </>
           )}
-          {folder === "analytics" && <ProjectAnalytics data={data} fmt={fmt} showFin={showFin} go={setFolder} onExport={perms.viewReports ? () => setFolder("report") : undefined} />}
-          {folder === "contract" && (
-            <>
+          {folder === "site" && <SiteFolder projectId={projectId} site={data.site} progress={data.progress} schedule={data.schedule} docs={data.documents} canEdit={perms.completeTasks || canEditDocs} onChanged={refresh} />}
+          {folder === "files" && (
+            <div className="space-y-4">
+              <DrawingsFolder projectId={projectId} role={role} projectName={data.project.name} sheets={data.drawings} docs={data.documents} canEdit={canEditDocs} onChanged={refresh} />
               <DocumentFolder projectId={projectId} category="contract" docs={data.documents} onChanged={refresh} canEdit={canEditDocs} />
               <DocumentFolder projectId={projectId} category="general" docs={data.documents} onChanged={refresh} canEdit={canEditDocs} />
-            </>
+            </div>
           )}
-          {folder === "drawings" && <DrawingsFolder projectId={projectId} role={role} projectName={data.project.name} sheets={data.drawings} docs={data.documents} canEdit={canEditDocs} onChanged={refresh} />}
-          {folder === "boq" && <BoqFolder projectId={projectId} summary={data.boq} docs={data.documents} canEdit={canManageBids(role)} onChanged={refresh} />}
-          {folder === "selections" && <SelectionsFolder projectId={projectId} canEdit={canSharePortal} portalOn={!!data.project.portalToken} onOpenPortal={canSharePortal ? () => setPortalOpen(true) : undefined} />}
-          {folder === "variations" && (
-            <VariationsFolder projectId={projectId} variations={data.variations} contractSum={contractSum} canEdit={canLogVariations} canApprove={canApproveVariations} onChanged={refresh} onSetContractSum={() => setContractModal(true)} />
+          {folder === "money" && (
+            <div className="space-y-4">
+              {moneyParts.length > 1 && (
+                <div className="inline-flex flex-wrap gap-1 p-1 rounded-lg border border-[#222A35] bg-[#11161D]" role="tablist" aria-label="Money">
+                  {moneyParts.map((m) => (
+                    <button key={m.key} role="tab" aria-selected={moneyPart === m.key} onClick={() => setMoneyPart(m.key)}
+                      className={`h-8 px-3 rounded-md text-[12.5px] ${moneyPart === m.key ? "bg-[#FF6B1A] text-white" : "text-[#8A95A5] hover:text-white"}`}>{m.label}</button>
+                  ))}
+                </div>
+              )}
+              {moneyPart === "variations" && (
+                <VariationsFolder projectId={projectId} variations={data.variations} contractSum={contractSum} canEdit={canLogVariations} canApprove={canApproveVariations} onChanged={refresh} onSetContractSum={() => setContractModal(true)} />
+              )}
+              {moneyPart === "boq" && !starterPlan && <BoqFolder projectId={projectId} summary={data.boq} docs={data.documents} canEdit={canManageBids(role)} onChanged={refresh} />}
+              {moneyPart === "certificates" && showFin && (
+                <CertificatesFolder projectId={projectId} certificates={data.certificates} contractSum={contractSum} revisedContractSum={costs.revisedContractSum} canEdit={canCertify} onChanged={refresh} onSetContractSum={() => setContractModal(true)} />
+              )}
+              {moneyPart === "costs" && showFin && <CostControlFolder costs={costs} setView={setView} onSetContractSum={() => setContractModal(true)} />}
+            </div>
           )}
-          {folder === "certificates" && showFin && (
-            <CertificatesFolder projectId={projectId} certificates={data.certificates} contractSum={contractSum} revisedContractSum={costs.revisedContractSum} canEdit={canCertify} onChanged={refresh} onSetContractSum={() => setContractModal(true)} />
+          {folder === "client" && (
+            <div className="space-y-4">
+              <ClientFolder projectId={projectId} canInvite={canSharePortal} onOpenPortal={canSharePortal ? () => setPortalOpen(true) : undefined} />
+              <SelectionsFolder projectId={projectId} canEdit={canSharePortal} portalOn={!!data.project.portalToken} onOpenPortal={canSharePortal ? () => setPortalOpen(true) : undefined} />
+            </div>
           )}
-          {folder === "site" && <SiteFolder projectId={projectId} site={data.site} progress={data.progress} schedule={data.schedule} docs={data.documents} canEdit={perms.completeTasks || canEditDocs} onChanged={refresh} />}
-          {folder === "costs" && showFin && <CostControlFolder costs={costs} setView={setView} onSetContractSum={() => setContractModal(true)} />}
-          {folder === "report" && perms.viewReports && <ReportFolder data={data} setView={setView} />}
           {folder === "units" && <UnitsFolder projectId={projectId} projectName={data.project.name} canShare={canSharePortal} />}
-          {folder === "client" && <ClientFolder projectId={projectId} canInvite={canSharePortal} onOpenPortal={canSharePortal ? () => setPortalOpen(true) : undefined} />}
           {folder === "closeout" && <ProjectCloseout projectId={projectId} canEdit={canManageBids(role)} />}
         </div>
 
@@ -365,7 +394,7 @@ function ContractModal({ project, onClose, onSaved }: { project: ProjectHubDto["
   return (
     <Modal title="Contract value & timeline" subtitle="The agreed sum is the base every variation and certificate is measured against." onClose={onClose}>
       <div className="space-y-3">
-        <Field label={money.unit("Contract sum")} hint={`Entered in ${money.code} — switch the currency in the top bar to enter it in ${money.code === "KES" ? "USD" : "KES"}.${project.value ? ` Shown on the project card as “${project.value}”.` : ""}`}>
+        <Field label={money.unit("Contract sum")} hint={`Entered in ${money.code} — switch currency in your account menu (bottom of the sidebar) to enter it in ${money.code === "KES" ? "USD" : "KES"}.${project.value ? ` Shown on the project card as “${project.value}”.` : ""}`}>
           <input autoFocus type="number" min={0} value={f.contractSum} onChange={(e) => setF((x) => ({ ...x, contractSum: e.target.value }))} placeholder={money.code === "KES" ? "e.g. 45000000" : "e.g. 350000"} className={input} />
         </Field>
         <div className="grid grid-cols-2 gap-3">
