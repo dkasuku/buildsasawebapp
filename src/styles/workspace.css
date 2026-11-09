@@ -234,4 +234,4 @@
 }
 
 /* Light theme: page header and module tabs sit on white. */
-.theme-light .ws-pagehead, .theme-light .ws-moduletabs { background: #FFFFFF; }
+.theme-light .ws-pagehead, .theme-light .ws-moduletabs, .theme-light .ws-project-head { background: #FFFFFF !important; }

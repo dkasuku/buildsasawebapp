@@ -13,7 +13,7 @@ import type { Role } from "./roles";
 import { ROLES } from "./roles";
 import { useTeam } from "./useTeam";
 import { warnSaveFailed } from "./saveFeedback";
-import { PageHeader, Tabs } from "./PageShell";
+import { PageHeader, TabSelect } from "./PageShell";
 
 type Drawing = {
   /** The sheet NUMBER (e.g. "A-101"). Markups and versions are correlated by
@@ -519,7 +519,7 @@ export function Plans({ role }: { role: Role }) {
             )}
           </div>
         </div>
-        <Tabs label="Discipline" value={discipline} onChange={setDiscipline} items={DISCIPLINES.map((d) => ({ id: d, label: d }))} />
+        <TabSelect label="Discipline" value={discipline} onChange={setDiscipline} items={DISCIPLINES.map((d) => ({ id: d, label: d }))} />
       </div>
 
       {/* Drawings grid */}

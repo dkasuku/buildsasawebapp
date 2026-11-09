@@ -61,3 +61,20 @@ export function PageHeader({ title, subtitle, actions, tabs, children, bare }: {
     </header>
   );
 }
+
+/** The same choices as <Tabs />, as a dropdown. Used for section switchers in page headers. */
+export function TabSelect<T extends string>({ items, value, onChange, label = "Sections", className = "" }: {
+  items: TabItem<T>[];
+  value: T;
+  onChange: (id: T) => void;
+  label?: string;
+  className?: string;
+}) {
+  return (
+    <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value as T)} className={`ws-select h-9 px-3 rounded-md border border-[#222A35] text-[13px] min-w-[180px] ${className}`}>
+      {items.filter((t) => !t.hidden).map((t) => (
+        <option key={t.id} value={t.id}>{String(t.label)}{t.count != null && t.count > 0 ? ` (${t.count})` : ""}</option>
+      ))}
+    </select>
+  );
+}

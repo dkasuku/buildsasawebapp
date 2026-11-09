@@ -13,7 +13,7 @@ import { ROLES, TRADES } from "./roles";
 import { useTeam, resolveName } from "./useTeam";
 import api, { type ScheduleItemDto, type ProjectDto, type ChecklistDto } from "../../services/api";
 import { checklistProgress } from "./Checklists";
-import { PageHeader, Tabs } from "./PageShell";
+import { PageHeader, TabSelect } from "./PageShell";
 
 const DAY = 86400000;
 const STATUS: Record<string, { label: string; bar: string }> = {
@@ -148,6 +148,7 @@ export function Schedule({ role = "Contractor" }: { role?: Role }) {
         title="Schedule"
         subtitle="The project programme: activities, phases and milestones against the calendar."
         actions={<>
+          <TabSelect label="Schedule view" value={mode} onChange={setMode} items={[{ id: "gantt", label: "Gantt" }, { id: "list", label: "List" }, { id: "milestones", label: "Milestones" }]} />
           <label className="sr-only" htmlFor="sch-project">Project</label>
           <select id="sch-project" className="ws-select" style={{ minWidth: 200 }} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
             {projects.length === 0 && <option value="">No projects</option>}
@@ -156,7 +157,6 @@ export function Schedule({ role = "Contractor" }: { role?: Role }) {
           {canManage && projectId && <button type="button" className="ws-btn" onClick={() => setGenOpen(true)}><Sparkles aria-hidden /> AI schedule</button>}
           {canManage && projectId && <button type="button" className="ws-btn-primary" onClick={() => setEditing("new")}><Plus aria-hidden /> Add activity</button>}
         </>}
-        tabs={<Tabs label="Schedule view" value={mode} onChange={setMode} items={[{ id: "gantt", label: "Gantt" }, { id: "list", label: "List" }, { id: "milestones", label: "Milestones" }]} />}
       />
       <div className="ws-page">
 

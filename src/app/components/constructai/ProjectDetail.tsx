@@ -33,7 +33,7 @@ import { ROLES, canManageBids } from "./roles";
 import { ProjectCloseout } from "./ProjectCloseout";
 import { clientApi } from "./client/clientData";
 import { projectTone, statusText } from "./wsStatus";
-import { Tabs } from "./PageShell";
+import { TabSelect } from "./PageShell";
 import { ActivityCard, AttentionCard, ReadinessCard } from "./project-hub/ProjectAside";
 import { DocumentFolder } from "./project-hub/DocumentFolder";
 import { DrawingsFolder } from "./project-hub/DrawingsFolder";
@@ -213,7 +213,7 @@ export function ProjectDetail({
           </div>
         </div>
 
-        <Tabs<Tab> label="Project sections" className="mt-[14px]" value={folder} onChange={setFolder} items={folders.map((f) => ({ id: f.key, label: f.label, count: f.count }))} />
+        <div className="mt-[14px]"><TabSelect<Tab> label="Project sections" value={folder} onChange={setFolder} items={folders.map((f) => ({ id: f.key, label: f.label, count: f.count }))} /></div>
       </div>
       {portalOpen && (
         <ClientPortalDialog
