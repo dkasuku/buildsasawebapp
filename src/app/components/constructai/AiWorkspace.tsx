@@ -13,7 +13,7 @@ import {
 import api, { type AiBriefItem } from "../../services/api";
 import { AnswerTools, SaveCard } from "./AiTools";
 import { askedFormat, docTitle, exportAnswer, tableMarkdown } from "./aiDocs";
-import { AiRichText, exportCsv, type AiAction, type AiDesignResult, type AiFormDraft, type Msg, type QuoteDraft } from "./AiAssistantPanel";
+import { AI_GREETING, AiRichText, exportCsv, type AiAction, type AiDesignResult, type AiFormDraft, type Msg, type QuoteDraft } from "./AiAssistantPanel";
 import { DesignCard, DesignPreview } from "./Visualizer";
 import { askAi, imageModeFor, type AiSession, type ImageMode } from "./aiSession";
 import { QuoteCard, QuoteEditor } from "./QuoteEditor";
@@ -110,8 +110,18 @@ const dayGroup = (iso: string) => {
   return days <= 0 ? "Today" : days === 1 ? "Yesterday" : days < 7 ? "Previous 7 days" : days < 30 ? "Previous 30 days" : "Older";
 };
 
-export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, onOpenForm, start, onStarted }: {
+// A new owner's first visit: the AI does the onboarding by asking about their
+// first site, then sets it up (and invites the client and team) with action
+// cards. Shown in the chat so the AI's later turns see what it asked.
+const onboardingGreeting = (name: string): Msg => ({
+  role: "ai",
+  text: `Karibu${name ? `, ${name}` : ""}! I'm Buildsasa AI, your site secretary. Let's set up your first site: what are you building, where, and for whom?`,
+});
+
+export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, onOpenForm, start, onStarted, firstRun, onFirstRunDone }: {
   session: AiSession; canSeeMoney: boolean;
+  /** First sign-in of the person setting up the workspace. */
+  firstRun?: boolean; onFirstRunDone?: () => void;
   /** A question typed in a module page's ask bar: start a new chat with it. */
   start?: { text: string; images: string[]; key: number; page?: string } | null; onStarted?: () => void;
   onNavigate: (view: string) => void; onOpenProject: (id: string) => void; onOpenForm?: (form: AiFormDraft) => void;
@@ -203,14 +213,18 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
     const mode: ImageMode = imgs === undefined ? imgMode : "auto";
     const text = (raw ?? q).trim() || (images.length ? (mode === "logo" ? "Use this as my logo on quotes" : "Turn this into a modern, finished interior") : files.length ? "Summarise this and tell me what needs my attention" : "");
     if (!text || busy || uploading) return null;
-    const before = fresh ? [] : messages;
+    // The first message of a new owner opens the setup conversation.
+    const onboarding = !!firstRun && !fresh && !started;
+    if (onboarding) { setCategory("onboarding"); onFirstRunDone?.(); }
+    const before = onboarding ? [onboardingGreeting(name)] : fresh ? [] : messages;
     const designing = images.length > 0 && imageModeFor(text, mode) === "design";
-    setMessages((m) => [...m, { role: "user", text, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) }]);
+    const asked: Msg = { role: "user", text, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) };
+    setMessages((m) => onboarding ? [...before, asked] : [...m, asked]);
     setQ(""); setAtt([]); setImgMode("auto"); setBusy(designing ? "design" : files.length || images.length ? "read" : "think");
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const reply = await askAi(text, before, { signal: controller.signal, category: designing ? "design" : fresh ? "general" : category, page: (fresh && pageRef.current) || "Buildsasa AI", images, files, imageMode: mode, voice: spoken });
+      const reply = await askAi(text, before, { signal: controller.signal, category: designing ? "design" : fresh ? "general" : onboarding ? "onboarding" : category, page: (fresh && pageRef.current) || "Buildsasa AI", images, files, imageMode: mode, voice: spoken });
       // The reply lands after the question: its index is the old length + 1.
       const idx = (fresh ? 1 : before.length) + 1;
       setMessages((m) => [...m, reply]);
@@ -455,7 +469,33 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
           {cat && started && <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#FF6B1A]/10 text-[#FF8A47] inline-flex items-center gap-1"><cat.icon className="w-3 h-3" />{cat.label}</span>}
         </div>
 
-        {!started ? (
+        {!started && firstRun ? (
+          <div className="flex-1 overflow-y-auto">
+            <div className="max-w-3xl mx-auto px-4 pt-[12vh] pb-10">
+              <h1 className="text-center text-[32px] sm:text-[38px] text-white font-display tracking-tight flex items-center justify-center gap-3">
+                <Sparkles className="w-8 h-8 text-[#FF6B1A]" /> Karibu{name ? `, ${name}` : ""}
+              </h1>
+              <p className="text-center text-[14px] text-[#C2CAD6] mt-3 max-w-xl mx-auto leading-relaxed">
+                I'm Buildsasa AI, your site secretary. Let's set up your first site: <span className="text-white">what are you building, where, and for whom?</span> Type it, say it, or attach a drawing or BOQ.
+              </p>
+              <div className="mt-7">{composer(true)}</div>
+              <div className="flex flex-wrap justify-center gap-2 mt-4">
+                <button onClick={() => { setQ("My first site is a "); requestAnimationFrame(() => { const el = inputRef.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }); }}
+                  className="h-8 px-3 rounded-full border border-[#222A35] bg-[#11161D] hover:border-[#FF6B1A]/50 hover:text-white text-[12.5px] text-[#C2CAD6] inline-flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-[#FF8A47]" /> Describe my first site
+                </button>
+                <button onClick={() => fileRef.current?.click()}
+                  className="h-8 px-3 rounded-full border border-[#222A35] bg-[#11161D] hover:border-[#FF6B1A]/50 hover:text-white text-[12.5px] text-[#C2CAD6] inline-flex items-center gap-1.5">
+                  <Paperclip className="w-3.5 h-3.5 text-[#FF8A47]" /> Set it up from a drawing or BOQ
+                </button>
+                <button onClick={() => onFirstRunDone?.()}
+                  className="h-8 px-3 rounded-full text-[12.5px] text-[#8A95A5] hover:text-white inline-flex items-center">
+                  Skip, I'll look around
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : !started ? (
           <div className="flex-1 overflow-y-auto">
             <div className="max-w-3xl mx-auto px-4 pt-[12vh] pb-10">
               <h1 className="text-center text-[32px] sm:text-[38px] text-white font-display tracking-tight flex items-center justify-center gap-3">
@@ -524,7 +564,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
                       <div className="rounded-2xl rounded-br-md bg-[#161C24] text-white text-[14px] leading-relaxed px-4 py-2.5 whitespace-pre-wrap">{m.text}</div>
                     </div>
                   </div>
-                ) : m.text === messages[0]?.text && i === 0 ? null : (
+                ) : i === 0 && m.text === AI_GREETING.text ? null : (
                   <div key={i} className="flex gap-3">
                     <span className="w-8 h-8 rounded-full bg-[#FF6B1A]/15 border border-[#FF6B1A]/30 flex items-center justify-center shrink-0"><Sparkles className="w-4 h-4 text-[#FF6B1A]" /></span>
                     <div className="min-w-0 flex-1 pt-1 text-[14px] leading-relaxed text-[#D5DBE3]">

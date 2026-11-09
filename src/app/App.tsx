@@ -12,7 +12,7 @@ import { PublicUnitView } from "./components/constructai/PublicUnitView";
 import { BuyCreditsModal } from "./components/constructai/BuyCreditsModal";
 import { PublicPortalView } from "./components/constructai/PublicPortalView";
 import { ClientApp } from "./components/constructai/client/ClientApp";
-import { useWelcome, WelcomeModal } from "./components/constructai/Welcome";
+import { isFirstSignIn, markWelcomed, storedUser } from "./components/constructai/Welcome";
 import { BUSINESS_VIEWS, setPlanTier } from "./components/constructai/planTier";
 import { PlanUpgrade } from "./components/constructai/PlanUpgrade";
 import { ErrorBoundary } from "./components/constructai/ErrorBoundary";
@@ -57,7 +57,6 @@ import { visibleViewsFor } from "./config/features";
 import { ModuleTabs } from "./components/constructai/ModuleTabs";
 import { AskBar } from "./components/constructai/AskBar";
 import { askFor, moduleOf } from "./components/constructai/modules";
-import { Onboarding } from "./components/constructai/Onboarding";
 import { ProfileSettings } from "./components/constructai/ProfileSettings";
 import { CreditCard } from "lucide-react";
 import { AiAssistantPanel, type AiFormDraft } from "./components/constructai/AiAssistantPanel";
@@ -160,14 +159,18 @@ export default function App() {
     // Light by default; anyone who picked dark keeps it.
     return "light";
   });
-  // First-run guided setup — shown once to workspace owners / managers.
-  const [onboarded, setOnboarded] = useState<boolean>(() => {
-    try { return localStorage.getItem("constructai-onboarded") === "1"; } catch { return true; }
-  });
-  const dismissOnboarding = () => {
-    try { localStorage.setItem("constructai-onboarded", "1"); } catch { /* noop */ }
-    setOnboarded(true);
-  };
+  // First sign-in: no popups. An owner or manager is greeted on the AI page,
+  // which sets up their first site with them in conversation. Read live (not
+  // once at mount) so a sign-up in this same tab still gets it.
+  const [firstRunDone, setFirstRunDone] = useState(false);
+  const firstRun = !firstRunDone && isFirstSignIn();
+  const endFirstRun = () => { markWelcomed(); setFirstRunDone(true); };
+  // Invited team members join a workspace that is already set up: nothing to
+  // walk through, so their first sign-in is simply recorded.
+  useEffect(() => {
+    if (firstRun && view !== "login" && storedUser()?.role !== "Client" && (role as string) !== "Client" && !(ROLES[role].isWorkspaceOwner || ROLES[role].manageTeam)) endFirstRun();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firstRun, view, role]);
   // Buildsasa AI, docked on the right. On a desktop it stays open by default
   // (people work through it); on a phone it's a sheet opened on demand.
   const [aiPanelOpen, setAiPanelOpenRaw] = useState(() => {
@@ -281,9 +284,6 @@ export default function App() {
   const [gate, setGate] = useState<{ configured: boolean; active: boolean; overdue: boolean; unpaidDue: string | null; isBillingOwner: boolean; trialDaysLeft?: number | null; trialEnded?: boolean; tier?: "starter" | "business" }>({ configured: false, active: false, overdue: false, unpaidDue: null, isBillingOwner: false });
   const [gateLoaded, setGateLoaded] = useState(false);
   const [gateNonce, setGateNonce] = useState(0);
-  // Welcome a company's people the first time they're in with an active plan.
-  const meUser = (() => { try { return JSON.parse(localStorage.getItem("constructai-user") || "null"); } catch { return null; } })();
-  const welcome = useWelcome("contractor", meUser?.role !== "Client" ? meUser?.email : null, gateLoaded && gate.active && !gate.overdue && view !== "login");
   useEffect(() => {
     if (view === "login") return;
     let alive = true;
@@ -498,11 +498,11 @@ export default function App() {
   setPlanTier(starter ? "starter" : "business");
   const invoiceBanner = !paywalled && !!gate.unpaidDue;
   // The first-run setup wizard only applies to workspace owners/managers.
-  const onboardingShowing = !onboarded && (ROLES[role].isWorkspaceOwner || ROLES[role].manageTeam);
+  // Only someone who sets up the workspace gets the setup conversation.
+  const setsUpWorkspace = !!(ROLES[role].isWorkspaceOwner || ROLES[role].manageTeam);
 
   return (
     <CurrencyProvider>
-      {welcome.show && !onboardingShowing && <div className={theme === "light" ? "theme-light" : ""}><WelcomeModal kind="contractor" name={meUser?.name || ""} onClose={welcome.close} /></div>}
       <div
         className={`size-full min-h-screen flex text-[#E6EAF0] ${theme === "light" ? "theme-light bg-[#F6F5F2]" : "bg-[#0A0E14]"}`}
         style={theme === "light" ? { backgroundColor: "#F6F5F2" } : undefined}
@@ -657,20 +657,13 @@ export default function App() {
             {effectiveView === "safety-incidents" && <SafetyIncidents role={role} />}
             {effectiveView === "equipment" && <Inventory role={role} />}
             {effectiveView === "attendance" && <Attendance role={role} />}
-            {effectiveView === "buildflex-ai" && <AiWorkspace session={aiSession} canSeeMoney={!!ROLES[role].financials} start={aiStart} onStarted={() => setAiStart(null)} onNavigate={(v) => allowed.includes(v as View) && navigate(v as View)} onOpenProject={openProject} onOpenForm={openAiForm} />}
+            {effectiveView === "buildflex-ai" && <AiWorkspace session={aiSession} canSeeMoney={!!ROLES[role].financials} firstRun={firstRun && setsUpWorkspace} onFirstRunDone={endFirstRun} start={aiStart} onStarted={() => setAiStart(null)} onNavigate={(v) => allowed.includes(v as View) && navigate(v as View)} onOpenProject={openProject} onOpenForm={openAiForm} />}
             </ErrorBoundary>
             )}
           </div>
         </div>
         <Toaster theme={theme} position="top-right" />
         <BuyCreditsModal />
-        {onboardingShowing && !paywalled && (
-          <Onboarding
-            role={role}
-            onNavigate={(v: View) => navigate(v)}
-            onClose={dismissOnboarding}
-          />
-        )}
         {settingsOpen && <ProfileSettings initialTab={settingsTab} onClose={() => setSettingsOpen(false)} />}
         {!paywalled && effectiveView !== "buildflex-ai" && <AiAssistantPanel docked open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} onExpand={() => { setAiPanelOpen(false); navigate("buildflex-ai"); }} messages={aiMessages} setMessages={setAiMessages} onOpenForm={openAiForm}
           prefill={aiPrefill} onConsumePrefill={() => setAiPrefill(null)} pageTitle={meta?.title}

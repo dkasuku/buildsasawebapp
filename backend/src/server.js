@@ -404,7 +404,7 @@ const hasFreeAccess = (email) => {
   return !!e && (FREE_ACCESS_EMAILS.includes(e) || isPlatformAdmin(e));
 };
 
-const publicUser = (u) => ({ id: u.id, name: u.name, role: u.role, email: u.email, platformAdmin: isPlatformAdmin(u.email), freeAccess: hasFreeAccess(u.email), isClient: u.role === 'Client' });
+const publicUser = (u) => ({ id: u.id, name: u.name, role: u.role, email: u.email, platformAdmin: isPlatformAdmin(u.email), freeAccess: hasFreeAccess(u.email), isClient: u.role === 'Client', welcomed: !!u.welcomedAt });
 // Filled in when client-routes mounts (it needs helpers defined further down).
 const clientRouteDeps = {};
 
@@ -745,6 +745,15 @@ app.put('/api/me', auth, async (req, res) => {
     if (data.name === null) delete data.name; // name is required — ignore blank
     const user = await prisma.user.update({ where: { id: req.user.sub }, data, select: ME_SELECT });
     res.json(user);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// The first-sign-in welcome has been seen. Stored on the account so it never
+// comes back on another browser or device.
+app.post('/api/me/welcomed', auth, async (req, res) => {
+  try {
+    await prismaBase.user.updateMany({ where: { id: req.user.sub, welcomedAt: null }, data: { welcomedAt: new Date() } });
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -6279,6 +6288,14 @@ const AI_CATEGORY_GUIDE = {
   safety: 'Health, safety and compliance: risk assessments, method statements, toolbox talks, PPE, incident reports, NCA/NEMA/county approvals and OSHA (Kenya) requirements. Use report-incident actions.',
   procurement: 'Subcontractors, suppliers and procurement: finding and comparing suppliers and subcontractors, bid comparisons, purchase orders, contacts. Use add-contact actions.',
   documents: 'Letters, contracts and documents: client letters, delay notices, variation letters, contracts, minutes, method statements, tender documents, written professionally and ready to download as Word or PDF.',
+  // A new owner's first conversation (AiWorkspace first run). Not a picker
+  // category: the app opens it on its own. This chat IS the onboarding.
+  onboarding: 'Getting a new customer set up. This person has just signed up and this chat is their onboarding, so act like a friendly, efficient site secretary, not a product tour. Never list features or tell them which tab or menu to open. Move one small step at a time, with short replies (2 to 4 sentences) and at most one question per reply. '
+    + 'Step 1, their first site: as soon as you know roughly what they are building (a name or description is enough), draft it with ONE create-project action, filling sensible defaults (status Planning, today as the start date) and inventing a clear project name if they gave none. Do not wait for every detail. If they attached a drawing, BOQ or contract, read it and fill create-project (and add-budget if it has quantities). '
+    + 'Step 2, once the project exists in PROJECTS: offer to give their client a live progress link (share-portal for that project), explaining in one line that clients follow progress for free. '
+    + 'Step 3: ask who else works on the site; invite each person they name with invite-member (an email is required, so ask for it). '
+    + 'Step 4, to finish: tell them that from now on they can just tell you (typed, spoken or with a photo) what happened on site each day and you will keep the logs, updates and paperwork. Suggest they try it now with today\'s work. '
+    + 'If they ask something else at any point, answer it fully first, then pick up the next step. If they say they want to skip, stop onboarding and just help.',
   drawings: 'Drawings and architecture: reading plans, room schedules, areas, specifications, design options, approvals. Concept images can be generated here; detailed architectural drawings need an architect.',
 };
 

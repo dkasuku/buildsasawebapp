@@ -41,7 +41,7 @@ export function ClientApp({ theme, setTheme, onSignOut }: { theme: "dark" | "lig
   const [home, setHome] = useState<ClientHome | null>(null);
   const reload = () => clientApi.home().then(setHome).catch((e) => toast.error(e?.message || "Couldn't load your account."));
   useEffect(() => { reload(); }, []);
-  const welcome = useWelcome("client", home?.user.email, !!home);
+  const welcome = useWelcome(!!home);
 
   const go = (v: View) => { setView(v); window.scrollTo({ top: 0 }); };
   // Arrived from an invite or update email: open that site.

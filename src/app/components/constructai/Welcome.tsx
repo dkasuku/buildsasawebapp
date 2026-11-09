@@ -1,20 +1,39 @@
-// A one-time welcome after a client signs up, or once a company's subscription
-// is active, so the first moment in Buildsasa feels like arriving somewhere.
-// Remembered per account in localStorage; if storage is blocked it simply shows
-// again next time, which is harmless.
-import { useEffect, useState } from "react";
-import { ArrowRight, Camera, ClipboardCheck, MessageCircle, PartyPopper, ShieldCheck, Users, Briefcase, CalendarDays, UserCheck } from "lucide-react";
+// A one-time welcome on an account's first sign-in, so the first moment in
+// Buildsasa feels like arriving somewhere. "Seen" lives on the account
+// (user.welcomed, from the server), so it never comes back on a new browser,
+// a new device, or after storage is cleared.
+import { useState } from "react";
+import { ArrowRight, Camera, ClipboardCheck, MessageCircle, PartyPopper, ShieldCheck } from "lucide-react";
+import api from "../../services/api";
 
-type Kind = "client" | "contractor";
-const key = (kind: Kind, who: string) => `buildsasa-welcomed-${kind}-${who.toLowerCase()}`;
+// Contractors are welcomed by the AI itself (AiWorkspace first run); only
+// clients, who follow a site rather than run one, get this card.
+type Kind = "client";
 
-export function useWelcome(kind: Kind, who: string | null | undefined, ready: boolean) {
-  const [show, setShow] = useState(false);
-  useEffect(() => {
-    if (!ready || !who) return;
-    try { if (!localStorage.getItem(key(kind, who))) setShow(true); } catch { setShow(true); }
-  }, [kind, who, ready]);
-  const close = () => { setShow(false); try { if (who) localStorage.setItem(key(kind, who), new Date().toISOString()); } catch { /* noop */ } };
+export function storedUser(): any {
+  try { return JSON.parse(localStorage.getItem("constructai-user") || "null"); } catch { return null; }
+}
+
+/** True only for an account the server says has never been welcomed. A
+ *  session cached before this flag existed has no `welcomed` field and is
+ *  treated as already welcomed, so existing customers are never re-shown it. */
+export function isFirstSignIn(): boolean {
+  return storedUser()?.welcomed === false;
+}
+
+/** Record that the welcome was seen: locally right away, then on the account. */
+export function markWelcomed() {
+  try {
+    const u = storedUser();
+    if (u) localStorage.setItem("constructai-user", JSON.stringify({ ...u, welcomed: true }));
+  } catch { /* noop */ }
+  api.markWelcomed().catch(() => { /* worst case it shows once more */ });
+}
+
+export function useWelcome(ready: boolean) {
+  const [done, setDone] = useState(false);
+  const show = ready && !done && isFirstSignIn();
+  const close = () => { setDone(true); markWelcomed(); };
   return { show, close };
 }
 
@@ -29,17 +48,6 @@ const COPY: Record<Kind, { title: (n: string) => string; sub: string; points: { 
       { icon: ShieldCheck, t: "Independent eyes on site", d: "Ask Buildsasa for neutral site reporting when you want an honest second opinion." },
     ],
     cta: "Let's go",
-  },
-  contractor: {
-    title: (n) => `Welcome aboard, ${n}!`,
-    sub: "Your Buildsasa subscription is active. Here's how to get the most from it in your first week.",
-    points: [
-      { icon: CalendarDays, t: "Log site work daily", d: "Daily logs with photos keep your team, and your clients, in the loop." },
-      { icon: UserCheck, t: "Invite your clients", d: "Open a project's Client tab and invite the owner. They follow progress free, and trust grows." },
-      { icon: Users, t: "Bring your team", d: "Add site managers, foremen and inspectors from Team, each with the right access." },
-      { icon: Briefcase, t: "Send professional quotes", d: "Price jobs from templates and send a link your client accepts online." },
-    ],
-    cta: "Start building",
   },
 };
 

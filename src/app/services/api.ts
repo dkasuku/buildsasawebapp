@@ -1157,6 +1157,7 @@ export const api = {
   resendVerification: () => http<{ ok: boolean }>("/api/auth/resend-verification", { method: "POST" }),
   me: () => http<UserProfile>("/api/me"),
   updateMe: (payload: Partial<Omit<UserProfile, "id" | "role" | "email">>) => http<UserProfile>("/api/me", { method: "PUT", body: JSON.stringify(payload) }),
+  markWelcomed: () => http<{ ok: boolean }>("/api/me/welcomed", { method: "POST" }),
   changePassword: (currentPassword: string, newPassword: string) => http<{ ok: boolean }>("/api/me/password", { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) }),
   forgotPassword: (email: string) => http<{ ok: boolean; devLink?: string }>("/api/auth/forgot", { method: "POST", body: JSON.stringify({ email }) }),
   // Trades the single-use code from the Google redirect for the real session.

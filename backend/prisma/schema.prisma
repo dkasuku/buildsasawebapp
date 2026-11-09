@@ -25,6 +25,7 @@ model User {
   avatar    String?  // profile photo (data URL or hosted URL)
   country   String?  // where a client lives (many build in Kenya from abroad)
   workspaceId String? // the company/workspace this user belongs to (multi-tenant)
+  welcomedAt DateTime? // when they dismissed the first-sign-in welcome; null = not seen yet
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
