@@ -15,7 +15,7 @@ export function ModuleTabs({ view, allowed, starter, onNavigate, onAskAi }: {
   if (tabs.length < 2 && view !== "project-detail") return null;
   const current = view === "project-detail" ? "projects" : view;
   return (
-    <div className="sticky top-0 z-20 border-b border-[#222A35] bg-[#0A0E14]/95 backdrop-blur px-4 sm:px-7">
+    <div className="ws-moduletabs sticky top-0 z-20 border-b border-[#222A35] bg-[#0A0E14]/95 backdrop-blur px-4 sm:px-7">
       <div className="flex items-center gap-1 overflow-x-auto -mb-px" role="tablist" aria-label={`${m.label} pages`}>
         {tabs.map((t) => {
           const on = t.key === current;

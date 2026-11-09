@@ -649,11 +649,14 @@ export function Projects({
             placeholder="Find a project…"
             className="flex-1 lg:flex-none lg:w-[180px] h-8 px-3 rounded-md bg-[#11161D] border border-[#222A35] text-[12px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]"
           />
+          <select aria-label="Project status" value={tab} onChange={(e) => setTab(e.target.value)} className="ws-select h-8 px-2 rounded-md border border-[#222A35] text-[12px]">
+            {TABS.map((t) => <option key={t} value={t}>{t === "All" ? "All statuses" : t}</option>)}
+          </select>
           <button onClick={() => { setCodeTouched(false); setShowNew(true); }} className="h-8 px-3 rounded-md bg-[#FF6B1A] text-white text-[12px] flex items-center gap-1.5">
             <Plus className="w-3.5 h-3.5" /> <span className="hidden sm:inline">New project</span>
           </button>
         </div>}
-        tabs={<Tabs label="Project status" value={tab} onChange={setTab} items={TABS.map((t) => ({ id: t, label: t }))} />}
+
       />
       <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-5">
 

@@ -232,3 +232,6 @@
   .ws-sidebar.ws-collapsed .ws-user { justify-content: center; padding: 8px 0; }
   .ws-sidebar.ws-collapsed .ws-user > :not(.ws-avatar) { display: none; }
 }
+
+/* Light theme: page header and module tabs sit on white. */
+.theme-light .ws-pagehead, .theme-light .ws-moduletabs { background: #FFFFFF; }

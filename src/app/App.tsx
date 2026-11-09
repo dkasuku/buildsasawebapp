@@ -550,7 +550,7 @@ export default function App() {
             {!paywalled && (
               <ModuleTabs view={effectiveView} allowed={(v) => allowed.includes(v)} starter={starter} onNavigate={navigate} />
             )}
-            {!paywalled && effectiveView !== "buildflex-ai" && moduleOf(effectiveView) && moduleOf(effectiveView)!.id !== "home" && (
+            {!paywalled && effectiveView !== "buildflex-ai" && effectiveView !== "projects" && moduleOf(effectiveView) && moduleOf(effectiveView)!.id !== "home" && (
               <AskBar key={effectiveView} title={askFor(effectiveView).q} hint={askFor(effectiveView).hint}
                 onAsk={(text, images) => { setAiStart({ text: text || (images.length ? "Turn this into a modern, finished interior" : ""), images, key: Date.now(), page: meta?.title }); navigate("buildflex-ai"); }} />
             )}
