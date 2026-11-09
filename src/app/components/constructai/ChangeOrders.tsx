@@ -94,7 +94,7 @@ export default function ChangeOrders({ role, openId, onConsumeOpenId }: { role: 
     let alive = true;
     api.getChangeOrder(openId)
       .then((co) => { if (alive && co) setDetail(co as any); })
-      .catch(() => { if (alive) toast.error("That change order could not be opened"); })
+      .catch(() => { if (alive) toast.error("That variation could not be opened"); })
       .finally(() => { if (alive) onConsumeOpenId?.(); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -119,23 +119,23 @@ export default function ChangeOrders({ role, openId, onConsumeOpenId }: { role: 
     const rows = filtered.map((c) => [c.number, c.title, projName(c.projectId), STATUS_META[c.status]?.label, c.trigger, c.costUSD, c.scheduleImpactDays, parseArr(c.assignees).map(nameOf).join("; "), c.submittedDate].map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","));
     const blob = new Blob([[cols.join(","), ...rows].join("\n")], { type: "text/csv" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `change-orders-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
-    toast.success("Change orders exported as CSV");
+    toast.success("Variations exported as CSV");
   };
 
   return (
     <div>
       <PageHeader
-        title="Change orders"
-        subtitle={<>{filtered.length} change order{filtered.length === 1 ? "" : "s"} · net cost {fmt(totals.cost)} · schedule {totals.days >= 0 ? "+" : ""}{totals.days}d · {totals.pending} pending approval</>}
+        title="Variations"
+        subtitle={<>{filtered.length} variation{filtered.length === 1 ? "" : "s"} · net cost {fmt(totals.cost)} · schedule {totals.days >= 0 ? "+" : ""}{totals.days}d · {totals.pending} pending approval</>}
         actions={<>
           <button type="button" onClick={exportCSV} className="ws-btn"><Download aria-hidden /> CSV</button>
-          {canCreate && <button type="button" onClick={() => setShowForm({ id: "", projectId: projects[0]?.id || "", status: "drafted" } as ChangeOrder)} className="ws-btn-primary"><Plus aria-hidden /> New change order</button>}
+          {canCreate && <button type="button" onClick={() => setShowForm({ id: "", projectId: projects[0]?.id || "", status: "drafted" } as ChangeOrder)} className="ws-btn-primary"><Plus aria-hidden /> New variation</button>}
         </>}
       >
         <div className="ws-toolbar">
           <div className="ws-search" style={{ margin: 0, maxWidth: 420, minWidth: 200 }}>
             <Search aria-hidden />
-            <label htmlFor="co-q" className="sr-only">Search change orders</label>
+            <label htmlFor="co-q" className="sr-only">Search variations</label>
             <input id="co-q" value={filters.q} onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} placeholder="Search number, title, trigger…" style={{ paddingRight: 12 }} />
           </div>
           <label htmlFor="co-project" className="sr-only">Project</label>
@@ -156,7 +156,7 @@ export default function ChangeOrders({ role, openId, onConsumeOpenId }: { role: 
             </tr></thead>
             <tbody>
               {loading && <tr><td colSpan={8} className="text-center py-10 text-[#5B6675]"><Loader2 className="w-4 h-4 animate-spin inline" /> Loading…</td></tr>}
-              {!loading && filtered.length === 0 && <tr><td colSpan={8} className="text-center py-10 text-[#5B6675]">No change orders yet.</td></tr>}
+              {!loading && filtered.length === 0 && <tr><td colSpan={8} className="text-center py-10 text-[#5B6675]">No variations yet.</td></tr>}
               {!loading && filtered.map((c) => {
                 const asg = parseArr(c.assignees);
                 return (
@@ -226,6 +226,8 @@ function COForm({ projects, initial, canApprove, onClose, onSaved }: { projects:
     requestedBy: initial.requestedBy || "", submittedDate: initial.submittedDate || new Date().toISOString().slice(0, 10),
   });
   const set = (k: string, v: any) => setF((p: any) => ({ ...p, [k]: v }));
+  // On a slow connection the form can open before the project list arrives.
+  useEffect(() => { if (projects[0]) setF((p: any) => (p.projectId ? p : { ...p, projectId: projects[0].id })); }, [projects]);
   const [saving, setSaving] = useState(false);
   const cls = "w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]";
 
@@ -244,7 +246,7 @@ function COForm({ projects, initial, canApprove, onClose, onSaved }: { projects:
         scheduleImpactDays: Number(f.scheduleImpactDays) || 0,
       };
       if (initial.id) await api.updateChangeOrder(initial.id, payload); else await api.createChangeOrder(payload);
-      toast.success(initial.id ? "Change order updated" : "Change order created");
+      toast.success(initial.id ? "Variation updated" : "Variation created");
       onSaved();
     } catch (e: any) { toast.error(e.message || "Save failed"); }
     setSaving(false);
@@ -252,9 +254,9 @@ function COForm({ projects, initial, canApprove, onClose, onSaved }: { projects:
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/60 flex justify-end" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label={initial.id ? "Edit change order" : "Create change order"} className="w-full sm:w-[88vw] sm:max-w-[1040px] h-[100dvh] flex flex-col border-l border-[#222A35] bg-[#11161D] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label={initial.id ? "Edit variation" : "Create variation"} className="w-full sm:w-[88vw] sm:max-w-[1040px] h-[100dvh] flex flex-col border-l border-[#222A35] bg-[#11161D] shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="shrink-0 px-6 py-4 border-b border-[#222A35] flex items-center justify-between">
-          <div className="text-[15px] text-white font-display">{initial.id ? "Edit change order" : "Create change order"}</div>
+          <div className="text-[15px] text-white font-display">{initial.id ? "Edit variation" : "Create variation"}</div>
           <button onClick={onClose} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button>
         </div>
         <div className="flex-1 overflow-y-auto overscroll-contain p-6 space-y-4">
@@ -309,7 +311,7 @@ function CODetail({ co, projName, canCreate, canApprove, approveLimit, role, onC
     setPosting(false);
   };
   const actLabel = (a: ChangeOrderActivityDto): string => {
-    if (a.type === "created") return "created this change order";
+    if (a.type === "created") return "created this variation";
     if (a.type === "status") return `moved it to ${STATUS_META[(a.toStatus || "") as COStatus]?.label || a.toStatus}`;
     if (a.type === "edited") return "updated the details";
     return "";
@@ -345,7 +347,7 @@ function CODetail({ co, projName, canCreate, canApprove, approveLimit, role, onC
               <button
                 onClick={() => withinLimit
                   ? setStatus("approved")
-                  : toast.error(`${role} can approve up to ${limitLabel} — this change order is ${fmt(co.costUSD)}. Ask someone with a higher limit.`)}
+                  : toast.error(`${role} can approve up to ${limitLabel} — this variation is ${fmt(co.costUSD)}. Ask someone with a higher limit.`)}
                 title={withinLimit ? undefined : `Above your approval limit of ${limitLabel}`}
                 className={`text-[11px] px-2.5 py-1.5 rounded-md border ${withinLimit ? "border-[#22C55E]/30 text-[#22C55E]" : "border-[#222A35] text-[#5B6675] cursor-not-allowed"}`}
               >Approve</button>
