@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ArrowUpRight, MapPin, Calendar, MoreHorizontal, Filter, LayoutGrid, List, Plus, TrendingUp, AlertCircle, X, ImagePlus, UploadCloud, UserCircle, ClipboardList, ChevronDown, ChevronRight, Star, ChevronLeft, ChevronRight as ChevronRightIcon, FolderKanban, SearchX } from "lucide-react";
+import { MapPin, MoreHorizontal, Plus, X, ImagePlus, UploadCloud, ChevronDown, ChevronRight, Star, ChevronLeft, ChevronRight as ChevronRightIcon, FolderKanban, SearchX } from "lucide-react";
 import { MapPicker } from "./MapPicker";
 import { EmptyState } from "./EmptyState";
 import { ImageLightbox } from "./ImageLightbox";
@@ -137,6 +137,10 @@ const STATUS_FILTERS = ["On Track", "At Risk", "Planning", "Closing", "Archived"
 // unmaintained conversion rates behind them.
 const CURRENCY_OPTIONS = ["$", "KSh"];
 
+// The small coloured dot on a project card's status chip.
+const statusDot = (s: string) =>
+  s === "On Track" ? "#22C55E" : s === "At Risk" ? "#EF4444" : s === "Planning" ? "#3B82F6" : s === "Archived" ? "#8A95A5" : "#F5A623";
+
 const statusColor = (s: string) =>
   s === "On Track" ? "bg-[#22C55E]/15 text-[#22C55E] border-[#22C55E]/30"
   : s === "At Risk" ? "bg-[#EF4444]/15 text-[#EF4444] border-[#EF4444]/30"
@@ -261,7 +265,6 @@ export function Projects({
   const showFin = ROLES[role].financials;
   const { currency } = useCurrency();
   const [tab, setTab] = useState("All");
-  const [layout, setLayout] = useState<"grid" | "list">("grid");
   // The New project form shows the essentials; photos, units and files on request.
   const [newMore, setNewMore] = useState(false);
   const [query, setQuery] = useState("");
@@ -697,11 +700,16 @@ export function Projects({
             onAction={() => { setQuery(""); setTab("All"); setStatusFilters([]); setMinProgress(""); setMaxProgress(""); setHighExposureOnly(false); setHighCOOnly(false); }}
           />
         </div>
-      ) : layout === "grid" ? (
+      ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((p) => {
             const cover = p.images[0] ?? p.img;
             const menuOpen = actionMenu === p.code;
+            const place = p.city && p.city !== "—" ? p.city : null;
+            const worth = p.valueKES ? formatCompactCurrency(p.valueKES, currency) : /[1-9]/.test(p.value || "") ? p.value : null;
+            const progress = Math.max(0, Math.min(100, p.progress || 0));
+            const due = p.targetEndDate ? new Date(p.targetEndDate).toLocaleDateString(undefined, { month: "short", year: "numeric" }) : null;
+            const menuItem = "w-full text-left px-3 py-2 hover:bg-[#161C24] hover:text-white whitespace-nowrap";
 
             return (
             <div
@@ -710,24 +718,15 @@ export function Projects({
               tabIndex={0}
               aria-label={`Open ${p.name}`}
               onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openProject(p); } }}
-              // Clicking a card now opens the project's own dashboard. It used to
-              // jump straight into the edit dialog, so there was no way to simply
-              // look at a project. Editing is on the ⋯ menu.
               onClick={() => openProject(p)}
-              className="text-left rounded-xl border border-[#222A35] bg-[#11161D] overflow-visible hover:border-[#FF6B1A]/50 transition group relative cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FF6B1A]"
+              className="text-left rounded-2xl border border-[#222A35] bg-[#11161D] hover:border-[#FF6B1A]/50 hover:shadow-lg transition relative cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FF6B1A]"
             >
-              <div className="relative h-[140px] overflow-hidden rounded-t-xl">
-                <ImageWithFallback src={cover} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
-                <span className={`absolute top-3 left-3 px-2 py-0.5 rounded-full text-[10px] border ${statusColor(p.status)}`}>{p.status}</span>
-                <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent flex items-end justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="text-[10px] text-white font-mono" style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,1)' }}>{p.code}</div>
-                    <div className="text-[15px] text-white tracking-tight font-display truncate" style={{ color: '#ffffff', textShadow: '0 2px 4px rgba(0,0,0,1)' }}>{p.name}</div>
-                  </div>
-                  {/* Says "this opens" — a card with no visible affordance reads as a static tile. */}
-                  <span className="shrink-0 h-7 px-2 rounded-md bg-[#FF6B1A] text-white text-[10.5px] flex items-center gap-1 shadow-lg group-hover:bg-[#FF7E33]">Open <ArrowUpRight className="w-3 h-3" /></span>
-                </div>
+              <div className="relative h-[148px] overflow-hidden rounded-t-2xl">
+                <ImageWithFallback src={cover} alt={p.name} className="w-full h-full object-cover" />
+                <span className="absolute top-3 left-3 h-6 px-2.5 rounded-full bg-[#11161D] text-white text-[11px] font-medium inline-flex items-center gap-1.5 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: statusDot(p.status) }} aria-hidden />
+                  {p.status}
+                </span>
               </div>
               <div className="absolute top-3 right-3 z-30" onClick={(e) => e.stopPropagation()}>
                 <button
@@ -737,151 +736,46 @@ export function Projects({
                     setActionMenu((prev) => prev === p.code ? null : p.code);
                   }}
                   aria-label={`Actions for ${p.name}`}
-                  className="w-7 h-7 rounded-md bg-black/60 backdrop-blur text-white border border-white/20 shadow-lg flex items-center justify-center hover:bg-black/80"
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  className="w-7 h-7 rounded-full bg-[#11161D] text-[#8A95A5] hover:text-white shadow-sm flex items-center justify-center"
                 >
-                  <MoreHorizontal className="w-3.5 h-3.5 text-white" style={{ color: '#ffffff' }} />
+                  <MoreHorizontal className="w-4 h-4" />
                 </button>
                 {menuOpen && (
-                  <div className="absolute right-0 mt-2 w-44 rounded-md border border-[#222A35] bg-[#0F141B] shadow-2xl text-[12px] text-[#C2CAD6] overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => { setActionMenu(null); openProject(p); }}
-                      className="w-full text-left px-3 py-2 hover:bg-[#161C24] hover:text-white whitespace-nowrap"
-                    >
-                      View details
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openEdit(p)}
-                      className="w-full text-left px-3 py-2 hover:bg-[#161C24] hover:text-white whitespace-nowrap"
-                    >
-                      Edit project
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setView("change-orders");
-                        toast(`Opened change orders for ${p.name}`);
-                        setActionMenu(null);
-                      }}
-                      className="w-full text-left px-3 py-2 hover:bg-[#161C24] hover:text-white whitespace-nowrap"
-                    >
-                      Open change orders
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateProjectStatus(p.code, "At Risk")}
-                      className="w-full text-left px-3 py-2 hover:bg-[#161C24] hover:text-white whitespace-nowrap"
-                    >
-                      Mark at risk
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateProjectStatus(p.code, "Archived")}
-                      className="w-full text-left px-3 py-2 hover:bg-[#161C24] hover:text-white whitespace-nowrap"
-                    >
-                      Archive project
-                    </button>
+                  <div role="menu" className="absolute right-0 mt-2 w-44 rounded-lg border border-[#222A35] bg-[#11161D] shadow-2xl text-[12.5px] text-[#C2CAD6] overflow-hidden">
+                    <button type="button" role="menuitem" onClick={() => openEdit(p)} className={menuItem}>Edit project</button>
+                    <button type="button" role="menuitem" onClick={() => { setActionMenu(null); setView("change-orders"); }} className={menuItem}>Variations</button>
+                    <button type="button" role="menuitem" onClick={() => updateProjectStatus(p.code, "At Risk")} className={menuItem}>Mark at risk</button>
+                    <button type="button" role="menuitem" onClick={() => updateProjectStatus(p.code, "Archived")} className={menuItem}>Archive project</button>
                   </div>
                 )}
               </div>
-              <div className="p-4 space-y-3">
-                <div className="flex items-center gap-3 text-[11px] text-[#8A95A5]">
-                  <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{p.city}</span>
-                  {p.targetEndDate && <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{new Date(p.targetEndDate).toLocaleDateString(undefined, { month: "short", year: "numeric" })}</span>}
+              <div className="p-4">
+                <div className="text-[15.5px] text-white font-display tracking-tight truncate">{p.name}</div>
+                <div className="mt-0.5 text-[12.5px] text-[#8A95A5] flex items-center gap-1 min-w-0">
+                  <MapPin className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                  <span className="truncate">{place ?? "No location yet"}</span>
                 </div>
-                {p.description && <div className="text-[11px] text-[#8A95A5] line-clamp-2">{p.description}</div>}
-                <div className="flex flex-wrap gap-1.5 text-[10px] text-[#C2CAD6]">
-                  {p.pm !== "None" && <span className="px-2 py-1 rounded-md bg-[#222A35] flex items-center gap-1"><UserCircle className="w-3 h-3" />PM: {resolveName(p.pm)}</span>}
-                  {p.architect !== "None" && <span className="px-2 py-1 rounded-md bg-[#222A35] flex items-center gap-1"><UserCircle className="w-3 h-3" />Arch: {resolveName(p.architect)}</span>}
-                  {p.qs !== "None" && <span className="px-2 py-1 rounded-md bg-[#222A35] flex items-center gap-1"><UserCircle className="w-3 h-3" />QS: {resolveName(p.qs)}</span>}
-                </div>
-                <div>
-                  <div className="flex items-center justify-between text-[11px] mb-1.5">
-                    <span className="text-[#8A95A5]">Schedule</span>
-                    <span className="text-white">{p.progress}%</span>
+                <div className="mt-4">
+                  <div className="flex items-baseline justify-between text-[12px] mb-1.5">
+                    <span className="text-[#8A95A5]">Progress</span>
+                    <span className="text-white font-medium">{progress}%</span>
                   </div>
-                  <div className="h-1.5 bg-[#222A35] rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-[#FF6B1A] to-[#FF8A4A] rounded-full" style={{ width: `${p.progress}%` }} />
+                  <div className="h-1.5 bg-[#222A35] rounded-full overflow-hidden" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100} aria-label={`${p.name} progress`}>
+                    <div className="h-full bg-[#FF6B1A] rounded-full" style={{ width: `${progress}%` }} />
                   </div>
                 </div>
-                {p.checklist && p.checklist.items.length > 0 && (
-                  <div className="flex items-center gap-1.5 text-[10px] text-[#8A95A5]">
-                    <ClipboardList className="w-3 h-3 text-[#3B82F6]" />
-                    {p.checklist.items.length} checklist {p.checklist.items.length === 1 ? "item" : "items"}
-                    <span className="text-[#5B6675]">·</span>
-                    <span className="text-[#22C55E]">{p.checklist.items.filter((i) => i.status === "done").length} done</span>
-                    <span className="text-[#5B6675]">·</span>
-                    <span className="text-[#F5A623]">{p.checklist.items.filter((i) => i.assignedTo.length > 0).length} assigned</span>
+                {(worth || due) && (
+                  <div className="mt-4 pt-3 border-t border-[#222A35] flex items-center justify-between gap-3 text-[12.5px]">
+                    <span className="text-white font-medium truncate">{worth ?? ""}</span>
+                    {due && <span className="text-[#8A95A5] shrink-0">Due {due}</span>}
                   </div>
                 )}
-                <div className={`grid gap-2 pt-2 border-t border-[#222A35] ${showFin ? "grid-cols-3" : "grid-cols-2"}`}>
-                  <div>
-                    <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">Value</div>
-                    <div className="text-[13px] text-white mt-0.5">{p.valueKES ? formatCompactCurrency(p.valueKES, currency) : p.value}</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-[#5B6675] uppercase tracking-wider">COs</div>
-                    <div className="text-[13px] text-white mt-0.5 flex items-center gap-1">{p.changeOrders} {p.changeOrders > 25 && <AlertCircle className="w-3 h-3 text-[#F5A623]" />}</div>
-                  </div>
-                  {showFin && (
-                  <div>
-                    <div className="text-[10px] text-[#5B6675] uppercase tracking-wider" title="Value of change orders not yet approved">At risk</div>
-                    <div className="text-[13px] text-[#FF6B1A] mt-0.5 flex items-center gap-1"><TrendingUp className="w-3 h-3" />{formatCompactCurrency(p.exposureKES ?? 0, currency)}</div>
-                  </div>
-                  )}
-                </div>
               </div>
             </div>
           );
           })}
-        </div>
-      ) : (
-        <div className="rounded-xl border border-[#222A35] bg-[#11161D] overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[700px]">
-              <thead>
-                <tr className="text-[10px] text-[#5B6675] uppercase tracking-wider">
-                  <th className="text-left px-5 py-2.5">Project</th>
-                  <th className="text-left px-3 py-2.5">Status</th>
-                  <th className="text-left px-3 py-2.5">City</th>
-                  <th className="text-left px-3 py-2.5">Team</th>
-                  <th className="text-right px-3 py-2.5">Value</th>
-                  <th className="text-right px-3 py-2.5">Progress</th>
-                  <th className="text-right px-5 py-2.5">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="text-[12px]">
-                {filtered.map((p) => (
-                  <tr key={p.code} onClick={() => openProject(p)} title="Open project" className="border-t border-[#222A35] hover:bg-[#161C24] cursor-pointer group">
-                    <td className="px-5 py-3 text-white">{p.name}</td>
-                    <td className="px-3 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] border ${statusColor(p.status)}`}>{p.status}</span></td>
-                    <td className="px-3 py-3 text-[#8A95A5]">{p.city}</td>
-                    <td className="px-3 py-3 text-[#8A95A5] text-[11px]">
-                      {p.pm !== "None" && <div>PM: {resolveName(p.pm)}</div>}
-                      {p.architect !== "None" && <div>Arch: {resolveName(p.architect)}</div>}
-                      {p.qs !== "None" && <div>QS: {resolveName(p.qs)}</div>}
-                      {p.pm === "None" && p.architect === "None" && p.qs === "None" && <div className="text-[#5B6675]">—</div>}
-                    </td>
-                    <td className="px-3 py-3 text-right text-white">{p.valueKES ? formatCompactCurrency(p.valueKES, currency) : p.value}</td>
-                    <td className="px-3 py-3 text-right text-[#FF6B1A]">{p.progress}%</td>
-                    <td className="px-5 py-3 text-right">
-                      {/* Row click opens the dashboard, so editing needs its own
-                          affordance here — previously the list had no way to
-                          reach anything but the edit dialog. */}
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); openEdit(p); }}
-                        className="text-[11px] text-[#8A95A5] hover:text-white"
-                      >
-                        Edit
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </div>
       )}
 
