@@ -62,8 +62,8 @@ export default function Invoicing({ role = "Contractor" }: { role?: Role }) {
     const W = doc.internal.pageSize.getWidth();
     const kes = (n: number) => `KES ${Math.round(Number(n) || 0).toLocaleString("en-KE")}`;
     const day = (d?: string | null) => (d ? new Date(d).toLocaleDateString("en-GB") : "");
-    const meta = [`Invoice no: ${inv.invoiceNumber}`, inv.issueDate ? `Date: ${day(inv.issueDate)}` : "", inv.dueDate ? `Due: ${day(inv.dueDate)}` : "", inv.poNumber ? `PO: ${inv.poNumber}` : ""].filter(Boolean);
-    let y = drawLetterhead(doc, company, await companyLogoData(), "INVOICE", meta);
+    const meta = [`Request no: ${inv.invoiceNumber}`, inv.issueDate ? `Date: ${day(inv.issueDate)}` : "", inv.dueDate ? `Due: ${day(inv.dueDate)}` : "", inv.poNumber ? `PO: ${inv.poNumber}` : ""].filter(Boolean);
+    let y = drawLetterhead(doc, company, await companyLogoData(), "PAYMENT REQUEST", meta);
     doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(140); doc.text("BILL TO", 14, y);
     doc.setFontSize(10); doc.setTextColor(20); doc.text(inv.clientName || "", 14, y + 6);
     doc.setFontSize(9); doc.setTextColor(90);
@@ -108,6 +108,11 @@ export default function Invoicing({ role = "Contractor" }: { role?: Role }) {
     block("How to pay", company?.paymentDetails);
     block("Notes", inv.notes);
     block("Terms & conditions", inv.terms);
+    // Until eTIMS is built these must never pass for tax invoices (idea.md 6.2).
+    if (y + 16 > doc.internal.pageSize.getHeight() - 15) { doc.addPage(); y = 20; }
+    doc.setFillColor(255, 244, 236); doc.rect(14, y + 2, W - 28, 11, "F");
+    doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(150, 60, 10);
+    doc.text("This is a payment request, not a tax invoice. A KRA eTIMS tax invoice is issued separately on request.", 17, y + 9);
     doc.save(`${inv.invoiceNumber}.pdf`.replace(/[\\/:*?"<>|]/g, "-"));
   };
   const [payFor, setPayFor] = useState<InvoiceDto | null>(null);
@@ -195,7 +200,7 @@ export default function Invoicing({ role = "Contractor" }: { role?: Role }) {
       setInvoices([row, ...invoices]);
       setShowNew(false);
       resetForm();
-      toast.success("Invoice created");
+      toast.success("Payment request created");
     } catch {
       setInvoices([{ ...payload, id: `I-${Date.now()}`, projectId } as InvoiceDto, ...invoices]);
       setShowNew(false);
@@ -213,8 +218,8 @@ export default function Invoicing({ role = "Contractor" }: { role?: Role }) {
   return (
     <div>
       <PageHeader
-        title="Invoicing"
-        subtitle="Accounts receivable and invoice management"
+        title="Invoices"
+        subtitle="Payment requests to your clients. These are not tax invoices: a KRA eTIMS tax invoice is issued separately on request."
         actions={<>
           <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="ws-select">
             {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}

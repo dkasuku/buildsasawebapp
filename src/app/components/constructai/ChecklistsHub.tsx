@@ -8,8 +8,11 @@ import type { ChecklistTemplateDto } from "../../services/api";
 import Checklists from "./Checklists";
 import { Tasks } from "./Tasks";
 import { SectionTabs } from "./SectionTabs";
+import Inspections from "./Inspections";
+import SafetyIncidents from "./SafetyIncidents";
 
-type Tab = "checklists" | "assignments";
+// Inspections and Safety are part of Checklists (idea.md R7), not pages of their own.
+type Tab = "checklists" | "assignments" | "inspections" | "safety";
 
 export function ChecklistsHub({ role, initialTab = "checklists", aiDraft, onConsumeAiDraft }: {
   role: Role;
@@ -18,20 +21,19 @@ export function ChecklistsHub({ role, initialTab = "checklists", aiDraft, onCons
   onConsumeAiDraft?: () => void;
 }) {
   const canSeeAssignments = (ROLES[role]?.views || []).includes("tasks");
-  const [tab, setTab] = useState<Tab>(canSeeAssignments ? initialTab : "checklists");
+  const [tab, setTab] = useState<Tab>(canSeeAssignments || initialTab !== "assignments" ? initialTab : "checklists");
   return (
     <div>
-      {canSeeAssignments && (
-        <SectionTabs<Tab>
-          title="Checklists"
-          subtitle="Templates, assignments and digital submissions."
-          tabs={[{ key: "checklists", label: "Checklists" }, { key: "assignments", label: "Assignments by trade" }]}
-          value={tab}
-          onChange={setTab}
-        />
-      )}
-      {tab === "checklists"
-        ? <Checklists role={role} aiDraft={aiDraft} onConsumeAiDraft={onConsumeAiDraft} />
+      <SectionTabs<Tab>
+        title="Checklists"
+        subtitle="Quality checks, inspections and safety, filled on site."
+        tabs={[{ key: "checklists", label: "Checklists" }, { key: "inspections", label: "Inspections" }, { key: "safety", label: "Safety" }, ...(canSeeAssignments ? [{ key: "assignments" as Tab, label: "By trade" }] : [])]}
+        value={tab}
+        onChange={setTab}
+      />
+      {tab === "checklists" ? <Checklists role={role} aiDraft={aiDraft} onConsumeAiDraft={onConsumeAiDraft} />
+        : tab === "inspections" ? <Inspections role={role} />
+        : tab === "safety" ? <SafetyIncidents role={role} />
         : <Tasks role={role} />}
     </div>
   );

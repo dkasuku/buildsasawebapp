@@ -31,7 +31,7 @@ const TENANT_MODELS = new Set([
   'DirectoryContact', 'CompanyDoc', 'Announcement', 'FormTemplate', 'Conversation',
   'PaymentApplication', 'RetentionRecord', 'CostCode', 'Approval',
   'InventoryItem', 'InventoryMovement',
-  'BoqRevision', 'RateLibraryItem', 'Quote', 'Selection', 'AiDesign', 'ProjectUnit',
+  'BoqRevision', 'RateLibraryItem', 'Quote', 'Selection', 'AiDesign', 'ProjectUnit', 'Labourer', 'LabourDay',
 ]);
 const prismaBase = new PrismaClient();
 const delegateOf = (m) => prismaBase[m.charAt(0).toLowerCase() + m.slice(1)];
@@ -5663,7 +5663,7 @@ async function requireCredits(req, action) {
   const w = await ensureCredits(ws, req.user?.email);
   const balance = (w?.aiPlanCredits || 0) + (w?.aiTopupCredits || 0);
   if (balance < cost) {
-    throw new CreditError(`You need ${cost} Sasa Credits for this, and your company has ${balance} left. Buy more credits under Billing → Sasa Credits${balance === 0 ? '' : ', or wait for your monthly credits to renew'}.`, cost, balance);
+    throw new CreditError(`You need ${cost} Sasa Credits for this, and your company has ${balance} left. Your plan's AI allowance is in Billing${balance === 0 ? '' : '; it renews monthly'}.`, cost, balance);
   }
   return cost;
 }
@@ -5896,7 +5896,7 @@ async function checkDaily(req, kind, n = 1) {
   if (topup >= cost) return { ws, day, kind, n, cost, over };
   const per = Number(cfg.extra[kind]) || 0;
   throw new DailyLimitError(
-    `You've used today's ${limit} ${DAILY_LABEL[kind]}. They renew at midnight, or keep going now: each extra ${DAILY_ONE[kind]} costs ${per} top-up credit${per === 1 ? '' : 's'}${topup ? ` and you have ${topup}` : ''}. Buy a credit pack to continue straight away.`,
+    `You've used today's ${limit} ${DAILY_LABEL[kind]}. They renew at midnight; your plan's limits are in Billing.`,
     { kind, limit, used, tier, cost, topup, perExtra: per, resetsAt: nextNairobiMidnight(), packs: cfg.packs, payments: !!PAYSTACK_SECRET },
   );
 }
@@ -6527,6 +6527,7 @@ app.post('/api/ai/assistant', auth, withCredits('assistant'), withDaily('upload'
     ]);
     const quotes = await prisma.quote.findMany({ orderBy: { createdAt: 'desc' }, take: 15, select: { quoteNumber: true, title: true, clientName: true, total: true, status: true, sentAt: true, viewedAt: true } }).catch(() => []);
     const team = await prisma.user.findMany({ where: { role: { not: 'Client' } }, take: 60, select: { name: true, email: true, role: true, trade: true } }).catch(() => []);
+    const labourers = await prisma.labourer.findMany({ where: { active: true }, take: 120, select: { name: true, trade: true, dailyRate: true, projectId: true } }).catch(() => []);
     const units = await prisma.projectUnit.findMany({ take: 400, orderBy: { code: 'asc' }, select: { id: true, projectId: true, code: true, type: true, status: true, progress: true, clientName: true, clientEmail: true, clientPhone: true, shareToken: true, stages: true } }).catch(() => []);
 
     const fmt = (n) => '$' + Math.round(n || 0).toLocaleString('en-US');
@@ -6556,6 +6557,7 @@ app.post('/api/ai/assistant', auth, withCredits('assistant'), withDaily('upload'
         }).join('\n');
       }).join('\n'));
     }
+    if (labourers.length) safeLines.push('CASUAL LABOUR (labour muster, no login; mark days with the muster action):\n' + labourers.map((l) => `  - ${l.name}${l.trade ? ` | ${l.trade}` : ''}${l.projectId ? ` | usual site: ${pName(l.projectId)}` : ''}`).join('\n'));
     if (team.length) safeLines.push('TEAM MEMBERS:\n' + team.map((u) => `  - ${u.name} <${u.email}> | ${u.role}${u.trade ? ` | ${u.trade}` : ''}`).join('\n'));
 
     // ---- Financial context — managers only ----
@@ -6615,6 +6617,8 @@ DOING THINGS FOR THE USER (you are their hands in Buildsasa): when the user asks
   [[do:set-role|{"email":"<from TEAM MEMBERS>","role":"<one of the roles above>"}]] (roles are fixed; to "create a role" for someone, invite them or change their role)
   [[do:share-portal|{"projectId":"<id>"}]] (creates the client portal link to send to the client)
   [[do:create-invoice|{"projectId":"<id>","clientName":"...","dueDate":"YYYY-MM-DD","taxRate":16,"items":[{"description":"...","quantity":1,"rate":0}],"notes":"..."}]]
+  [[do:add-labourer|{"name":"...","trade":"fundi|helper|mason|carpenter|steel fixer|plumber|electrician|painter|other","dailyRate":0,"phone":"...","projectId":"<id or omit>"}]] (a casual worker on the labour muster; no login)
+  [[do:muster|{"projectId":"<id>","date":"YYYY-MM-DD","present":["<names from CASUAL LABOUR>"],"half":["..."],"absent":["..."]}]] (marks the day's attendance; "everyone present" = list them all)
   [[do:add-material|{"name":"...","category":"Cement|Steel|Aggregates|Timber|Roofing|Plumbing|Electrical|Finishes|Other","unit":"bags|tonnes|pcs|m|m²|m³|litres","currentStock":0,"unitCostKES":0,"reorderLevel":0,"supplier":"..."}]]
   [[do:add-equipment|{"name":"...","category":"Earthmoving|Lifting|Concrete|Power|Transport|Tools|Scaffolding|Other","status":"available|in_use|maintenance","ownership":"owned|hired","location":"...","hireRate":0}]]
   [[do:add-budget|{"projectId":"<id>","section":"<e.g. Substructure>","items":[{"description":"...","unit":"...","quantity":0,"rate":0}]}]] (a costed budget / BOQ section on the project, KES)
@@ -6629,6 +6633,7 @@ DOING THINGS FOR THE USER (you are their hands in Buildsasa): when the user asks
   [[do:unit-report|{"projectId":"<id>","unit":"<code, or ALL for every buyer>"}]] (sends each buyer their own unit's progress report by email, with WhatsApp text)
 SHARING WITH CLIENTS AND OWNERS: Information about a client's or owner's project (progress, photos, invoices, prices, unit details) is theirs. Never share it, or offer links to it, unless the user asks you to share or send it. When sharing would clearly help (a milestone is reached, a unit is ready), ASK first ("Shall I send unit A-12's buyer a progress report?") instead of adding the tag. When the user asks you to share or send, add the share tag; the user still confirms the card. A unit's buyer only ever gets their own unit's details plus news about the whole project, never another buyer's unit, name or payments.
 When the user attaches a drawing, contract, BOQ or photo and says "create a project from this", read it and fill create-project (and add-budget lines if it has quantities). Briefly say what you set up; never claim it is done before the user confirms. Only ask a question if something essential is missing (e.g. an email to invite someone).
+INVOICES: Buildsasa invoices are PAYMENT REQUESTS, not tax invoices (KRA eTIMS is not connected yet). Call them payment requests, never say an invoice is KRA or eTIMS compliant, and never give legal or structural sign-off. Never state Buildsasa plan prices.
 DOCUMENTS: Every answer has buttons to download it as PDF, Word or Excel, and tables can be saved as quotes. When asked for a quote, BOQ, report, letter or log "in PDF/Excel/Word", just write the content well (the app downloads it in that format automatically); never say you can't create files. For a QUOTE: a markdown table with columns | Item | Description | Quantity | Unit | Rate (KES) | Amount (KES) |, one line per item (group by stage in the Item names where useful: Substructure, Walling, Roofing, Finishes, Labour…), then a bold subtotal, VAT 16% if appropriate and a bold total, then assumptions and exclusions. Offer to save it in Quotes for the client.
 ESTIMATES AND LISTS: For material estimates, bills of quantities, schedules, comparisons or any list of figures, answer with a markdown table (| Item | Description | Quantity | Unit | Rate (KES) | Amount (KES) |) followed by a bold total line. Use current Kenyan market rates in KES unless the user names another currency, and say they are estimates to confirm with suppliers. The user can export any table to CSV.
 ${page ? `The user is currently on the "${String(page).slice(0, 60)}" page; "this" or "here" refers to it.` : ''}
@@ -7564,6 +7569,7 @@ app.post('/api/billing/verify', auth, async (req, res) => {
 // Client accounts, sharing with clients, client jobs and Buildsasa site reporting.
 Object.assign(clientRouteDeps, { readOwnUpload, unitIdsJson, prisma, prismaBase, auth, currentWs, hasRole, CAN_SHARE_PORTAL, sendEmail, emailShell, button, paystackRequest, PAYSTACK_SECRET, isPlatformAdmin, portalPayload, companyPublic, APP_URL, freeAccessEmails: () => [...new Set([...FREE_ACCESS_EMAILS, ...PLATFORM_ADMIN_EMAILS, ...dbAdminEmails])] });
 require('./client-routes')(app, clientRouteDeps);
+require('./labour-routes')(app, { prisma, auth, currentWs });
 
 // Paystack webhook — activates on charge.success. (Signature checked when key is set.)
 app.post('/api/billing/webhook', async (req, res) => {

@@ -128,7 +128,7 @@ export function ClientFolder({ projectId, canInvite, onOpenPortal }: { projectId
       {clients?.length ? (
         <p className="text-[11.5px] text-[#8A95A5]">Sharing with {clients.map((c) => c.name || c.email).join(", ")}{clients.some((c) => !c.joined) ? " (invited clients see everything once they create their account)" : ""}.</p>
       ) : null}
-      <Tabs label="Client sections" value={tab} onChange={setTab} items={[{ id: "updates", label: "Progress updates", count: updates?.length }, { id: "tours", label: "360° tours" }, { id: "chat", label: "Chat with client" }, { id: "feedback", label: "Client feedback", count: clientComments.length }]} />
+      <Tabs label="Client sections" value={tab} onChange={setTab} items={[{ id: "updates", label: "Progress updates", count: updates?.length }, { id: "feedback", label: "Client feedback", count: clientComments.length }]} />
 
       {tab === "updates" && (
         <>

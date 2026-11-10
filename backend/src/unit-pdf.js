@@ -92,7 +92,7 @@ module.exports = async function unitPdf({ prismaBase, readFile, link, p, u }) {
   if (u.priceKES || invoices.length) {
     heading('Payments');
     if (u.priceKES) { doc.font('Helvetica').fontSize(10).fillColor(SOFT).text(`Price ${kes(u.priceKES)}   ·   Paid ${kes(u.paidKES || 0)}   ·   Balance ${kes(Math.max(0, u.priceKES - (u.paidKES || 0)))}`, L); doc.moveDown(0.5); }
-    if (invoices.length) table([{ label: 'Invoice', w: 0.26 }, { label: 'Due', w: 0.2 }, { label: 'Amount', w: 0.2 }, { label: 'Paid', w: 0.2 }, { label: 'Status', w: 0.14 }],
+    if (invoices.length) table([{ label: 'Payment request', w: 0.26 }, { label: 'Due', w: 0.2 }, { label: 'Amount', w: 0.2 }, { label: 'Paid', w: 0.2 }, { label: 'Status', w: 0.14 }],
       invoices.map((i) => [i.invoiceNumber, day(i.dueDate), kes(i.amount), kes(i.paidAmount || 0), i.status]));
   }
 

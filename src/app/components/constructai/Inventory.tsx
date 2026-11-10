@@ -58,10 +58,10 @@ export default function Inventory({ role = "Contractor" }: { role?: Role }) {
 
   return (
     <div>
+      {/* The equipment register is switched off (idea.md 5.2); its code stays. */}
       <PageHeader
-        title="Inventory"
-        subtitle="Materials, equipment and tools across your sites."
-        tabs={<Tabs label="Inventory sections" value={tab} onChange={setTab} items={[{ id: "materials", label: "Materials" }, { id: "equipment", label: "Equipment" }]} />}
+        title="Materials"
+        subtitle="Stock on each site: deliveries in, usage out, and what's running low."
       />
       {tab === "materials" ? (
         <div className="px-4 sm:px-8 py-5 sm:py-6 space-y-5">

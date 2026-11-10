@@ -103,7 +103,8 @@ export function PublicUnitView({ token }: { token: string }) {
                 <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: i.status === "paid" ? "#DCFCE7" : "#FEF3C7", color: i.status === "paid" ? C.green : "#B45309" }}>{i.status}</span>
               </div>
             ))}
-            {owed > 0 && <div style={{ fontSize: 12.5, color: C.soft, marginTop: 6 }}>Outstanding on invoices: <b style={{ color: C.ink }}>{kes(owed)}</b></div>}
+            <div style={{ fontSize: 11.5, color: C.faint, marginTop: 6 }}>Payment requests, not tax invoices. Ask your developer for a KRA eTIMS invoice.</div>
+            {owed > 0 && <div style={{ fontSize: 12.5, color: C.soft, marginTop: 6 }}>Outstanding: <b style={{ color: C.ink }}>{kes(owed)}</b></div>}
           </div>
         )}
 

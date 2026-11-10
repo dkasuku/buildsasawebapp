@@ -14,7 +14,10 @@ const isGreeting = (m: Msg) => m.role === "ai" && m.text === AI_GREETING.text;
 // materials list, instead of sending people to the Design studio. Questions
 // ("what colours suit…", "suggest finishes…") stay as written answers.
 const SPACE = /\b(room|kitchen|bed ?rooms?|master|living|lounge|sitting|bath ?rooms?|toilet|washroom|office|reception|dining|interior|fa[cç]ade|exterior|house|home|villa|bungalow|maisonette|apartment|flat|shop|salon|restaurant|cafe|hotel|lobby|space|ceiling|wardrobe|staircase|garden|compound|gate|balcony|terrace)\b/i;
+// AI design is switched off until idea.md section 6 ships (A7).
+export const AI_DESIGN_ON = false;
 export const looksLikeDesignRequest = (t: string, category?: string) => {
+  if (!AI_DESIGN_ON) return false;
   const s = t.trim();
   if (/^\s*(how|what|why|when|where|which|who|explain|tell me|is |are |should |can i|do i|suggest|recommend|list|compare|estimate|price|quote|cost)/i.test(s)) return false;
   if (/\b(quote|boq|bill of quantities|estimate|price|cost|checklist|schedule|programme|log)\b/i.test(s) && !/\b(render|visuali[sz]e|image|picture|photo|3d)\b/i.test(s)) return false;
@@ -32,6 +35,7 @@ export type ImageMode = "auto" | "design" | "logo" | "ask";
 const DESIGN_WORDS = /\b(redesign|design|renovat\w*|transform|turn (this|it) into|make (it|this) (look|into|modern)|finish(ed|es)?|interior|decor\w*|style|modern|makeover|visuali[sz]e|render|repaint|furnish\w*|remodel\w*|upgrade)\b/i;
 const DOC_WORDS = /\b(quot\w*|invoice|estimate|boq|bill of quantities|proposal|letter|report|price|cost|budget|logo|letterhead)\b/i;
 export const imageModeFor = (text: string, mode: ImageMode = "auto"): Exclude<ImageMode, "auto"> => {
+  if (!AI_DESIGN_ON && (mode === "design" || mode === "auto")) return /\b(logo|letterhead|brand(ing)?)\b/i.test(text) ? "logo" : "ask";
   if (mode !== "auto") return mode;
   if (/\b(logo|letterhead|brand(ing)?)\b/i.test(text)) return "logo";
   if (!text.trim()) return "design";

@@ -1,4 +1,5 @@
-// The four modules under Buildsasa AI. Kept short on purpose: the AI is the
+// The four modules under Buildsasa AI. The page list is fixed by idea.md
+// (section 5.1); nothing else may appear in navigation. Kept short on purpose: the AI is the
 // front door and does most of the work from chat; these are the places to look
 // things up. Pages hidden for the Kenyan market live in config/features.ts
 // (HIDDEN_VIEWS) and are left out here.
@@ -9,32 +10,24 @@ export type ModuleTab = { key: View; label: string };
 export type Module = { id: string; label: string; icon: any; hint: string; /** Placeholder for the ask-AI bar. */ ask: string; tabs: ModuleTab[] };
 
 export const MODULES: Module[] = [
-  { id: "projects", label: "Projects", icon: FolderKanban, hint: "Your sites, programme, drawings and variations", ask: "Plan a project, draft a programme, price a variation…", tabs: [
+  { id: "projects", label: "Projects", icon: FolderKanban, hint: "Your sites and their programme", ask: "Plan a project, draft a programme, price a variation…", tabs: [
     { key: "projects", label: "All projects" },
     { key: "schedule", label: "Schedule" },
-    { key: "plans", label: "Drawings" },
-    { key: "change-orders", label: "Variations" },
-    { key: "documents", label: "Unfiled documents" },
   ] },
-  { id: "site", label: "Site", icon: HardHat, hint: "Daily logs, snags, checks, safety and attendance", ask: "Tell me what happened on site today…", tabs: [
+  { id: "site", label: "Site", icon: HardHat, hint: "Daily logs, snags, checklists and the labour muster", ask: "Tell me what happened on site today…", tabs: [
     { key: "daily-log", label: "Daily log" },
     { key: "punch-list", label: "Snags" },
     { key: "checklists", label: "Checklists" },
-    { key: "inspections", label: "Inspections" },
-    { key: "safety-incidents", label: "Safety" },
     { key: "attendance", label: "Attendance" },
-    { key: "field-view", label: "Field view" },
   ] },
   { id: "money", label: "Money", icon: Wallet, hint: "Quotes, invoices, spending and materials", ask: "Price a job in KES, find overdue invoices…", tabs: [
     { key: "quotes", label: "Quotes" },
     { key: "invoicing", label: "Invoices" },
     { key: "financials", label: "Budget & spending" },
-    { key: "equipment", label: "Materials & equipment" },
+    { key: "equipment", label: "Materials" },
   ] },
-  { id: "people", label: "People", icon: Users, hint: "Team, messages, contacts and company documents", ask: "Invite someone, find a supplier's number…", tabs: [
+  { id: "people", label: "People", icon: Users, hint: "Your team and company documents", ask: "Invite someone, find a supplier's number…", tabs: [
     { key: "team", label: "Team" },
-    { key: "inbox", label: "Messages" },
-    { key: "directory", label: "Contacts" },
     { key: "company-docs", label: "Company documents" },
   ] },
 ];

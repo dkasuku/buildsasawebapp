@@ -1795,3 +1795,36 @@ model AiDailyUsage {
 
   @@unique([workspaceId, day, kind])
 }
+
+// Casual labourers (no login): the daily muster and the weekly wage bill.
+// Small contractors pay fundis and helpers by the day, often in cash or M-Pesa,
+// and lose money to "ghost workers"; each day's mark keeps the rate it was paid at.
+model Labourer {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  projectId   String?  // their usual site; null = moves between sites
+  name        String
+  phone       String?
+  trade       String?
+  dailyRate   Float    @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+}
+
+model LabourDay {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  labourerId  String
+  projectId   String
+  date        String   // YYYY-MM-DD (Nairobi)
+  status      String   // present | half | absent
+  rate        Float    @default(0) // the day's pay (half a day = half the rate)
+  markedBy    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([labourerId, date])
+  @@index([projectId, date])
+}

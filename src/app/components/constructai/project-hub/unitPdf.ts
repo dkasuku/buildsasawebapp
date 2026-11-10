@@ -98,7 +98,7 @@ export async function unitReportPdf(projectId: string, projectName: string, u: U
     if (u.priceKES) { doc.text(`Price ${kes(u.priceKES)}   ·   Paid ${kes(u.paidKES || 0)}   ·   Balance ${kes(Math.max(0, u.priceKES - (u.paidKES || 0)))}`, 14, y); y += 4; }
     if (myInvoices.length) {
       (doc as any).autoTable({
-        startY: y + 2, head: [["Invoice", "Due", "Amount", "Paid", "Status"]],
+        startY: y + 2, head: [["Payment request", "Due", "Amount", "Paid", "Status"]],
         body: myInvoices.map((i) => [i.invoiceNumber, day(i.dueDate), kes(i.amount), kes(i.paidAmount || 0), i.status]),
         styles: { fontSize: 8.5, cellPadding: 2 }, headStyles: { fillColor: [11, 42, 74], textColor: 255 }, margin: { left: 14, right: 14 },
       });

@@ -116,16 +116,14 @@ export function ProjectDetail({
   // The parts of the Money tab this person may see. Without money access it is
   // just variations, and the tab is named for that.
   const moneyParts = useMemo<{ key: MoneyPart; label: string }[]>(() => [
+    // idea.md 5.1: Variations only; BOQ, payment certificates and costs are switched off.
     { key: "variations", label: "Variations" },
-    ...(starterPlan ? [] : [{ key: "boq" as MoneyPart, label: "BOQ" }]),
-    ...(showFin ? [{ key: "certificates" as MoneyPart, label: "Payment certificates" }, { key: "costs" as MoneyPart, label: "Costs" }] : []),
-  ], [starterPlan, showFin]);
+  ], []);
 
   const folders = useMemo<{ key: Tab; label: string; count?: number }[]>(() => {
     if (!data) return [];
     const c = data.counts;
     // Handover only once a job is nearly done.
-    const late = (data.progress.reported ?? 0) >= 75 || /complet|handover|closeout|snag/i.test(data.project.status || "");
     return [
       { key: "overview", label: "Overview" },
       { key: "site", label: "Site", count: c.punchOpen },
@@ -133,7 +131,7 @@ export function ProjectDetail({
       { key: "money", label: moneyParts.length > 1 ? "Money" : "Variations", count: c.variations },
       { key: "client", label: "Client" },
       ...(unitCount > 0 ? [{ key: "units" as Tab, label: "Units", count: unitCount }] : []),
-      ...(late || folder === "closeout" ? [{ key: "closeout" as Tab, label: "Handover" }] : []),
+      // Handover is switched off (idea.md 5.2).
     ];
   }, [data, moneyParts, unitCount, folder]);
 

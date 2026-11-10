@@ -68,6 +68,15 @@ export const HIDDEN_VIEWS: View[] = [
   "crews",           // Team covers it
   "role-manager",    // roles are set when inviting, or by asking the AI
   "tasks",           // "Assignments" is already a tab inside Checklists
+  // idea.md 5.2 / R7 (Nov 2026 scope lock): kept in code, switched off.
+  "plans",           // drawings live on the project page (Drawings & files)
+  "change-orders",   // variations live on the project page
+  "documents",       // project files live on the project page
+  "inspections",     // folded into Checklists
+  "safety-incidents",// folded into Checklists
+  "field-view",      // the AI and the Site pages cover it
+  "inbox",           // no in-app chat: WhatsApp
+  "directory",       // contacts
 ];
 
 // Is a given view allowed to appear right now?

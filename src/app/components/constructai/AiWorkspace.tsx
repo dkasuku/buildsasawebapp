@@ -20,7 +20,7 @@ import { QuoteCard, QuoteEditor } from "./QuoteEditor";
 import { ActionCard, runAction } from "./aiAgent";
 import { CameraModal, isTouch, useVoice } from "./MediaInputs";
 import { VoiceChat, speakable } from "./VoiceChat";
-import { UsageMeter } from "./UsageMeter";
+import { isViewVisible } from "../../config/features";
 import { draftFromAnswer, exportQuote } from "./aiQuote";
 import { FinancialReports } from "./BuildflexAI";
 import { DesignStudio } from "./DesignStudio";
@@ -76,6 +76,8 @@ export const AI_CATEGORIES: Category[] = [
     prompts: ["What approvals do I need from the county to build a maisonette in Kiambu?", "Work out the floor areas from this plan"],
     tool: { label: "Open Drawings", view: "plans" } },
 ];
+// Design tools are switched off until idea.md section 6 ships (A7).
+AI_CATEGORIES.splice(AI_CATEGORIES.findIndex((c) => c.id === "design"), 1);
 const catOf = (id?: string) => AI_CATEGORIES.find((c) => c.id === id);
 
 // Shortcuts under the composer. `fill` puts a starter in the box for the user to
@@ -83,7 +85,7 @@ const catOf = (id?: string) => AI_CATEGORIES.find((c) => c.id === id);
 const QUICK: { label: string; icon: any; ask?: string; fill?: string; photo?: boolean; money?: boolean }[] = [
   { label: "Write a quote", icon: Calculator, fill: "Write a quote for " },
   { label: "Log today's site work", icon: HardHat, fill: "Log today's site work: " },
-  { label: "Redesign a room from a photo", icon: Camera, photo: true },
+  { label: "Snap a receipt or site photo", icon: Camera, photo: true },
   { label: "Weekly client update", icon: FileText, ask: "Write this week's progress update for each of my active projects, ready to send to the clients." },
   { label: "Chase overdue invoices", icon: Wallet, money: true, ask: "Which invoices are overdue? Draft a polite but firm WhatsApp reminder for each client." },
 ];
@@ -343,7 +345,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
           {att.some((a) => a.image) && (
             <div className="flex flex-wrap items-center gap-1.5 mt-2" role="radiogroup" aria-label="What is the photo for?">
               <span className="text-[11px] text-[#5B6675] mr-0.5">Photo is for:</span>
-              {([["auto", "Let AI decide"], ["design", "Redesign this space"], ["logo", "My logo on the quote"], ["ask", "Ask about it"]] as [ImageMode, string][]).map(([k, l]) => (
+              {([["auto", "Let AI decide"], ["logo", "My logo on the quote"], ["ask", "Ask about it"]] as [ImageMode, string][]).map(([k, l]) => (
                 <button key={k} role="radio" aria-checked={imgMode === k} onClick={() => setImgMode(k)} className={`h-6 px-2 rounded-full text-[11px] border ${imgMode === k ? "border-[#FF6B1A]/50 bg-[#FF6B1A]/10 text-[#FF8A47]" : "border-[#222A35] text-[#8A95A5] hover:text-white"}`}>{l}</button>
               ))}
             </div>
@@ -384,11 +386,11 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
         ) : (
           <span className="text-[11.5px] text-[#5B6675] pl-1 hidden md:inline truncate">Type, talk, snap a photo or attach a file.</span>
         )}
-        {cat?.tool && (!cat.money || canSeeMoney) && (
+        {cat?.tool && (!cat.money || canSeeMoney) && (!cat.tool.view || isViewVisible(cat.tool.view as any)) && cat.tool.kind !== "design" && (
           <button onClick={() => useTool(cat.tool!)} className="h-8 px-2.5 rounded-full border border-[#222A35] text-[#C2CAD6] hover:text-white text-[12px] hidden sm:inline-flex items-center gap-1.5 whitespace-nowrap"><ArrowUpRight className="w-3.5 h-3.5" /> {cat.tool.label}</button>
         )}
         <div className="ml-auto flex items-center gap-1.5 shrink-0">
-          {!busy && <button onClick={() => setVoiceChat(true)} disabled={uploading} title="Voice chat: talk and hear the answer, hands-free" aria-label="Voice chat" className="h-9 px-2.5 rounded-xl border border-[#FF6B1A]/40 text-[#FF8A47] hover:bg-[#FF6B1A]/10 inline-flex items-center gap-1.5 text-[12.5px] disabled:opacity-60"><AudioLines className="w-4 h-4" /><span className="hidden sm:inline">Voice chat</span></button>}
+          {false && !busy && <button onClick={() => setVoiceChat(true)} disabled={uploading} title="Voice chat: talk and hear the answer, hands-free" aria-label="Voice chat" className="h-9 px-2.5 rounded-xl border border-[#FF6B1A]/40 text-[#FF8A47] hover:bg-[#FF6B1A]/10 inline-flex items-center gap-1.5 text-[12.5px] disabled:opacity-60"><AudioLines className="w-4 h-4" /><span className="hidden sm:inline">Voice chat</span></button>}
           {!busy && <button onClick={voice.start} disabled={voice.state !== "idle" || uploading} title="Speak instead of typing" aria-label="Speak" className="h-9 w-9 rounded-xl border border-[#222A35] text-[#C2CAD6] hover:text-white flex items-center justify-center disabled:opacity-60">{voice.state === "transcribing" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}</button>}
           {busy
             ? <button onClick={stop} title="Stop" className="h-9 w-9 rounded-xl bg-[#222A35] text-white flex items-center justify-center"><Square className="w-3.5 h-3.5 fill-current" /></button>
@@ -502,7 +504,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
                 <Sparkles className="w-8 h-8 text-[#FF6B1A]" /> {greeting()}{name ? `, ${name}` : ""}
               </h1>
               <p className="text-center text-[13.5px] text-[#8A95A5] mt-2">Tell me what happened on site, or what you need done. Type, talk or snap a photo.</p>
-              <div className="mt-7">{composer(true)}<UsageMeter /></div>
+              <div className="mt-7">{composer(true)}</div>
               {/* One tap to the jobs contractors do every day. */}
               <div className="flex flex-wrap justify-center gap-2 mt-4">
                 {QUICK.filter((x) => canSeeMoney || !x.money).map((x) => (

@@ -76,7 +76,7 @@ export const AGENT: Record<string, Spec> = {
     },
   },
   "create-invoice": {
-    title: "Create invoice", verb: "Create invoice", view: "invoicing",
+    title: "Payment request", verb: "Create payment request", view: "invoicing",
     fields: [{ k: "projectId", label: "Project", type: "project" }, { k: "clientName", label: "Client", half: true }, { k: "dueDate", label: "Due date", type: "date", half: true },
       { k: "taxRate", label: "VAT %", type: "number", half: true, optional: true }, { k: "items", label: "Lines", type: "lines" }, { k: "notes", label: "Notes", type: "area", optional: true }],
     run: async (d) => {
@@ -173,6 +173,36 @@ export const AGENT: Record<string, Spec> = {
       need(d.description, "what happened");
       const r = await api.createSafetyIncident(d.projectId, { incidentType: d.incidentType || "other", severity: d.severity || "minor", date: d.date || today(), description: d.description, correctiveAction: d.correctiveAction || null, status: "open" } as any);
       return { id: (r as any).id, note: "Incident recorded" };
+    },
+  },
+  "add-labourer": {
+    title: "Add worker to the muster", verb: "Add worker", view: "attendance",
+    fields: [{ k: "name", label: "Name", half: true }, { k: "trade", label: "Trade", half: true, optional: true }, { k: "dailyRate", label: "Daily rate (KES)", type: "number", half: true, optional: true },
+      { k: "phone", label: "Phone (M-Pesa)", half: true, optional: true }, { k: "projectId", label: "Usual site", type: "project", optional: true }],
+    run: async (d) => {
+      need(d.name, "the worker's name");
+      const [w] = await api.addLabourers([{ name: d.name, trade: d.trade || undefined, dailyRate: num(d.dailyRate) || 0, phone: d.phone || undefined, projectId: d.projectId || undefined }]);
+      return { id: w.id, note: `${w.name}${w.trade ? `, ${w.trade}` : ""}${w.dailyRate ? `, KES ${w.dailyRate.toLocaleString("en-KE")} a day` : ""}` };
+    },
+  },
+  muster: {
+    title: "Mark the muster", verb: "Save muster", view: "attendance",
+    fields: [{ k: "projectId", label: "Project", type: "project" }, { k: "date", label: "Day", type: "date", half: true },
+      { k: "present", label: "Present (names, comma separated)" }, { k: "half", label: "Half day", optional: true }, { k: "absent", label: "Absent", optional: true }],
+    run: async (d) => {
+      const date = d.date || today();
+      const m = await api.muster(d.projectId, date);
+      const find = (n: string) => m.workers.find((w) => squash(w.name) === squash(n)) || m.workers.find((w) => squash(w.name).startsWith(squash(n)) || squash(n).startsWith(squash(w.name)));
+      const marks: { labourerId: string; status: "present" | "half" | "absent" }[] = [];
+      const unknown: string[] = [];
+      for (const [k, st] of [["present", "present"], ["half", "half"], ["absent", "absent"]] as const) {
+        for (const n of listOf(d[k])) { const w = find(n); if (w) marks.push({ labourerId: w.id, status: st }); else unknown.push(n); }
+      }
+      if (/^(all|everyone|wote)$/i.test(String(d.present || "").trim())) m.workers.forEach((w) => { if (!marks.some((x) => x.labourerId === w.id)) marks.push({ labourerId: w.id, status: "present" }); });
+      if (!marks.length) throw new Error(unknown.length ? `${unknown.join(", ")} ${unknown.length === 1 ? "isn't" : "aren't"} on this site's muster. Add them first.` : "Name who was present.");
+      await api.saveMuster(d.projectId, date, marks);
+      const p = marks.filter((x) => x.status === "present").length, h = marks.filter((x) => x.status === "half").length;
+      return { id: d.projectId, note: `${p} present${h ? `, ${h} half day` : ""}${unknown.length ? `. Not on the muster: ${unknown.join(", ")}` : ""}` };
     },
   },
   "add-units": {

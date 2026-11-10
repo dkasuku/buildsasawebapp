@@ -135,6 +135,10 @@ async function readError(res: Response): Promise<string> {
   }
 }
 
+export type LabourStatus = "present" | "half" | "absent";
+export type Labourer = { id: string; projectId?: string | null; name: string; phone?: string | null; trade?: string | null; dailyRate: number; active: boolean };
+export type MusterDto = { date: string; projectId: string; present: number; half: number; wages: number; workers: (Labourer & { status: LabourStatus | null; pay: number; elsewhere?: string | null })[] };
+export type WageBillDto = { from: string; to: string; total: number; labourDays: number; perDay: Record<string, number>; rows: { id: string; name: string; phone?: string | null; trade?: string | null; dailyRate: number; days: number; halfDays: number; amount: number; dates: string[] }[] };
 export type AiLimitsDto = { tier: "trial" | "paid" | "comp"; limits: Record<string, number>; used: Record<string, number>; extra: Record<string, number>; labels?: Record<string, string>; packs: { id: string; name: string; credits: number; kes: number }[]; topup: number; balance: number; resetsAt: string; payments: boolean };
 export type UnitStage = { name: string; done: boolean; doneAt?: string };
 export type UnitDto = {
@@ -1390,6 +1394,13 @@ export const api = {
   setUnitSettings: (projectId: string, frequency: "weekly" | "monthly" | null) => http<{ frequency: "weekly" | "monthly" | null; lastAt?: string | null }>(`/api/projects/${projectId}/units-settings`, { method: "PUT", body: JSON.stringify({ frequency }) }),
   unitReportAll: (projectId: string) => http<{ sent: number; skipped: number }>(`/api/projects/${projectId}/units/report-all`, { method: "POST" }),
   postUnitUpdate: (projectId: string, id: string, payload: { title: string; body?: string; stage?: string; kind?: string; media?: { url: string; type: string; name?: string }[] }) => http<any>(`/api/projects/${projectId}/units/${id}/updates`, { method: "POST", body: JSON.stringify(payload) }),
+  // Labour muster: casual workers (no login), daily marks and the wage bill.
+  labourWorkers: (projectId?: string) => http<Labourer[]>(`/api/labour/workers${projectId ? `?projectId=${projectId}` : ""}`),
+  addLabourers: (workers: Partial<Labourer>[]) => http<Labourer[]>(`/api/labour/workers`, { method: "POST", body: JSON.stringify({ workers }) }),
+  updateLabourer: (id: string, p: Partial<Labourer>) => http<Labourer>(`/api/labour/workers/${id}`, { method: "PUT", body: JSON.stringify(p) }),
+  muster: (projectId: string, date: string) => http<MusterDto>(`/api/labour/muster?projectId=${projectId}&date=${date}`),
+  saveMuster: (projectId: string, date: string, marks: { labourerId: string; status: LabourStatus | null }[]) => http<{ saved: number }>(`/api/labour/muster`, { method: "POST", body: JSON.stringify({ projectId, date, marks }) }),
+  wageBill: (p: { projectId?: string; from?: string; to?: string }) => http<WageBillDto>(`/api/labour/wages?${new URLSearchParams(Object.entries(p).filter(([, v]) => v) as [string, string][])}`),
   getPublicUnit: (token: string) => http<PublicUnitDto>(`/api/public/unit/${token}`),
   verifyCredits: (reference: string) => http<{ ok: boolean; credited?: number; already?: boolean; status?: string }>(`/api/ai-credits/verify`, { method: "POST", body: JSON.stringify({ reference }) }),
   // AI Design Studio (Plans & Drawings)

@@ -9,7 +9,6 @@ import { PublicFormFill } from "./components/constructai/PublicFormFill";
 import { PublicBidSubmit } from "./components/constructai/PublicBidSubmit";
 import { PublicQuoteView } from "./components/constructai/PublicQuoteView";
 import { PublicUnitView } from "./components/constructai/PublicUnitView";
-import { BuyCreditsModal } from "./components/constructai/BuyCreditsModal";
 import { PublicPortalView } from "./components/constructai/PublicPortalView";
 import { ClientApp } from "./components/constructai/client/ClientApp";
 import { isFirstSignIn, markWelcomed, storedUser } from "./components/constructai/Welcome";
@@ -39,7 +38,7 @@ import Quotes from "./components/constructai/Quotes";
 import Inspections from "./components/constructai/Inspections";
 import SafetyIncidents from "./components/constructai/SafetyIncidents";
 import Inventory from "./components/constructai/Inventory";
-import Attendance from "./components/constructai/Attendance";
+import { AttendanceHub } from "./components/constructai/LabourMuster";
 import { AiWorkspace } from "./components/constructai/AiWorkspace";
 import { useAiSession } from "./components/constructai/aiSession";
 import { ChecklistsHub } from "./components/constructai/ChecklistsHub";
@@ -676,14 +675,13 @@ export default function App() {
             {effectiveView === "checklists" && <ChecklistsHub key="checklists" role={role} aiDraft={aiFormDraft} onConsumeAiDraft={() => setAiFormDraft(null)} />}
             {effectiveView === "safety-incidents" && <SafetyIncidents role={role} />}
             {effectiveView === "equipment" && <Inventory role={role} />}
-            {effectiveView === "attendance" && <Attendance role={role} />}
+            {effectiveView === "attendance" && <AttendanceHub role={role} />}
             {effectiveView === "buildflex-ai" && <AiWorkspace session={aiSession} canSeeMoney={!!ROLES[role].financials} firstRun={firstRun && setsUpWorkspace} onFirstRunDone={endFirstRun} start={aiStart} onStarted={() => setAiStart(null)} onNavigate={(v) => allowed.includes(v as View) && navigate(v as View)} onOpenProject={openProject} onOpenForm={openAiForm} />}
             </ErrorBoundary>
             )}
           </div>
         </div>
         <Toaster theme={theme} position="top-right" />
-        <BuyCreditsModal />
         {settingsOpen && <ProfileSettings initialTab={settingsTab} onClose={() => setSettingsOpen(false)} />}
         {!paywalled && effectiveView !== "buildflex-ai" && <AiAssistantPanel docked open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} onExpand={() => { setAiPanelOpen(false); navigate("buildflex-ai"); }} messages={aiMessages} setMessages={setAiMessages} onOpenForm={openAiForm}
           prefill={aiPrefill} onConsumePrefill={() => setAiPrefill(null)} pageTitle={meta?.title}
