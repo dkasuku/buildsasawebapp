@@ -20,6 +20,7 @@ import { ImageLightbox } from "../ImageLightbox";
 import { MapPicker } from "../MapPicker";
 import { currentPosition, getForecast, logWeatherFor, describeWeather } from "../../../services/weather";
 import { UnitPicker, parseUnitIds } from "../UnitPicker";
+import { saveOrQueue } from "../../../services/outbox";
 
 export const LOG_WEATHER = ["Clear", "Cloudy", "Light rain", "Heavy rain", "Windy", "Hot", "Cold"];
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -62,6 +63,8 @@ export function DailyLogEditor({ projectId, projectLatLng, log, onClose, onSaved
   const [fetchingWeather, setFetchingWeather] = useState(false);
   const [busy, setBusy] = useState(false);
   const uploader = useFileUpload();
+  // Photos taken with no signal: kept on the phone and sent with the log later.
+  const [offlinePhotos, setOfflinePhotos] = useState<{ file: File; url: string }[]>([]);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF((x) => ({ ...x, [k]: e.target.value }));
 
   useEffect(() => { api.getCrews().then((r) => setCrews(r ?? [])).catch(() => setCrews([])); }, []);
@@ -94,7 +97,15 @@ export function DailyLogEditor({ projectId, projectLatLng, log, onClose, onSaved
   const addMedia = async (kind: "photo" | "video") => {
     const files = await pickFiles(kind === "photo" ? { multiple: true, accept: "image/*", capture: "environment" } : { multiple: false, accept: "video/*", capture: "environment" });
     if (!files.length) return;
+    if (kind === "photo" && navigator.onLine === false) {
+      setOfflinePhotos((p) => [...p, ...Array.from(files).map((file) => ({ file, url: URL.createObjectURL(file) }))]);
+      return;
+    }
     const urls = await uploader.upload(files);
+    if (kind === "photo" && !urls.length && navigator.onLine === false) {
+      setOfflinePhotos((p) => [...p, ...Array.from(files).map((file) => ({ file, url: URL.createObjectURL(file) }))]);
+      return;
+    }
     if (kind === "photo") setPhotos((p) => [...p, ...urls]); else setVideos((v) => [...v, ...urls]);
   };
 
@@ -105,9 +116,21 @@ export function DailyLogEditor({ projectId, projectLatLng, log, onClose, onSaved
     setBusy(true);
     const payload = { ...f, crewId: f.crewId || null, headcount: Number(f.headcount) || 0, weather: f.weather || null, photos, videos, lat: latLng?.lat ?? null, lng: latLng?.lng ?? null, placeName: placeName || null, clientVisible, unitIds } as any;
     try {
-      const row = editing ? await api.updateDailyLog(projectId, log!.id, payload) : await api.createDailyLog(projectId, payload);
-      toast.success(editing ? "Entry updated" : "Daily log saved");
-      onSaved(row);
+      // No signal: the log (and photos taken offline) waits on this phone and sends itself later.
+      const r: any = await saveOrQueue({
+        label: `Daily log · ${f.date || new Date().toISOString().slice(0, 10)}`,
+        method: editing ? "PUT" : "POST",
+        path: editing ? `/api/projects/${projectId}/daily-log/${log!.id}` : `/api/projects/${projectId}/daily-log`,
+        body: payload,
+        files: offlinePhotos.length ? [{ field: "photos", blobs: offlinePhotos.map((p) => p.file), names: offlinePhotos.map((p) => p.file.name) }] : undefined,
+      });
+      if (r && r.queued) {
+        toast.success("No signal: saved on this phone. It sends by itself when you're back online.", { duration: 6000 });
+        onSaved({ ...payload, id: r.item.id, date: f.date || new Date().toISOString(), photos: JSON.stringify(photos), pending: true } as any);
+      } else {
+        toast.success(editing ? "Entry updated" : "Daily log saved");
+        onSaved(r);
+      }
     } catch (e: any) { toast.error(`Could not save: ${e?.message || "unknown error"}`, { duration: 8000 }); }
     finally { setBusy(false); }
   };
@@ -175,6 +198,13 @@ export function DailyLogEditor({ projectId, projectLatLng, log, onClose, onSaved
           <div>
             <label className={lbl}>Photos and video evidence</label>
             <div className="flex gap-2 flex-wrap">
+              {offlinePhotos.map((p) => (
+                <div key={p.url} className="relative" title="Taken with no signal: sends with the log">
+                  <img src={p.url} alt="" className="h-16 w-24 rounded-md object-cover border border-dashed border-[#F59E0B]" />
+                  <span className="absolute bottom-0.5 left-0.5 text-[9px] px-1 rounded bg-[#F59E0B] text-[#ffffff]">on phone</span>
+                  <button onClick={() => setOfflinePhotos((x) => x.filter((y) => y.url !== p.url))} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-[#11161D] border border-[#222A35] text-[#8A95A5] hover:text-red-400 flex items-center justify-center" aria-label="Remove photo"><X className="w-3 h-3" /></button>
+                </div>
+              ))}
               {photos.map((u) => (
                 <div key={u} className="relative">
                   <img src={absoluteFileUrl(u)} alt="" className="h-16 w-24 rounded-md object-cover border border-[#222A35]" />

@@ -31,7 +31,7 @@ const TENANT_MODELS = new Set([
   'DirectoryContact', 'CompanyDoc', 'Announcement', 'FormTemplate', 'Conversation',
   'PaymentApplication', 'RetentionRecord', 'CostCode', 'Approval',
   'InventoryItem', 'InventoryMovement',
-  'BoqRevision', 'RateLibraryItem', 'Quote', 'Selection', 'AiDesign', 'ProjectUnit', 'Labourer', 'LabourDay',
+  'BoqRevision', 'RateLibraryItem', 'Quote', 'Selection', 'AiDesign', 'ProjectUnit', 'Labourer', 'LabourDay', 'Payment',
 ]);
 const prismaBase = new PrismaClient();
 const delegateOf = (m) => prismaBase[m.charAt(0).toLowerCase() + m.slice(1)];
@@ -3053,6 +3053,7 @@ app.delete('/api/projects/:projectId/portal', auth, async (req, res) => {
 
 const parseJsonArr = (raw) => { try { const v = JSON.parse(raw || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
 
+const PAY_LABEL = { mpesa: 'M-Pesa', bank: 'Bank transfer', cash: 'Cash', cheque: 'Cheque', other: 'Other' };
 async function portalPayload(p) {
     const [ws, schedule, logs, cos, invoices, selections] = await Promise.all([
       companyFor(p.workspaceId),
@@ -3062,6 +3063,9 @@ async function portalPayload(p) {
       prisma.invoice.findMany({ where: { projectId: p.id, status: { not: 'draft' } }, orderBy: { createdAt: 'desc' } }),
       prisma.selection.findMany({ where: { projectId: p.id, status: { not: 'draft' } }, orderBy: [{ room: 'asc' }, { position: 'asc' }, { createdAt: 'asc' }] }),
     ]);
+    const payRows = invoices.length ? await prismaBase.payment.findMany({ where: { invoiceId: { in: invoices.map((x) => x.id) } }, orderBy: { date: 'asc' } }).catch(() => []) : [];
+    const payByInv = {};
+    for (const r of payRows) (payByInv[r.invoiceId] = payByInv[r.invoiceId] || []).push(r);
     return {
       companyName: ws ? ws.name : null,
       company: companyPublic(ws),
@@ -3092,6 +3096,7 @@ async function portalPayload(p) {
       invoices: invoices.map((i) => ({
         invoiceNumber: i.invoiceNumber, amount: i.amount, paidAmount: i.paidAmount || 0, status: i.status,
         issueDate: i.issueDate, dueDate: i.dueDate, items: parseJsonArr(i.items), unitId: i.unitId || null,
+        payments: (payByInv[i.id] || []).map((p) => ({ amount: p.amount, date: p.date, method: PAY_LABEL[p.method] || p.method, reference: p.reference })),
       })),
     };
 }
@@ -6617,6 +6622,7 @@ DOING THINGS FOR THE USER (you are their hands in Buildsasa): when the user asks
   [[do:set-role|{"email":"<from TEAM MEMBERS>","role":"<one of the roles above>"}]] (roles are fixed; to "create a role" for someone, invite them or change their role)
   [[do:share-portal|{"projectId":"<id>"}]] (creates the client portal link to send to the client)
   [[do:create-invoice|{"projectId":"<id>","clientName":"...","dueDate":"YYYY-MM-DD","taxRate":16,"items":[{"description":"...","quantity":1,"rate":0}],"notes":"..."}]]
+  [[do:record-payment|{"projectId":"<id>","invoice":"<payment request number>","amount":0,"method":"mpesa|bank|cash|cheque","reference":"<M-Pesa code or bank ref>","date":"YYYY-MM-DD"}]] (money received against a payment request; the client is told)
   [[do:add-labourer|{"name":"...","trade":"fundi|helper|mason|carpenter|steel fixer|plumber|electrician|painter|other","dailyRate":0,"phone":"...","projectId":"<id or omit>"}]] (a casual worker on the labour muster; no login)
   [[do:muster|{"projectId":"<id>","date":"YYYY-MM-DD","present":["<names from CASUAL LABOUR>"],"half":["..."],"absent":["..."]}]] (marks the day's attendance; "everyone present" = list them all)
   [[do:add-material|{"name":"...","category":"Cement|Steel|Aggregates|Timber|Roofing|Plumbing|Electrical|Finishes|Other","unit":"bags|tonnes|pcs|m|m²|m³|litres","currentStock":0,"unitCostKES":0,"reorderLevel":0,"supplier":"..."}]]
@@ -7570,6 +7576,7 @@ app.post('/api/billing/verify', auth, async (req, res) => {
 Object.assign(clientRouteDeps, { readOwnUpload, unitIdsJson, prisma, prismaBase, auth, currentWs, hasRole, CAN_SHARE_PORTAL, sendEmail, emailShell, button, paystackRequest, PAYSTACK_SECRET, isPlatformAdmin, portalPayload, companyPublic, APP_URL, freeAccessEmails: () => [...new Set([...FREE_ACCESS_EMAILS, ...PLATFORM_ADMIN_EMAILS, ...dbAdminEmails])] });
 require('./client-routes')(app, clientRouteDeps);
 require('./labour-routes')(app, { prisma, auth, currentWs });
+require('./payment-routes')(app, { prisma, prismaBase, auth, currentWs, sendEmail, emailShell, button, APP_URL });
 
 // Paystack webhook — activates on charge.success. (Signature checked when key is set.)
 app.post('/api/billing/webhook', async (req, res) => {

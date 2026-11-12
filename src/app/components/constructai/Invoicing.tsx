@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Plus, Search, X, Trash2, FileText, Download } from "lucide-react";
 import type { Role } from "./roles";
 import { PageHeader } from "./PageShell";
+import { PaymentSheet } from "./PaymentSheet";
 import { ROLES } from "./roles";
 import api, { type InvoiceDto, type CompanyPublic } from "../../services/api";
 import { jsPDF, lastTableEnd } from "../../services/pdf";
@@ -201,11 +202,9 @@ export default function Invoicing({ role = "Contractor" }: { role?: Role }) {
       setShowNew(false);
       resetForm();
       toast.success("Payment request created");
-    } catch {
-      setInvoices([{ ...payload, id: `I-${Date.now()}`, projectId } as InvoiceDto, ...invoices]);
-      setShowNew(false);
-      resetForm();
-      toast.success("Invoice created (offline)");
+    } catch (e: any) {
+      // Never pretend it saved: the form stays open with everything typed.
+      toast.error(e?.message || "Couldn't save the payment request. Check your connection and try again.");
     }
   };
 
@@ -271,7 +270,7 @@ export default function Invoicing({ role = "Contractor" }: { role?: Role }) {
                   <td className="px-3 py-2.5 text-[#8A95A5]">{formatCurrency(Math.round((inv.amount || 0) - (inv.paidAmount || 0)), currency)}</td>
                   <td className="px-4 py-2.5 text-right whitespace-nowrap">
                     <button onClick={() => downloadPdf(inv)} className="text-[11px] text-[#8A95A5] hover:text-white mr-3 inline-flex items-center gap-1 align-middle"><Download className="w-3.5 h-3.5" />PDF</button>
-                    {perms.financials && <button onClick={() => openPay(inv)} className="text-[11px] text-[#22C55E] hover:underline mr-3">Record payment</button>}
+                    {perms.financials && <button onClick={() => openPay(inv)} className="text-[11px] text-[#22C55E] hover:underline mr-3">{inv.paidAmount ? "Payments" : "Record payment"}</button>}
                     <button onClick={() => deleteInvoice(inv.id)} className="text-[#8A95A5] hover:text-red-400 align-middle"><Trash2 className="w-3.5 h-3.5 inline" /></button>
                   </td>
                 </tr>
@@ -418,20 +417,7 @@ export default function Invoicing({ role = "Contractor" }: { role?: Role }) {
         </div>
       )}
 
-      {payFor && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setPayFor(null)}>
-          <div className="w-full max-w-sm rounded-xl border border-[#222A35] bg-[#11161D]" onClick={(e) => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-[#222A35] flex items-center justify-between"><div className="text-[14px] text-white font-display">Record payment</div><button onClick={() => setPayFor(null)} className="text-[#8A95A5] hover:text-white"><X className="w-4 h-4" /></button></div>
-            <div className="p-5 space-y-3">
-              <div className="text-[12px] text-[#8A95A5]">{payFor.invoiceNumber} · {payFor.clientName} · invoiced {formatCurrency(Math.round(Number(payFor.amount) || 0), currency)}</div>
-              <div><div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">Amount received</div><input placeholder="e.g. 100000" type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
-              <div><div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">Date received</div><input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} className="w-full h-9 bg-[#0A0E14] border border-[#222A35] rounded-md px-2 text-[12px] text-white focus:outline-none focus:border-[#FF6B1A]" /></div>
-              <div className="text-[10px] text-[#5B6675]">Paying the full amount marks the invoice Paid; a smaller amount keeps it open (partial payment).</div>
-            </div>
-            <div className="px-5 py-4 border-t border-[#222A35] flex gap-2"><button onClick={() => setPayFor(null)} className="flex-1 h-10 rounded-md border border-[#222A35] text-[12px] text-white">Cancel</button><button onClick={savePayment} className="flex-1 h-10 rounded-md bg-[#22C55E] text-white text-[12px]">Save payment</button></div>
-          </div>
-        </div>
-      )}
+      {payFor && <PaymentSheet projectId={projectId} invoice={payFor} canEdit={!!perms.financials} onClose={() => setPayFor(null)} onChanged={() => api.getInvoices(projectId).then(setInvoices).catch(() => {})} />}
     </div>
     </div>
   );

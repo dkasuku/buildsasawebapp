@@ -1828,3 +1828,23 @@ model LabourDay {
   @@unique([labourerId, date])
   @@index([projectId, date])
 }
+
+// A payment received against a payment request (a stage), with its M-Pesa or
+// bank reference. The client sees each one, so they know their money arrived.
+model Payment {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  invoiceId   String
+  projectId   String
+  unitId      String?
+  amount      Float
+  date        String   // YYYY-MM-DD
+  method      String   // mpesa | bank | cash | cheque | other
+  reference   String?  // e.g. M-Pesa code QK12AB34CD, bank slip number
+  note        String?
+  recordedBy  String?
+  createdAt   DateTime @default(now())
+
+  @@index([invoiceId])
+  @@index([projectId])
+}

@@ -97,10 +97,13 @@ export function PublicUnitView({ token }: { token: string }) {
             <div className="flex items-center gap-2" style={{ fontSize: 14, fontWeight: 600 }}><Receipt className="w-4 h-4" style={{ color: C.brand }} /> Payments</div>
             {u.priceKES ? <div style={{ fontSize: 13, color: C.soft, marginTop: 6 }}>Price {kes(u.priceKES)}{u.paidKES ? ` · paid ${kes(u.paidKES)} · balance ${kes(Math.max(0, u.priceKES - u.paidKES))}` : ""}</div> : null}
             {d.invoices.map((i) => (
-              <div key={i.invoiceNumber} className="flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}`, fontSize: 13, marginTop: 6 }}>
+              <div key={i.invoiceNumber}>
+              <div className="flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}`, fontSize: 13, marginTop: 6 }}>
                 <span className="flex-1">{i.invoiceNumber}<span style={{ color: C.faint }}> · due {day(i.dueDate)}</span></span>
                 <span>{kes(i.amount)}</span>
                 <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: i.status === "paid" ? "#DCFCE7" : "#FEF3C7", color: i.status === "paid" ? C.green : "#B45309" }}>{i.status}</span>
+              </div>
+              {(i.payments || []).map((p, k) => <div key={k} style={{ fontSize: 12, color: C.soft, paddingLeft: 8 }}>Received {kes(p.amount)} · {p.method}{p.reference ? ` · ${p.reference}` : ""} · {day(p.date)}</div>)}
               </div>
             ))}
             <div style={{ fontSize: 11.5, color: C.faint, marginTop: 6 }}>Payment requests, not tax invoices. Ask your developer for a KRA eTIMS invoice.</div>

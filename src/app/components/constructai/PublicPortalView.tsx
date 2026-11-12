@@ -75,7 +75,7 @@ export function PublicPortalView({ token, embedded = false }: { token: string; /
     ...(selections.length ? [{ key: "selections" as Tab, label: "Selections", icon: Palette, badge: pendingSel.length }] : []),
     { key: "photos", label: "Photos", icon: Camera },
     { key: "timeline", label: "Timeline", icon: CalendarDays },
-    { key: "invoices", label: "Invoices", icon: Receipt },
+    { key: "invoices", label: "Payments", icon: Receipt },
   ];
 
   return Shell(
@@ -202,7 +202,8 @@ export function PublicPortalView({ token, embedded = false }: { token: string; /
 
       {tab === "invoices" && (
         <div className="space-y-3">
-          {invoices.length === 0 && <Empty text="No invoices yet." />}
+          {invoices.length === 0 && <Empty text="No payment requests yet." />}
+          {invoices.length > 0 && <div className="text-[12px] px-1" style={{ color: C.faint }}>Payment requests from your contractor. These are not tax invoices; ask for a KRA eTIMS invoice if you need one.</div>}
           {invoices.length > 0 && data.company?.paymentDetails && <div className="p-4 text-[13px]" style={card}><div className="font-semibold mb-1">How to pay</div><div className="whitespace-pre-wrap" style={{ color: "#4B5563" }}>{data.company.paymentDetails}</div></div>}
           {invoices.map((inv) => {
             const balance = inv.amount - inv.paidAmount;
@@ -217,6 +218,14 @@ export function PublicPortalView({ token, embedded = false }: { token: string; /
                 <div className="flex justify-between mt-3 text-[13px]"><span style={{ color: C.soft }}>Amount</span><span className="font-semibold">{kes(inv.amount)}</span></div>
                 {inv.paidAmount > 0 && <div className="flex justify-between text-[13px]"><span style={{ color: C.soft }}>Paid</span><span>{kes(inv.paidAmount)}</span></div>}
                 {!isPaid && <div className="flex justify-between text-[13px] font-semibold"><span>Balance</span><span>{kes(balance)}</span></div>}
+                {(inv.payments || []).length > 0 && (
+                  <div className="mt-3 pt-2.5" style={{ borderTop: `1px solid ${C.line}` }}>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide mb-1" style={{ color: C.faint }}>Payments received</div>
+                    {inv.payments!.map((p, k) => (
+                      <div key={k} className="flex justify-between gap-2 text-[12.5px] py-0.5"><span style={{ color: C.soft }}>{day(p.date)} · {p.method}{p.reference ? ` · ` : ""}{p.reference && <span className="font-mono" style={{ color: C.ink }}>{p.reference}</span>}</span><span style={{ color: C.green }}>{kes(p.amount)}</span></div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}

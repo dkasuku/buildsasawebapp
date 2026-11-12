@@ -135,6 +135,9 @@ async function readError(res: Response): Promise<string> {
   }
 }
 
+export type PaymentDto = { id: string; invoiceId: string; amount: number; date: string; method: string; methodLabel: string; reference?: string | null; note?: string | null; recordedBy?: string | null; createdAt: string };
+/** A payment as the client sees it. */
+export type ClientPayment = { amount: number; date: string; method: string; reference?: string | null };
 export type LabourStatus = "present" | "half" | "absent";
 export type Labourer = { id: string; projectId?: string | null; name: string; phone?: string | null; trade?: string | null; dailyRate: number; active: boolean };
 export type MusterDto = { date: string; projectId: string; present: number; half: number; wages: number; workers: (Labourer & { status: LabourStatus | null; pay: number; elsewhere?: string | null })[] };
@@ -152,7 +155,7 @@ export type PublicUnitDto = {
   project: { name: string; city: string; status: string; progress: number; targetEndDate?: string | null; images: string[] };
   unit: { code: string; block?: string | null; floor?: string | null; type?: string | null; sizeSqm?: number | null; status: string; statusLabel: string; progress: number; stages: UnitStage[]; clientName?: string | null; priceKES?: number | null; paidKES?: number | null; updatedAt: string };
   updates: { id: string; title: string; body?: string | null; stage: string; kind: string; media: { url: string; type: string; name?: string }[]; authorName?: string | null; createdAt: string; scope: "unit" | "project" }[];
-  invoices: { invoiceNumber: string; amount: number; paidAmount: number; status: string; issueDate: string; dueDate: string }[];
+  invoices: { invoiceNumber: string; amount: number; paidAmount: number; status: string; issueDate: string; dueDate: string; payments?: ClientPayment[] }[];
   photos?: { date: string; photos: string[]; videos: string[]; scope: "unit" | "project" }[];
   snags?: { code?: string; title: string; area?: string; status: string; photos: string[] }[];
 };
@@ -734,7 +737,7 @@ export type PortalDto = {
   photos: { date: string; location: string; photos: string[]; videos?: string[] }[];
   changeOrders: { id: string; number: string; title: string; area?: string | null; description?: string | null; amountKES: number; scheduleImpactDays: number; status: string; submittedDate?: string | null; updatedAt: string }[];
   selections: Pick<SelectionDto, "id" | "room" | "category" | "name" | "spec" | "quantity" | "unit" | "unitPriceKES" | "imageUrl" | "link" | "notes" | "status" | "clientComment" | "decidedBy" | "decidedAt">[];
-  invoices: { invoiceNumber: string; amount: number; paidAmount: number; status: string; issueDate: string; dueDate: string; items: { description: string; quantity: number; rate: number }[] }[];
+  invoices: { invoiceNumber: string; amount: number; paidAmount: number; status: string; issueDate: string; dueDate: string; items: { description: string; quantity: number; rate: number }[]; payments?: ClientPayment[] }[];
 };
 
 export type InvoiceDto = {
@@ -1394,6 +1397,10 @@ export const api = {
   setUnitSettings: (projectId: string, frequency: "weekly" | "monthly" | null) => http<{ frequency: "weekly" | "monthly" | null; lastAt?: string | null }>(`/api/projects/${projectId}/units-settings`, { method: "PUT", body: JSON.stringify({ frequency }) }),
   unitReportAll: (projectId: string) => http<{ sent: number; skipped: number }>(`/api/projects/${projectId}/units/report-all`, { method: "POST" }),
   postUnitUpdate: (projectId: string, id: string, payload: { title: string; body?: string; stage?: string; kind?: string; media?: { url: string; type: string; name?: string }[] }) => http<any>(`/api/projects/${projectId}/units/${id}/updates`, { method: "POST", body: JSON.stringify(payload) }),
+  // Payments received against payment requests, with their M-Pesa / bank reference.
+  invoicePayments: (projectId: string, invoiceId: string) => http<PaymentDto[]>(`/api/projects/${projectId}/invoices/${invoiceId}/payments`),
+  recordPayment: (projectId: string, invoiceId: string, p: { amount: number; method: string; reference?: string; date?: string; note?: string; notify?: boolean; allowDuplicate?: boolean }) => http<{ payment: PaymentDto; invoice: InvoiceDto }>(`/api/projects/${projectId}/invoices/${invoiceId}/payments`, { method: "POST", body: JSON.stringify(p) }),
+  deletePayment: (projectId: string, invoiceId: string, paymentId: string) => http<{ invoice: InvoiceDto }>(`/api/projects/${projectId}/invoices/${invoiceId}/payments/${paymentId}`, { method: "DELETE" }),
   // Labour muster: casual workers (no login), daily marks and the wage bill.
   labourWorkers: (projectId?: string) => http<Labourer[]>(`/api/labour/workers${projectId ? `?projectId=${projectId}` : ""}`),
   addLabourers: (workers: Partial<Labourer>[]) => http<Labourer[]>(`/api/labour/workers`, { method: "POST", body: JSON.stringify({ workers }) }),

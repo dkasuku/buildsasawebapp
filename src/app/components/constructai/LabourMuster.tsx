@@ -9,6 +9,7 @@ import api, { type LabourStatus, type MusterDto, type ProjectDto, type WageBillD
 import type { Role } from "./roles";
 import Attendance from "./Attendance";
 import { PageHeader, Tabs } from "./PageShell";
+import { saveOrQueue, isOffline } from "../../services/outbox";
 
 const kes = (n: number) => `KES ${Math.round(Number(n) || 0).toLocaleString("en-KE")}`;
 const nairobiToday = () => new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10);
@@ -44,7 +45,20 @@ export function LabourMuster() {
   useEffect(() => { try { if (projectId) localStorage.setItem("buildsasa-muster-project", projectId); } catch { /* */ } }, [projectId]);
   const load = () => {
     if (!projectId) return;
-    api.muster(projectId, date).then((r) => { setM(r); setMarks(Object.fromEntries(r.workers.map((w) => [w.id, w.status]))); }).catch((e) => toast.error(e?.message || "Couldn't load the muster"));
+    const key = `buildsasa-muster:${projectId}`;
+    api.muster(projectId, date).then((r) => {
+      setM(r); setMarks(Object.fromEntries(r.workers.map((w) => [w.id, w.status])));
+      try { localStorage.setItem(key, JSON.stringify(r)); } catch { /* */ }
+    }).catch((e) => {
+      // No signal: open with this site's workers from the last time, so the day can still be marked.
+      let cached: MusterDto | null = null;
+      try { cached = JSON.parse(localStorage.getItem(key) || "null"); } catch { /* */ }
+      if (cached && isOffline(e)) {
+        const r = { ...cached, date, workers: cached.workers.map((w) => ({ ...w, status: cached!.date === date ? w.status : null, pay: 0 })) };
+        setM(r); setMarks(Object.fromEntries(r.workers.map((w) => [w.id, w.status])));
+        toast("No signal: showing this site's workers from your last visit. Marks save on the phone.", { duration: 5000 });
+      } else toast.error(e?.message || "Couldn't load the muster");
+    });
     const mon = monday(date);
     api.wageBill({ projectId, from: mon, to: addDays(mon, 6) }).then(setBill).catch(() => {});
   };
@@ -61,7 +75,11 @@ export function LabourMuster() {
   const save = async () => {
     if (!m) return;
     setSaving(true);
-    try { await api.saveMuster(m.projectId, m.date, changed.map((w) => ({ labourerId: w.id, status: marks[w.id] ?? null }))); toast.success(`Muster saved: ${counts.present + counts.half * 0.5} labour-day${counts.present + counts.half * 0.5 === 1 ? "" : "s"}, ${kes(counts.pay)}`); load(); }
+    try {
+      const r: any = await saveOrQueue({ label: `Muster · ${projects.find((p) => p.id === m.projectId)?.name || ""} · ${nice(m.date)}`, method: "POST", path: "/api/labour/muster", body: { projectId: m.projectId, date: m.date, marks: changed.map((w) => ({ labourerId: w.id, status: marks[w.id] ?? null })) } });
+      if (r && r.queued) { toast.success("No signal: muster saved on this phone. It sends by itself when you're back online.", { duration: 6000 }); setM({ ...m, workers: m.workers.map((w) => ({ ...w, status: marks[w.id] ?? null })) }); }
+      else { toast.success(`Muster saved: ${counts.present + counts.half * 0.5} labour-day${counts.present + counts.half * 0.5 === 1 ? "" : "s"}, ${kes(counts.pay)}`); load(); }
+    }
     catch (e: any) { toast.error(e?.message || "Couldn't save"); }
     setSaving(false);
   };

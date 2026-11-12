@@ -39,6 +39,7 @@ import Inspections from "./components/constructai/Inspections";
 import SafetyIncidents from "./components/constructai/SafetyIncidents";
 import Inventory from "./components/constructai/Inventory";
 import { AttendanceHub } from "./components/constructai/LabourMuster";
+import { OutboxPill } from "./components/constructai/OutboxPill";
 import { AiWorkspace } from "./components/constructai/AiWorkspace";
 import { useAiSession } from "./components/constructai/aiSession";
 import { ChecklistsHub } from "./components/constructai/ChecklistsHub";
@@ -682,6 +683,7 @@ export default function App() {
           </div>
         </div>
         <Toaster theme={theme} position="top-right" />
+        <OutboxPill />
         {settingsOpen && <ProfileSettings initialTab={settingsTab} onClose={() => setSettingsOpen(false)} />}
         {!paywalled && effectiveView !== "buildflex-ai" && <AiAssistantPanel docked open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} onExpand={() => { setAiPanelOpen(false); navigate("buildflex-ai"); }} messages={aiMessages} setMessages={setAiMessages} onOpenForm={openAiForm}
           prefill={aiPrefill} onConsumePrefill={() => setAiPrefill(null)} pageTitle={meta?.title}

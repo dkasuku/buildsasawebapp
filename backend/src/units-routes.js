@@ -362,7 +362,12 @@ module.exports = function unitRoutes(app, h) {
         updates: updates.map((x) => ({ ...updateDto(x), scope: x.unitId ? 'unit' : 'project' })),
         photos,
         snags: snags.map((x) => ({ code: x.code, title: x.title || x.desc, area: x.area, status: x.status, photos: urls(x.photos) })),
-        invoices: invoices.map((i) => ({ invoiceNumber: i.invoiceNumber, amount: i.amount, paidAmount: i.paidAmount || 0, status: i.status, issueDate: i.issueDate, dueDate: i.dueDate })),
+        invoices: await (async () => {
+          const pays = invoices.length ? await prismaBase.payment.findMany({ where: { invoiceId: { in: invoices.map((i) => i.id) } }, orderBy: { date: 'asc' } }).catch(() => []) : [];
+          const L = { mpesa: 'M-Pesa', bank: 'Bank transfer', cash: 'Cash', cheque: 'Cheque', other: 'Other' };
+          return invoices.map((i) => ({ invoiceNumber: i.invoiceNumber, amount: i.amount, paidAmount: i.paidAmount || 0, status: i.status, issueDate: i.issueDate, dueDate: i.dueDate,
+            payments: pays.filter((p) => p.invoiceId === i.id).map((p) => ({ amount: p.amount, date: p.date, method: L[p.method] || p.method, reference: p.reference })) }));
+        })(),
       });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });

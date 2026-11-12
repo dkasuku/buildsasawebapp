@@ -175,6 +175,20 @@ export const AGENT: Record<string, Spec> = {
       return { id: (r as any).id, note: "Incident recorded" };
     },
   },
+  "record-payment": {
+    title: "Record payment received", verb: "Record payment", view: "invoicing",
+    fields: [{ k: "projectId", label: "Project", type: "project" }, { k: "invoice", label: "Payment request no.", half: true }, { k: "amount", label: "Amount (KES)", type: "number", half: true },
+      { k: "method", label: "Paid by", type: "select", options: ["mpesa", "bank", "cash", "cheque"], half: true }, { k: "reference", label: "M-Pesa code / reference", half: true, optional: true }, { k: "date", label: "Date", type: "date", optional: true }],
+    run: async (d) => {
+      const invs = await api.getInvoices(d.projectId);
+      const q = squash(String(d.invoice || ""));
+      const inv = invs.find((i) => squash(i.invoiceNumber) === q) || invs.find((i) => q && squash(i.invoiceNumber).endsWith(q))
+        || (invs.filter((i) => i.status !== "paid" && i.status !== "draft").length === 1 ? invs.find((i) => i.status !== "paid" && i.status !== "draft") : undefined);
+      if (!inv) throw new Error("Which payment request is this for? Put its number on the card.");
+      const r = await api.recordPayment(d.projectId, inv.id, { amount: num(d.amount) || 0, method: d.method || "mpesa", reference: d.reference || undefined, date: d.date || undefined });
+      return { id: inv.id, note: `${inv.invoiceNumber}: ${r.invoice.status === "paid" ? "paid in full" : `balance KES ${Math.round((r.invoice.amount || 0) - (r.invoice.paidAmount || 0)).toLocaleString("en-KE")}`}. The client has been told.` };
+    },
+  },
   "add-labourer": {
     title: "Add worker to the muster", verb: "Add worker", view: "attendance",
     fields: [{ k: "name", label: "Name", half: true }, { k: "trade", label: "Trade", half: true, optional: true }, { k: "dailyRate", label: "Daily rate (KES)", type: "number", half: true, optional: true },
