@@ -133,6 +133,15 @@ export function DesignStudio({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
+          <div className="rounded-lg border border-dashed border-[#2C3744] p-3">
+            <div className="text-[11px] uppercase tracking-wider text-[#5B6675] mb-1.5">Coming soon</div>
+            <div className="flex flex-wrap gap-1.5">
+              {["3D walkthrough video", "Full working drawings", "Structural drawings", "Approval-ready plans", "Live 3D model you can spin"].map((x) => (
+                <span key={x} className="h-6 px-2 rounded-full bg-[#161C24] text-[11px] text-[#8A95A5] inline-flex items-center">{x}</span>
+              ))}
+            </div>
+          </div>
+
           <div>
             <div className="text-[11px] uppercase tracking-wider text-[#5B6675] mb-2">2. Describe it</div>
             <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={5} placeholder={`e.g. ${m.examples[0]}`} className="w-full bg-[#11161D] border border-[#222A35] rounded-lg px-3 py-2.5 text-[13px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A] resize-y" />

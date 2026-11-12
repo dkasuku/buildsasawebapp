@@ -318,7 +318,7 @@ export default function Billing({ role }: { role: Role }) {
                     </div>
                   );
                 })()}
-                {AI_DESIGN_LIVE && p.aiCredits ? <div className="text-[11px] text-[#FF6B1A] mt-1">Includes {p.aiCredits.toLocaleString()} Sasa Credits for AI every month</div> : null}
+                {AI_DESIGN_LIVE && p.aiCredits ? <div className="mt-2 rounded-lg border border-[#FF6B1A]/30 bg-[#FF6B1A]/5 p-2.5 text-[11.5px] text-[#C2CAD6]"><b className="text-white">Buildsasa AI included.</b> Unlimited chat, quotes, payment requests and logs, plus {p.aiCredits.toLocaleString()} Sasa Credits a month for designs and renders (about {Math.floor(p.aiCredits / 20)} designs). Top up any time.</div> : null}
                 <ul className="mt-4 space-y-1.5 flex-1">
                   {/* Per-plan features come from the admin-managed catalogue; fall
                       back to the shared list when a plan has none set. */}

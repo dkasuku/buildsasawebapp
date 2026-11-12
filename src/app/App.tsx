@@ -52,6 +52,7 @@ import { ProfileSettings } from "./components/constructai/ProfileSettings";
 import { CreditCard } from "lucide-react";
 import { AiAssistantPanel, type AiFormDraft } from "./components/constructai/AiAssistantPanel";
 import ShemmySupport from "./components/constructai/ShemmySupport";
+import { DesignStudio } from "./components/constructai/DesignStudio";
 
 const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Executive overview" },
@@ -250,6 +251,9 @@ export default function App() {
   // Ask the Projects list to open its edit dialog for this project on mount —
   // used by "Edit project" on the detail page, since the form lives there.
   const [editProjectId, setEditProjectId] = useState<string | null>(null);
+  // AI Design Studio, opened from the sidebar or the AI home (window event "buildsasa:design").
+  const [designOpen, setDesignOpen] = useState(false);
+  useEffect(() => { const on = () => setDesignOpen(true); window.addEventListener("buildsasa:design", on); return () => window.removeEventListener("buildsasa:design", on); }, []);
 
   // Theme switch. Uses the View Transitions API to crossfade the whole page as a
   // single composited snapshot (smooth, no per-element repaint flicker). Falls
@@ -665,6 +669,7 @@ export default function App() {
           onNavigate={(v) => allowed.includes(v as View) && navigate(v as View)} onOpenProject={openProject} />}
         {/* The support bubble would sit on the docked AI's send button. */}
         {!paywalled && effectiveView !== "buildflex-ai" && !(aiPanelOpen && window.innerWidth >= 1280) && <ShemmySupport />}
+        {designOpen && <DesignStudio onClose={() => setDesignOpen(false)} />}
       </div>
     </CurrencyProvider>
   );

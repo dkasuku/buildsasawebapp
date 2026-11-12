@@ -1,7 +1,6 @@
 import {
   Settings, LifeBuoy, Eye, ChevronDown, CreditCard, LogOut,
-  Lock, Search, SquarePen, X, FolderOpen, Building2, Sparkles, PanelLeftClose, PanelLeftOpen, Coins, SunMoon,
-} from "lucide-react";
+  Lock, Search, SquarePen, X, FolderOpen, Building2, Sparkles, PanelLeftClose, PanelLeftOpen, Coins, SunMoon, Box } from "lucide-react";
 import { useState, useEffect } from "react";
 import type { Role } from "./roles";
 import { ROLES, roleLabel } from "./roles";
@@ -206,6 +205,10 @@ export function Sidebar({
             <button type="button" className="ws-row" onClick={openAi} aria-label="Ask Buildsasa AI" title="Ask Buildsasa AI" aria-current={view === "buildflex-ai" ? "page" : undefined} style={{ marginBottom: 6, color: "#FF8A45" }}>
               <Sparkles aria-hidden style={{ color: "#FF6B1A" }} />
               <span className="ws-row-label">Ask Buildsasa AI</span>
+            </button>
+            <button type="button" className="ws-row" onClick={() => window.dispatchEvent(new Event("buildsasa:design"))} aria-label="AI Design" title="AI Design: 2D plans, 3D renders, facades and interiors" style={{ marginBottom: 6 }}>
+              <Box aria-hidden style={{ color: "#FF6B1A" }} />
+              <span className="ws-row-label">AI Design</span>
             </button>
             {MODULES.map((m) => {
               if (!m.tabs.some((t) => allowed(t.key))) return null;

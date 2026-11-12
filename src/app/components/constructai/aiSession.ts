@@ -14,8 +14,8 @@ const isGreeting = (m: Msg) => m.role === "ai" && m.text === AI_GREETING.text;
 // materials list, instead of sending people to the Design studio. Questions
 // ("what colours suit…", "suggest finishes…") stay as written answers.
 const SPACE = /\b(room|kitchen|bed ?rooms?|master|living|lounge|sitting|bath ?rooms?|toilet|washroom|office|reception|dining|interior|fa[cç]ade|exterior|house|home|villa|bungalow|maisonette|apartment|flat|shop|salon|restaurant|cafe|hotel|lobby|space|ceiling|wardrobe|staircase|garden|compound|gate|balcony|terrace)\b/i;
-// AI design is switched off until idea.md section 6 ships (A7).
-export const AI_DESIGN_ON = false;
+// AI design is on: renders, plans and interiors cost Sasa Credits; chat is free.
+export const AI_DESIGN_ON = true;
 export const looksLikeDesignRequest = (t: string, category?: string) => {
   if (!AI_DESIGN_ON) return false;
   const s = t.trim();

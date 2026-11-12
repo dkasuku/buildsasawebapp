@@ -23,6 +23,43 @@ const app = express();
 const { AsyncLocalStorage } = require('async_hooks');
 const wsStore = new AsyncLocalStorage();
 const currentWs = () => { const s = wsStore.getStore(); return s && s.ws ? s.ws : null; };
+
+// ===== AI COST LOG =====
+// What each AI call cost Buildsasa in US dollars, per company, so the admin
+// panel shows real AI spend. Prices are list prices per 1M tokens (text) or per
+// item; update them here when the providers change their prices.
+const AI_PRICES = {
+  text: {
+    'deepseek-chat': [0.27, 1.10], 'deepseek-reasoner': [0.55, 2.19],
+    'gpt-4o-mini': [0.15, 0.60], 'gpt-4o': [2.50, 10.0], 'gpt-4.1-mini': [0.40, 1.60], 'gpt-4.1': [2.0, 8.0], 'gpt-4.1-nano': [0.10, 0.40],
+  },
+  // gpt-image-1 per image by quality, square / landscape.
+  image: { low: [0.011, 0.016], medium: [0.042, 0.063], high: [0.167, 0.25], auto: [0.167, 0.25], 'dall-e-3': [0.08, 0.12] },
+  ttsPerMillionChars: 15, transcribePerMinute: 0.006,
+};
+function aiCostUsd(e) {
+  if (e.kind === 'image') {
+    const row = e.model === 'dall-e-3' ? AI_PRICES.image['dall-e-3'] : AI_PRICES.image[e.quality || 'auto'] || AI_PRICES.image.auto;
+    return (e.size === '1024x1024' ? row[0] : row[1]) * (e.images || 1);
+  }
+  if (e.kind === 'voice') return (e.chars || 0) / 1e6 * AI_PRICES.ttsPerMillionChars;
+  if (e.kind === 'transcribe') return (e.minutes || 1) * AI_PRICES.transcribePerMinute;
+  const u = e.usage || {};
+  const key = Object.keys(AI_PRICES.text).find((k) => String(e.model || '').startsWith(k)) || 'gpt-4o-mini';
+  const [pin, pout] = AI_PRICES.text[key];
+  return ((u.prompt_tokens || 0) * pin + (u.completion_tokens || 0) * pout) / 1e6;
+}
+function logAiCost(e) {
+  try {
+    const u = e.usage || {};
+    const usd = aiCostUsd(e);
+    // prismaBase is defined further down; this runs only after a request.
+    prismaBase.aiCostLog.create({ data: {
+      workspaceId: currentWs(), provider: e.provider, model: String(e.model || '').slice(0, 60), kind: e.kind,
+      inputTokens: u.prompt_tokens || 0, outputTokens: u.completion_tokens || 0, images: e.kind === 'image' ? (e.images || 1) : 0, usd,
+    } }).catch((err) => console.error('[ai-cost] log failed:', err.message));
+  } catch (err) { console.error('[ai-cost]', err.message); }
+}
 const TENANT_MODELS = new Set([
   'User', 'Project', 'LedgerEntry', 'ExpenseCategory', 'DailyLog', 'PunchItem', 'Subscription', 'BillingInvoice',
   'ChangeOrder', 'ChangeOrderActivity', 'Commitment', 'Document', 'Bid', 'BidPackage', 'Invoice', 'Inspection', 'SafetyIncident',
@@ -5607,7 +5644,7 @@ app.post('/api/projects/:projectId/messages', auth, async (req, res) => {
 // first. Support chats (Suzy, Shemmy) are free. Prices, pack sizes and the
 // trial amount are edited in the admin panel and stored in SiteContent.
 const CREDIT_DEFAULTS = {
-  costs: { assistant: 1, checklist: 5, extract: 5, design: 20, design_photos: 30 },
+  costs: { assistant: 0, checklist: 0, extract: 5, design: 20, design_photos: 30 },
   packs: [
     { id: 'starter', name: 'Starter pack', credits: 100, kes: 500 },
     { id: 'builder', name: 'Builder pack', credits: 300, kes: 1350 },
@@ -5659,7 +5696,11 @@ async function ensureCredits(ws, ownerEmail) {
   return w;
 }
 
-async function creditCost(action) { const s = await creditSettings(); return Math.max(0, Number(s.costs[action]) || 0); }
+// Chatting with Buildsasa AI is free: questions, answers, quotes, payment
+// requests and logs. Credits pay only for generation that costs real money
+// (designs, renders, plans from a prompt, document reading).
+const FREE_ACTIONS = new Set(['assistant', 'checklist']);
+async function creditCost(action) { if (FREE_ACTIONS.has(action)) return 0; const s = await creditSettings(); return Math.max(0, Number(s.costs[action]) || 0); }
 
 /** Refuse (402) when the company can't afford the action. Call before doing the work. */
 async function requireCredits(req, action) {
@@ -5701,13 +5742,14 @@ app.get('/api/ai-credits', auth, async (req, res) => {
   try {
     const ws = currentWs();
     const s = await creditSettings();
-    if (!ws) return res.json({ balance: 0, plan: 0, topup: 0, costs: s.costs, packs: s.packs, history: [], payments: !!PAYSTACK_SECRET });
+    const freeCosts = Object.fromEntries(Object.entries(s.costs).map(([k, v]) => [k, FREE_ACTIONS.has(k) ? 0 : v]));
+    if (!ws) return res.json({ balance: 0, plan: 0, topup: 0, costs: freeCosts, packs: s.packs, history: [], payments: !!PAYSTACK_SECRET });
     const w = await ensureCredits(ws, req.user?.email);
     const allowance = await monthlyAllowance(ws, req.user?.email);
     const history = await prismaBase.aiCreditTxn.findMany({ where: { workspaceId: ws }, orderBy: { createdAt: 'desc' }, take: 40 });
     res.json({
       balance: w.aiPlanCredits + w.aiTopupCredits, plan: w.aiPlanCredits, topup: w.aiTopupCredits, allowance,
-      resetsAt: w.aiCreditsResetAt, costs: s.costs, labels: CREDIT_ACTION_LABEL, packs: s.packs, history, payments: !!PAYSTACK_SECRET,
+      resetsAt: w.aiCreditsResetAt, costs: freeCosts, labels: CREDIT_ACTION_LABEL, packs: s.packs, history, payments: !!PAYSTACK_SECRET,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -5796,6 +5838,32 @@ app.put('/api/admin/ai-credits/settings', auth, creditAdmin, async (req, res) =>
 });
 
 // Every company's balance and this month's usage, heaviest users first.
+// What AI cost Buildsasa this month, per company, against what they paid for credits.
+app.get('/api/admin/ai-costs', auth, creditAdmin, async (req, res) => {
+  try {
+    const m = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? String(req.query.month) : new Date().toISOString().slice(0, 7);
+    const from = new Date(`${m}-01T00:00:00Z`); const to = new Date(from); to.setUTCMonth(to.getUTCMonth() + 1);
+    const rows = await prismaBase.aiCostLog.groupBy({ by: ['workspaceId', 'kind'], where: { createdAt: { gte: from, lt: to } }, _sum: { usd: true, images: true }, _count: { _all: true } });
+    const ids = [...new Set(rows.map((r) => r.workspaceId).filter(Boolean))];
+    const wss = ids.length ? await prismaBase.workspace.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : [];
+    const buys = await prismaBase.aiCreditTxn.findMany({ where: { kind: 'topup', createdAt: { gte: from, lt: to } }, select: { workspaceId: true, note: true } });
+    const kesOf = (note) => { const x = /KES ([\d,]+)/.exec(note || ''); return x ? Number(x[1].replace(/,/g, '')) : 0; };
+    const by = new Map();
+    for (const r of rows) {
+      const k = r.workspaceId || 'none';
+      const o = by.get(k) || { workspaceId: r.workspaceId, name: (wss.find((w) => w.id === r.workspaceId) || {}).name || (r.workspaceId ? 'Unknown company' : 'No company (sign-up, support)'), usd: 0, calls: 0, images: 0, byKind: {}, topupKes: 0 };
+      o.usd += r._sum.usd || 0; o.calls += r._count._all; o.images += r._sum.images || 0; o.byKind[r.kind] = (o.byKind[r.kind] || 0) + (r._sum.usd || 0);
+      by.set(k, o);
+    }
+    for (const b of buys) { const o = by.get(b.workspaceId); if (o) o.topupKes += kesOf(b.note); }
+    const companies = [...by.values()].sort((a, b) => b.usd - a.usd);
+    const total = companies.reduce((t, c) => t + c.usd, 0);
+    const byKind = {}; for (const c of companies) for (const [k, v] of Object.entries(c.byKind)) byKind[k] = (byKind[k] || 0) + v;
+    const topupKes = buys.reduce((t, b) => t + kesOf(b.note), 0);
+    res.json({ month: m, totalUsd: total, byKind, companies, topupKes, usdToKes: USD_TO_KES, budgetUsd: Number(process.env.AI_MONTHLY_BUDGET_USD || 150) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/admin/ai-credits/usage', auth, creditAdmin, async (_req, res) => {
   try {
     const since = new Date(Date.now() - 30 * 864e5);
@@ -6025,6 +6093,7 @@ function deepSeekRequest(messages, { temperature = 0.7, max_tokens = 2048 } = {}
           const j = JSON.parse(data);
           if (j.error) return reject(new Error(`DeepSeek: ${j.error.message || j.error}`));
           if (res.statusCode && res.statusCode >= 400) return reject(new Error(`DeepSeek HTTP ${res.statusCode}`));
+          logAiCost({ provider: 'deepseek', model: DEEPSEEK_MODEL, kind: 'text', usage: j.usage });
           resolve(j.choices?.[0]?.message?.content || '');
         } catch (e) {
           reject(new Error(`DeepSeek returned an unreadable response (HTTP ${res.statusCode || '?'})`));
@@ -6691,6 +6760,7 @@ HOW TO BEHAVE (Buildsasa's rules):
 - CLIENT UPDATES: a weekly or progress update for a client ends with a share-update tag per project (the user edits, taps once, and it reaches the client and WhatsApp).
 - LANGUAGE: reply in the user's language: English, Swahili or Sheng. Keep Kenyan units and material names (bags of cement, mabati, ballast, murram, Y12).
 - IF YOU CAN'T DO IT: say exactly what you couldn't do and name the page where it's done.
+- DESIGNS: 2D floor plans, 3D renders, facades and interior designs are made in AI Design (sidebar, or the AI Design Studio card on the home screen); each costs Sasa Credits, chat is free. 3D walkthrough videos, full working drawings, structural drawings and approval-ready plans are COMING SOON: say so plainly, don't pretend to make them.
 SHARING WITH CLIENTS AND OWNERS: Information about a client's or owner's project (progress, photos, invoices, prices, unit details) is theirs. Never share it, or offer links to it, unless the user asks you to share or send it. When sharing would clearly help (a milestone is reached, a unit is ready), ASK first ("Shall I send unit A-12's buyer a progress report?") instead of adding the tag. When the user asks you to share or send, add the share tag; the user still confirms the card. A unit's buyer only ever gets their own unit's details plus news about the whole project, never another buyer's unit, name or payments.
 When the user attaches a drawing, contract, BOQ or photo and says "create a project from this", read it and fill create-project (and add-budget lines if it has quantities). Briefly say what you set up; never claim it is done before the user confirms. Only ask a question if something essential is missing (e.g. an email to invite someone).
 INVOICES: Buildsasa invoices are PAYMENT REQUESTS, not tax invoices (KRA eTIMS is not connected yet). Call them payment requests, never say an invoice is KRA or eTIMS compliant, and never give legal or structural sign-off. Never state Buildsasa plan prices.
@@ -6767,6 +6837,27 @@ ${actionGuide}`;
 const { OpenAI } = require('openai');
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
+if (openai) {
+  // Log what each OpenAI call costs, for the admin panel's AI spend page.
+  const cc = openai.chat.completions.create.bind(openai.chat.completions);
+  openai.chat.completions.create = async (params, opts) => {
+    const r = await cc(params, opts);
+    if (r && r.usage) logAiCost({ provider: 'openai', model: params.model, kind: (JSON.stringify(params.messages || '').includes('image_url') ? 'vision' : 'text'), usage: r.usage });
+    return r;
+  };
+  for (const fn of ['generate', 'edit']) {
+    const orig = openai.images[fn].bind(openai.images);
+    openai.images[fn] = async (params, opts) => {
+      const r = await orig(params, opts);
+      logAiCost({ provider: 'openai', model: params.model, kind: 'image', images: params.n || 1, size: params.size, quality: params.quality });
+      return r;
+    };
+  }
+  const sp = openai.audio.speech.create.bind(openai.audio.speech);
+  openai.audio.speech.create = async (params, opts) => { const r = await sp(params, opts); logAiCost({ provider: 'openai', model: params.model, kind: 'voice', chars: String(params.input || '').length }); return r; };
+  const tr = openai.audio.transcriptions.create.bind(openai.audio.transcriptions);
+  openai.audio.transcriptions.create = async (params, opts) => { const r = await tr(params, opts); logAiCost({ provider: 'openai', model: params.model, kind: 'transcribe', minutes: 1 }); return r; };
+}
 // pdf-parse v2 is a class (PDFParse) rather than the v1 function, so calling
 // it as pdfParse(buffer) threw "pdfParse is not a function" and every PDF
 // upload to the AI failed. Keep the old call shape: pdfParse(buf) -> { text }.
@@ -6862,7 +6953,7 @@ app.post('/api/ai/design', auth, withDaily('image'), withCredits((req) => (Array
     const generate = async (model) => {
       if (refs.length) {
         const files = await Promise.all(refs.map((u, i) => fetchReference(req, u, i)));
-        return openai.images.edit({ model, image: files.length === 1 ? files[0] : files, prompt: fullPrompt, size });
+        return openai.images.edit({ model, image: files.length === 1 ? files[0] : files, prompt: fullPrompt, size, ...(model === 'gpt-image-1' ? { quality: b.quality === 'high' ? 'high' : 'medium' } : {}) });
       }
       const params = { model, prompt: fullPrompt, n: 1, size };
       if (model === 'dall-e-3') { params.size = size === '1024x1024' ? '1024x1024' : '1792x1024'; params.response_format = 'b64_json'; params.quality = 'hd'; }
@@ -7291,6 +7382,10 @@ const PLANS_FALLBACK = [
 
 // Map a SubscriptionPackage row to the plan shape the SaaS pricing screen and
 // checkout expect. `kes` is derived here so it always tracks the current rate.
+// Buildsasa AI is part of every plan: +$10 a month (+$100 a year) on top of the
+// catalogue price, which pays for the AI allowance included each month.
+const AI_UPLIFT_USD = { monthly: Number(process.env.AI_UPLIFT_MONTHLY_USD ?? 10), yearly: Number(process.env.AI_UPLIFT_YEARLY_USD ?? 100) };
+const withAiUplift = (p) => { const add = AI_UPLIFT_USD[p.cycle] || 0; if (!add) return p; const usd = (p.usd || 0) + add; return { ...p, usd, kes: Math.round(usd * USD_TO_KES), aiUpliftUsd: add }; };
 function planShape(row) {
   let features;
   if (row.features) { try { features = JSON.parse(row.features); } catch { /* ignore bad JSON */ } }
@@ -7324,11 +7419,11 @@ async function loadPlans({ includeInactive = false } = {}) {
       where: includeInactive ? {} : { active: true },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
-    if (rows.length) return rows.map(planShape);
+    if (rows.length) return rows.map(planShape).map(withAiUplift);
   } catch (e) {
     console.error('[PLANS] DB load failed, using fallback:', e && e.message);
   }
-  return PLANS_FALLBACK;
+  return PLANS_FALLBACK.map(withAiUplift);
 }
 async function planById(id) { const plans = await loadPlans({ includeInactive: true }); return plans.find((p) => p.id === id); }
 async function planDays(id) { const p = await planById(id); return (p && p.days) || 30; }

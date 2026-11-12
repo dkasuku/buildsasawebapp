@@ -100,6 +100,8 @@ const CAN: { title: string; text: string; icon: any; fill: string; money?: boole
   { title: "Receipts and spending", text: "Snap a receipt and it's filed as spending on the right site.", icon: Camera, money: true, fill: "File this spending: " },
   { title: "Client updates", text: "A weekly progress update ready for WhatsApp.", icon: FileText, fill: "Write this week's update for " },
   { title: "Projects and programme", text: "Start a project with its stages and dates.", icon: CalendarRange, fill: "Start a new project: " },
+  { title: "Budgets", text: "A project budget by section, then budget against what you've spent.", icon: PiggyBank, money: true, fill: "Make a budget for " },
+  { title: "Checklists and inspections", text: "A checklist for any stage: slab, roofing, wiring, handover.", icon: ListChecks, fill: "Make a checklist for " },
 ];
 // A design's costed materials as a quote table, so it can be downloaded or saved as a quote.
 const estimateText = (m: Msg) => {
@@ -545,6 +547,15 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
 
               {/* What the AI can do: it makes real records (quotes, payment requests, logs), not just chat. */}
               <div className="mt-8">
+                <button onClick={() => window.dispatchEvent(new Event("buildsasa:design"))}
+                  className="w-full mb-3 text-left rounded-2xl border border-[#FF6B1A]/40 bg-gradient-to-br from-[#FF6B1A]/15 to-[#FF6B1A]/[0.03] px-4 py-4 flex items-center gap-4 hover:border-[#FF6B1A]/70 transition-[border-color,transform] duration-150 active:scale-[0.99]">
+                  <span className="w-11 h-11 shrink-0 rounded-xl bg-[#FF6B1A] flex items-center justify-center"><DraftingCompass className="w-5 h-5 text-white" /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[15px] text-white font-medium">AI Design Studio</span>
+                    <span className="block text-[12.5px] text-[#C2CAD6] leading-snug mt-0.5">2D floor plans, 3D renders, facades and interiors from a description or a photo. Show the client before you build.</span>
+                  </span>
+                  <ArrowUpRight className="w-5 h-5 text-[#FF8A47] shrink-0" />
+                </button>
                 <div className="text-[11px] uppercase tracking-wider text-[#5B6675] mb-2 px-1">What Buildsasa AI does for you</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {CAN.filter((x) => canSeeMoney || !x.money).map((x) => (
@@ -558,7 +569,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
                     </button>
                   ))}
                 </div>
-                <p className="text-[11.5px] text-[#5B6675] mt-3 px-1">Every answer ends in a card you check and save with one tap. Nothing is saved until you tap it, and you can undo for 15 seconds after.</p>
+                <p className="text-[11.5px] text-[#5B6675] mt-3 px-1">Chatting, quotes, payment requests, logs and budgets are free and unlimited. Designs and renders use Sasa Credits: your plan includes some every month, and you can top up any time in Billing.</p>
               </div>
 
             </div>

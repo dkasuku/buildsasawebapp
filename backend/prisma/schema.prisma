@@ -1848,3 +1848,20 @@ model Payment {
   @@index([invoiceId])
   @@index([projectId])
 }
+
+// What each AI call cost Buildsasa (USD at list price), for the admin AI spend page.
+model AiCostLog {
+  id           String   @id @default(cuid())
+  workspaceId  String?
+  provider     String   // deepseek | openai
+  model        String
+  kind         String   // text | vision | image | voice | transcribe
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  images       Int      @default(0)
+  usd          Float    @default(0)
+  createdAt    DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([createdAt])
+}
