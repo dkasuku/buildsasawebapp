@@ -6419,41 +6419,71 @@ app.post('/api/ai/transcribe', auth, withDaily('voice'), singleFile('file'), asy
 // call, so it is free and instant). The AI page shows these as cards; tapping
 // one asks the assistant about it.
 app.get('/api/ai/brief', auth, async (req, res) => {
+  // Today's brief (idea.md 7.2.1): at most five lines, in this order: what is
+  // late, what is unpaid, what could be billed, who is owed, what the client is
+  // waiting for. Each line carries ONE next step: `ask` (a message to the AI,
+  // which answers with a confirm card) or `view` (a page to open).
   try {
     const me = await prisma.user.findUnique({ where: { id: req.user.sub }, select: { role: true } });
-    const money = !['Worker', 'Trade Lead'].includes(me?.role || '');
-    const today = new Date().toISOString().slice(0, 10);
-    const since = new Date(); since.setHours(0, 0, 0, 0);
+    const money = !['Worker', 'Trade Lead', 'Site staff', 'Viewer'].includes(me?.role || '');
+    const nairobi = new Date(Date.now() + 3 * 3600e3);
+    const today = nairobi.toISOString().slice(0, 10);
+    const dow = (nairobi.getUTCDay() + 6) % 7; // Monday = 0
+    const monday = new Date(Date.parse(today) - dow * 864e5).toISOString().slice(0, 10);
     const safe = (p) => p.catch(() => []);
-    const [projects, invoices, quotes, cos, punch, incidents, inspections, logsToday] = await Promise.all([
-      safe(prisma.project.findMany({ select: { id: true, name: true, status: true, progress: true } })),
-      money ? safe(prisma.invoice.findMany({ where: { status: { notIn: ['paid', 'draft'] } }, select: { invoiceNumber: true, clientName: true, amount: true, dueDate: true } })) : [],
-      money ? safe(prisma.quote.findMany({ where: { status: 'sent' }, select: { quoteNumber: true, clientName: true, title: true, total: true, sentAt: true, viewedAt: true } })) : [],
-      money ? safe(prisma.changeOrder.findMany({ where: { status: { in: ['drafted', 'pm_review', 'owner_approval'] } }, select: { number: true, title: true } })) : [],
-      safe(prisma.punchItem.findMany({ where: { status: { in: ['open', 'in_progress', 'rejected'] } }, select: { priority: true, dueDate: true } })),
-      safe(prisma.safetyIncident.findMany({ where: { status: { in: ['open', 'investigating'] } }, select: { severity: true } })),
-      safe(prisma.inspection.findMany({ where: { date: { gte: today } }, select: { type: true, date: true }, orderBy: { date: 'asc' }, take: 5 })),
-      safe(prisma.dailyLog.findMany({ where: { date: { gte: since } }, select: { projectId: true } })),
+    const now = new Date();
+    const [projects, invoices, schedule, cos, logsToday, labour, comments] = await Promise.all([
+      safe(prisma.project.findMany({ select: { id: true, name: true, status: true } })),
+      money ? safe(prisma.invoice.findMany({ where: { status: { not: 'draft' } }, select: { id: true, invoiceNumber: true, clientName: true, amount: true, paidAmount: true, status: true, dueDate: true, projectId: true, createdAt: true } })) : [],
+      safe(prisma.scheduleItem.findMany({ where: { endDate: { gte: new Date(Date.now() - 60 * 864e5) } }, select: { name: true, endDate: true, percent: true, status: true, projectId: true, type: true } })),
+      money ? safe(prisma.changeOrder.findMany({ where: { status: 'owner_approval' }, select: { number: true, title: true, projectId: true } })) : [],
+      safe(prisma.dailyLog.findMany({ where: { date: { gte: new Date(`${today}T00:00:00+03:00`) } }, select: { projectId: true } })),
+      money ? safe(prisma.labourDay.findMany({ where: { date: { gte: monday, lte: today }, status: { not: 'absent' } }, select: { rate: true } })) : [],
+      safe(prismaBase.clientComment.findMany({ where: { workspaceId: currentWs(), createdAt: { gte: new Date(Date.now() - 14 * 864e5) } }, orderBy: { createdAt: 'desc' }, select: { projectId: true, targetType: true, targetId: true, authorType: true, createdAt: true } })),
     ]);
     const kes = (n) => 'KES ' + Math.round(n || 0).toLocaleString('en-KE');
-    const out = [];
-    const overdue = invoices.filter((i) => i.dueDate && i.dueDate < today);
-    if (overdue.length) out.push({ id: 'overdue', tone: 'red', icon: 'wallet', title: `${overdue.length} overdue invoice${overdue.length > 1 ? 's' : ''}`, detail: `${kes(overdue.reduce((s, i) => s + (i.amount || 0), 0))} owed by ${[...new Set(overdue.map((i) => i.clientName))].slice(0, 2).join(', ')}${overdue.length > 2 ? '…' : ''}`, ask: 'Which invoices are overdue? Draft a polite but firm WhatsApp reminder for each client.' });
-    const stale = quotes.filter((q) => q.sentAt && Date.now() - new Date(q.sentAt).getTime() > 3 * 864e5);
-    if (stale.length) out.push({ id: 'quotes', tone: 'amber', icon: 'calculator', title: `${stale.length} quote${stale.length > 1 ? 's' : ''} waiting on the client`, detail: `${kes(stale.reduce((s, q) => s + (q.total || 0), 0))} sent over 3 days ago${stale.some((q) => q.viewedAt) ? ', some already viewed' : ''}`, ask: 'Which quotes have been sent but not answered? Draft a short follow-up message for each client.' });
+    const pName = (id) => (projects.find((p) => p.id === id) || {}).name || 'a project';
     const active = projects.filter((p) => !/complete|closed|archived|cancel/i.test(p.status || ''));
+    const out = [];
+
+    // 1. Late on site: programme items past their end date and not finished.
+    const late = schedule.filter((x) => x.endDate < now && (x.percent || 0) < 100 && x.status !== 'done' && active.some((p) => p.id === x.projectId));
+    if (late.length) {
+      const worst = late.sort((a, b) => a.endDate - b.endDate)[0];
+      const days = Math.max(1, Math.round((now - worst.endDate) / 864e5));
+      out.push({ id: 'late', tone: 'red', icon: 'calendar', title: `${late.length} programme item${late.length > 1 ? 's' : ''} late`, detail: `${worst.name} on ${pName(worst.projectId)} is ${days} day${days > 1 ? 's' : ''} behind`, button: 'Plan the catch-up', ask: `Which programme items are late on ${pName(worst.projectId)}? Suggest how to catch up and draft a short note to the client about the new dates.` });
+    }
+    // 2. Unpaid: payment requests past their due date (with a ready WhatsApp reminder).
+    const overdue = invoices.filter((i) => i.dueDate && i.dueDate < today && (i.paidAmount || 0) < (i.amount || 0));
+    if (overdue.length) {
+      const owed = overdue.reduce((s, i) => s + (i.amount || 0) - (i.paidAmount || 0), 0);
+      out.push({ id: 'overdue', tone: 'red', icon: 'wallet', title: `${kes(owed)} overdue`, detail: `${overdue.length} payment request${overdue.length > 1 ? 's' : ''}: ${[...new Set(overdue.map((i) => i.clientName))].slice(0, 2).join(', ')}`, button: 'Send reminders', ask: 'Which payment requests are overdue? For each, write a short, polite but firm WhatsApp reminder to the client with the amount, the request number and how to pay.' });
+    }
+    // 3. Could be billed: a stage finished with no payment request raised since.
+    const done = schedule.filter((x) => ((x.percent || 0) >= 100 || x.status === 'done') && x.endDate > new Date(Date.now() - 21 * 864e5) && active.some((p) => p.id === x.projectId));
+    const unbilled = money ? done.filter((x) => !invoices.some((i) => i.projectId === x.projectId && new Date(i.createdAt) >= new Date(x.endDate.getTime() - 3 * 864e5))) : [];
+    if (unbilled.length) {
+      const st = unbilled[0];
+      out.push({ id: 'bill', tone: 'amber', icon: 'wallet', title: `${st.name} is done on ${pName(st.projectId)}`, detail: unbilled.length > 1 ? `${unbilled.length} finished stages not billed yet` : 'No payment request raised for it yet', button: 'Raise payment request', ask: `The "${st.name}" stage on ${pName(st.projectId)} is finished. Raise the stage payment request for the client, using the contract or quote figures if you have them.` });
+    }
+    // 4. Who is owed: this week's casual wages so far.
+    const wages = labour.reduce((s, x) => s + (x.rate || 0), 0);
+    if (wages > 0) out.push({ id: 'wages', tone: 'blue', icon: 'list', title: `${kes(wages)} wages this week`, detail: `${labour.length} labour-day${labour.length > 1 ? 's' : ''} since Monday`, button: 'See the wage bill', view: 'attendance' });
+    // 5. The client is waiting: approvals and unanswered comments.
+    const lastByTarget = new Map();
+    for (const c of comments) { const k = `${c.targetType}:${c.targetId}`; if (!lastByTarget.has(k)) lastByTarget.set(k, c); }
+    const unanswered = [...lastByTarget.values()].filter((c) => c.authorType === 'client');
+    if (cos.length || unanswered.length) {
+      const what = [cos.length ? `${cos.length} change order${cos.length > 1 ? 's' : ''} to approve` : '', unanswered.length ? `${unanswered.length} question${unanswered.length > 1 ? 's' : ''} unanswered` : ''].filter(Boolean).join(', ');
+      out.push({ id: 'client', tone: 'amber', icon: 'file', title: 'A client is waiting on you', detail: what, button: unanswered.length ? 'Answer the client' : 'Chase the approval', ...(unanswered.length ? { view: 'projects' } : { ask: 'Which change orders are waiting for client approval? Draft a short WhatsApp message asking each client to approve, with the amount and what it covers.' }) });
+    }
+    // Friday or Saturday: the week's client update (7.2.4).
+    if (dow >= 4 && active.length) out.push({ id: 'friday', tone: 'blue', icon: 'file', title: "Send clients this week's update", detail: 'Drafted from this week\'s logs and photos', button: 'Draft the updates', ask: "Draft this week's progress update for the client of each of my active projects from this week's daily logs. One short update per project, then a share-update card for each." });
+    // No site log today (from midday).
     const logged = new Set(logsToday.map((l) => l.projectId));
     const unlogged = active.filter((p) => !logged.has(p.id));
-    if (unlogged.length && new Date().getHours() >= 12) out.push({ id: 'logs', tone: 'blue', icon: 'hardhat', title: `No site log today on ${unlogged.length} project${unlogged.length > 1 ? 's' : ''}`, detail: unlogged.slice(0, 3).map((p) => p.name).join(', '), ask: `Help me write today's daily log for ${unlogged[0].name}. Ask me what happened on site.` });
-    const pending = cos;
-    if (pending.length) out.push({ id: 'cos', tone: 'amber', icon: 'file', title: `${pending.length} change order${pending.length > 1 ? 's' : ''} awaiting approval`, detail: pending.slice(0, 2).map((c) => c.title).join(', '), ask: 'Summarise the change orders awaiting approval, with their cost and time impact, and what I should do next.' });
-    const hot = punch.filter((p) => p.priority === 'high' || (p.dueDate && p.dueDate < today));
-    if (punch.length) out.push({ id: 'punch', tone: hot.length ? 'red' : 'blue', icon: 'list', title: `${punch.length} open snag${punch.length > 1 ? 's' : ''}`, detail: hot.length ? `${hot.length} high priority or overdue` : 'None overdue', ask: 'Summarise the open punch list by project and trade, and tell me which snags to chase first.' });
-    if (incidents.length) out.push({ id: 'safety', tone: 'red', icon: 'shield', title: `${incidents.length} safety incident${incidents.length > 1 ? 's' : ''} still open`, detail: incidents.some((i) => ['major', 'fatality'].includes(i.severity)) ? 'Includes a major incident' : 'Close them out once investigated', ask: 'List the open safety incidents and what is needed to close each one.' });
-    if (inspections.length) out.push({ id: 'insp', tone: 'blue', icon: 'check', title: `Next inspection: ${inspections[0].type}`, detail: `On ${inspections[0].date}${inspections.length > 1 ? ` · ${inspections.length - 1} more coming up` : ''}`, ask: `Prepare me for the upcoming ${inspections[0].type} inspection: what will the inspector check, and a checklist to get ready.` });
-    const behind = active.filter((p) => (p.progress || 0) < 100).sort((a, b) => (a.progress || 0) - (b.progress || 0))[0];
-    if (!out.length && behind) out.push({ id: 'proj', tone: 'blue', icon: 'building', title: `${behind.name} is ${behind.progress || 0}% complete`, detail: 'Ask for a status report or a client update', ask: `Write a short progress update for the client on ${behind.name}.` });
-    res.json({ items: out.slice(0, 6), projects: active.length });
+    if (unlogged.length && nairobi.getUTCHours() >= 12) out.push({ id: 'logs', tone: 'blue', icon: 'hardhat', title: `No site log today on ${unlogged.length} project${unlogged.length > 1 ? 's' : ''}`, detail: unlogged.slice(0, 3).map((p) => p.name).join(', '), button: 'Log today', fill: `Log today on ${unlogged[0].name}: ` });
+    res.json({ items: out.slice(0, 5), projects: active.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -6532,6 +6562,15 @@ app.post('/api/ai/assistant', auth, withCredits('assistant'), withDaily('upload'
     ]);
     const quotes = await prisma.quote.findMany({ orderBy: { createdAt: 'desc' }, take: 15, select: { quoteNumber: true, title: true, clientName: true, total: true, status: true, sentAt: true, viewedAt: true } }).catch(() => []);
     const team = await prisma.user.findMany({ where: { role: { not: 'Client' } }, take: 60, select: { name: true, email: true, role: true, trade: true } }).catch(() => []);
+    const pastRates = await (async () => {
+      const seen = new Map();
+      const add = (d, u, r, src) => { const k = String(d || '').toLowerCase().trim().slice(0, 60); if (!k || !(Number(r) > 0) || seen.has(k)) return; seen.set(k, `  - ${String(d).slice(0, 70)} | ${u || ''} | KES ${Math.round(r).toLocaleString('en-KE')} | from ${src}`); };
+      const lib = await prisma.rateLibraryItem.findMany({ take: 120, orderBy: { updatedAt: 'desc' } }).catch(() => []);
+      lib.forEach((x) => add(x.description, x.unit, x.rate, 'rate library'));
+      const qs = await prisma.quote.findMany({ take: 12, orderBy: { createdAt: 'desc' }, select: { quoteNumber: true, items: true } }).catch(() => []);
+      for (const q of qs) { let it = []; try { it = JSON.parse(q.items || '[]'); } catch { /* */ } it.forEach((x) => add(x.description, x.unit, x.rate, q.quoteNumber)); }
+      return [...seen.values()].slice(0, 150);
+    })();
     const labourers = await prisma.labourer.findMany({ where: { active: true }, take: 120, select: { name: true, trade: true, dailyRate: true, projectId: true } }).catch(() => []);
     const units = await prisma.projectUnit.findMany({ take: 400, orderBy: { code: 'asc' }, select: { id: true, projectId: true, code: true, type: true, status: true, progress: true, clientName: true, clientEmail: true, clientPhone: true, shareToken: true, stages: true } }).catch(() => []);
 
@@ -6562,6 +6601,7 @@ app.post('/api/ai/assistant', auth, withCredits('assistant'), withDaily('upload'
         }).join('\n');
       }).join('\n'));
     }
+    if (pastRates.length) safeLines.push('PAST RATES (this company\'s own prices; use these first when pricing):\n' + pastRates.join('\n'));
     if (labourers.length) safeLines.push('CASUAL LABOUR (labour muster, no login; mark days with the muster action):\n' + labourers.map((l) => `  - ${l.name}${l.trade ? ` | ${l.trade}` : ''}${l.projectId ? ` | usual site: ${pName(l.projectId)}` : ''}`).join('\n'));
     if (team.length) safeLines.push('TEAM MEMBERS:\n' + team.map((u) => `  - ${u.name} <${u.email}> | ${u.role}${u.trade ? ` | ${u.trade}` : ''}`).join('\n'));
 
@@ -6622,6 +6662,8 @@ DOING THINGS FOR THE USER (you are their hands in Buildsasa): when the user asks
   [[do:set-role|{"email":"<from TEAM MEMBERS>","role":"<one of the roles above>"}]] (roles are fixed; to "create a role" for someone, invite them or change their role)
   [[do:share-portal|{"projectId":"<id>"}]] (creates the client portal link to send to the client)
   [[do:create-invoice|{"projectId":"<id>","clientName":"...","dueDate":"YYYY-MM-DD","taxRate":16,"items":[{"description":"...","quantity":1,"rate":0}],"notes":"..."}]]
+  [[do:site-day|{"projectId":"<id>","date":"YYYY-MM-DD","crew":"<trades>","headcount":0,"weather":"...","work":"<work done, progress, delays>","deliveries":[{"material":"Cement","quantity":40,"unit":"bags","supplier":"..."}],"snags":[{"title":"...","area":"..."}]}]] (THE WHOLE SITE DAY in one card: the daily log with headcount, the material deliveries into stock and any snags, saved together)
+  [[do:add-expense|{"projectId":"<id>","description":"...","amount":0,"category":"Materials|Labour|Transport|Equipment hire|Fuel|Other","date":"YYYY-MM-DD","supplier":"...","reference":"<receipt or invoice no>"}]] (money spent, e.g. from a photographed receipt)
   [[do:record-payment|{"projectId":"<id>","invoice":"<payment request number>","amount":0,"method":"mpesa|bank|cash|cheque","reference":"<M-Pesa code or bank ref>","date":"YYYY-MM-DD"}]] (money received against a payment request; the client is told)
   [[do:add-labourer|{"name":"...","trade":"fundi|helper|mason|carpenter|steel fixer|plumber|electrician|painter|other","dailyRate":0,"phone":"...","projectId":"<id or omit>"}]] (a casual worker on the labour muster; no login)
   [[do:muster|{"projectId":"<id>","date":"YYYY-MM-DD","present":["<names from CASUAL LABOUR>"],"half":["..."],"absent":["..."]}]] (marks the day's attendance; "everyone present" = list them all)
@@ -6637,6 +6679,16 @@ DOING THINGS FOR THE USER (you are their hands in Buildsasa): when the user asks
   [[do:update-unit|{"projectId":"<id>","unit":"<code from UNITS>","done":["Tiling","Painting"],"status":"snagging","clientName":"...","clientEmail":"...","clientPhone":"..."}]] (tick finished stages, set the buyer)
   [[do:share-update|{"projectId":"<id>","unit":"<code, or omit for everyone on the project>","title":"...","body":"...","stage":"foundation|walling|roofing|services|finishes|handover|other"}]] (posts a progress update to the client(s) and emails them)
   [[do:unit-report|{"projectId":"<id>","unit":"<code, or ALL for every buyer>"}]] (sends each buyer their own unit's progress report by email, with WhatsApp text)
+HOW TO BEHAVE (Buildsasa's rules):
+- THE SITE DAY IN ONE MESSAGE: when the user describes a day on site ("12 workers, slab formwork done, 40 bags delivered, crack on the east wall"), answer with ONE site-day tag that covers all of it (headcount, work, deliveries, snags). Don't split it into separate save tags.
+- PHOTO FIRST: a photo with no words is a normal message. Say in one line what it is (site progress, a snag, a delivery note, a receipt or supplier invoice, a drawing) and propose filing it: progress -> site-day or share-update; snag -> save:punch; delivery note -> site-day with deliveries; receipt -> add-expense with the amount, supplier, date and receipt number read from it. Mark anything you couldn't read clearly with "(check)".
+- ASK FOR AT MOST ONE THING: fill in what you can, mark guesses with "(guess)", and ask at most ONE question, never a list.
+- SHOW THE SOURCE: when you state a number from the data (a cost, balance, days late), name the record it came from (e.g. "PR-0042", "Kitengela House programme"). If there's no record, say so; don't estimate it as fact.
+- EVERY ANSWER ENDS IN AN ACTION: if your answer could become a record (a log, snag, payment request, client update, quote), end with the tag for it. Plain advice only when nothing could be recorded.
+- QUOTES: price from PAST RATES first. Any rate not from them gets "(assumed)" in its description so the contractor reviews it. A sketch or photo of a plan can be priced too.
+- CLIENT UPDATES: a weekly or progress update for a client ends with a share-update tag per project (the user edits, taps once, and it reaches the client and WhatsApp).
+- LANGUAGE: reply in the user's language: English, Swahili or Sheng. Keep Kenyan units and material names (bags of cement, mabati, ballast, murram, Y12).
+- IF YOU CAN'T DO IT: say exactly what you couldn't do and name the page where it's done.
 SHARING WITH CLIENTS AND OWNERS: Information about a client's or owner's project (progress, photos, invoices, prices, unit details) is theirs. Never share it, or offer links to it, unless the user asks you to share or send it. When sharing would clearly help (a milestone is reached, a unit is ready), ASK first ("Shall I send unit A-12's buyer a progress report?") instead of adding the tag. When the user asks you to share or send, add the share tag; the user still confirms the card. A unit's buyer only ever gets their own unit's details plus news about the whole project, never another buyer's unit, name or payments.
 When the user attaches a drawing, contract, BOQ or photo and says "create a project from this", read it and fill create-project (and add-budget lines if it has quantities). Briefly say what you set up; never claim it is done before the user confirms. Only ask a question if something essential is missing (e.g. an email to invite someone).
 INVOICES: Buildsasa invoices are PAYMENT REQUESTS, not tax invoices (KRA eTIMS is not connected yet). Call them payment requests, never say an invoice is KRA or eTIMS compliant, and never give legal or structural sign-off. Never state Buildsasa plan prices.

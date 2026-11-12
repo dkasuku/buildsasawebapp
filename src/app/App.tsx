@@ -564,7 +564,7 @@ export default function App() {
             )}
             {!paywalled && effectiveView !== "buildflex-ai" && moduleOf(effectiveView) && moduleOf(effectiveView)!.id !== "projects" && (
               <AskBar key={effectiveView} title={askFor(effectiveView).q} hint={askFor(effectiveView).hint}
-                onAsk={(text, images) => { setAiStart({ text: text || (images.length ? "Turn this into a modern, finished interior" : ""), images, key: Date.now(), page: meta?.title }); navigate("buildflex-ai"); }} />
+                onAsk={(text, images) => { setAiStart({ text: text || (images.length ? "What is this photo? File it where it belongs." : ""), images, key: Date.now(), page: meta?.title }); navigate("buildflex-ai"); }} />
             )}
             {paywalled && effectiveView !== "billing" && (
               <div className="fixed inset-0 z-[70] backdrop-blur-lg bg-[#0A0E14]/70 flex items-center justify-center p-6 text-center">

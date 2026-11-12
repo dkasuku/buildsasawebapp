@@ -194,7 +194,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
       try {
         const done = await runAction(a, created);
         if (a.action === "create-project" && done.id) created = done.id;
-        patchActions(i, (as) => as.map((x, n) => (n === k && x.kind === "do" ? { ...x, done } : x)));
+        patchActions(i, (as) => as.map((x, n) => (n === k && x.kind === "do" ? { ...x, done: { ...done, at: Date.now() } } : x)));
         did.push(a.label || a.action);
       } catch (e: any) {
         failed.push(`${a.label || a.action}: ${e?.message || "didn't work"}`);
@@ -213,7 +213,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
     const images = imgs === undefined ? att.filter((a) => a.image).map((a) => a.url) : imgs;
     const files = imgs === undefined ? att.filter((a) => !a.image).map(({ url, name }) => ({ url, name })) : [];
     const mode: ImageMode = imgs === undefined ? imgMode : "auto";
-    const text = (raw ?? q).trim() || (images.length ? (mode === "logo" ? "Use this as my logo on quotes" : "Turn this into a modern, finished interior") : files.length ? "Summarise this and tell me what needs my attention" : "");
+    const text = (raw ?? q).trim() || (images.length ? (mode === "logo" ? "Use this as my logo on quotes" : "What is this photo? File it where it belongs.") : files.length ? "Summarise this and tell me what needs my attention" : "");
     if (!text || busy || uploading) return null;
     // The first message of a new owner opens the setup conversation.
     const onboarding = !!firstRun && !fresh && !started;
@@ -505,6 +505,22 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
               </h1>
               <p className="text-center text-[13.5px] text-[#8A95A5] mt-2">Tell me what happened on site, or what you need done. Type, talk or snap a photo.</p>
               <div className="mt-7">{composer(true)}</div>
+              {/* Today's brief (idea.md 7.2.1): at most five lines, each with one button for the next step. */}
+              {brief && brief.length > 0 && (
+                <div className="mt-6 rounded-2xl border border-[#222A35] bg-[#11161D] divide-y divide-[#222A35] overflow-hidden" aria-label="Today">
+                  {brief.slice(0, 5).map((b) => { const I = BRIEF_ICON[b.icon] || AlertTriangle; return (
+                    <div key={b.id} className="flex items-center gap-3 px-3.5 py-3">
+                      <span className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center ${b.tone === "red" ? "bg-[#EF4444]/10 text-[#EF4444]" : b.tone === "amber" ? "bg-[#F59E0B]/10 text-[#F59E0B]" : "bg-[#3B82F6]/10 text-[#3B82F6]"}`}><I className="w-4 h-4" /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13.5px] text-white leading-snug">{b.title}</span>
+                        <span className="block text-[11.5px] text-[#8A95A5] truncate">{b.detail}</span>
+                      </span>
+                      <button onClick={() => (b.view ? onNavigate(b.view as any) : b.fill ? (setQ(b.fill), requestAnimationFrame(() => inputRef.current?.focus())) : b.ask && send(b.ask))}
+                        className="shrink-0 h-9 px-3 rounded-lg border border-[#2C3744] bg-[#161C24] text-[12.5px] text-white hover:border-[#FF6B1A]/60 transition-transform active:scale-[0.97] max-w-[46%] truncate">{b.button || "Open"}</button>
+                    </div>
+                  ); })}
+                </div>
+              )}
               {/* One tap to the jobs contractors do every day. */}
               <div className="flex flex-wrap justify-center gap-2 mt-4">
                 {QUICK.filter((x) => canSeeMoney || !x.money).map((x) => (
@@ -514,24 +530,6 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
                   </button>
                 ))}
               </div>
-              {/* Today's brief: what needs attention, worked out from the data. */}
-              {brief && brief.length > 0 && (
-                <div className="mt-7">
-                  <div className="text-[11px] uppercase tracking-wider text-[#5B6675] mb-2 flex items-center gap-1.5"><Sparkles className="w-3 h-3 text-[#FF6B1A]" /> Needs your attention today</div>
-                  <div className="grid sm:grid-cols-2 gap-2">
-                    {brief.map((b) => { const I = BRIEF_ICON[b.icon] || AlertTriangle; return (
-                      <button key={b.id} onClick={() => send(b.ask)} className="group text-left rounded-xl border border-[#222A35] bg-[#11161D] hover:border-[#2C3744] p-3 flex gap-3">
-                        <span className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center ${b.tone === "red" ? "bg-[#EF4444]/10 text-[#EF4444]" : b.tone === "amber" ? "bg-[#F59E0B]/10 text-[#F59E0B]" : "bg-[#3B82F6]/10 text-[#3B82F6]"}`}><I className="w-4 h-4" /></span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-[13px] text-white">{b.title}</span>
-                          <span className="block text-[11.5px] text-[#8A95A5] truncate">{b.detail}</span>
-                        </span>
-                        <ArrowUpRight className="w-4 h-4 text-[#5B6675] group-hover:text-[#FF8A47] shrink-0" />
-                      </button>
-                    ); })}
-                  </div>
-                </div>
-              )}
 
             </div>
           </div>
@@ -563,6 +561,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
                           newProjectId={createdProjectId(m)}
                           onDone={(done) => patchActions(i, (as) => as.map((x, n) => (n === k && x.kind === "do" ? { ...x, done } : x)))}
                           onChange={(data) => patchActions(i, (as) => as.map((x, n) => (n === k && x.kind === "do" ? { ...x, data } : x)))}
+                          onUndo={() => patchActions(i, (as) => as.map((x, n) => (n === k && x.kind === "do" ? { ...x, done: undefined } : x)))}
                           onDismiss={() => patchActions(i, (as) => as.filter((_, n) => n !== k))} />
                       ) : null)}
                       {(m.actions || []).filter((a) => a.kind === "do" && !a.done).length > 1 && (

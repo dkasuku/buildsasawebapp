@@ -631,7 +631,8 @@ export type BidPackageDto = {
 };
 
 /** The company's own branding, printed on quotes and invoices and shown to clients. */
-export type AiBriefItem = { id: string; tone: "red" | "amber" | "blue"; icon: string; title: string; detail: string; ask: string };
+/** One line of today's brief, with ONE next step: ask the AI, open a page, or start a message. */
+export type AiBriefItem = { id: string; tone: "red" | "amber" | "blue"; icon: string; title: string; detail: string; button?: string; ask?: string; view?: string; fill?: string };
 export type CompanyPublic = { name: string; logoUrl?: string | null; phone?: string | null; email?: string | null; address?: string | null; kraPin?: string | null; paymentDetails?: string | null };
 export type CompanyDto = CompanyPublic & { quoteTerms?: string | null; canEdit: boolean };
 

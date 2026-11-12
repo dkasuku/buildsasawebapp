@@ -4,14 +4,17 @@
 // after the user taps "Do it", so nothing happens behind their back.
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ArrowUpRight, Check, Copy, Loader2, MessageCircle, Plus, Trash2, X, Zap } from "lucide-react";
+import { ArrowUpRight, Check, ChevronDown, Copy, Loader2, MessageCircle, Plus, RotateCcw, Trash2, X, Zap } from "lucide-react";
 import api, { type ProjectDto, type UnitDto } from "../../services/api";
 import { clientApi } from "./client/clientData";
 import type { AiAction } from "./AiAssistantPanel";
 
 type Field = { k: string; label: string; type?: "text" | "number" | "date" | "area" | "email" | "project" | "lines" | "select"; options?: string[]; half?: boolean; optional?: boolean };
 type Done = NonNullable<Extract<AiAction, { kind: "do" }>["done"]>;
-type Spec = { title: string; verb: string; view: string; fields: Field[]; run: (d: Record<string, any>, ctx: { projects: ProjectDto[] }) => Promise<Done> };
+type Spec = { title: string; verb: string; view: string; fields: Field[]; run: (d: Record<string, any>, ctx: { projects: ProjectDto[] }) => Promise<Done>;
+  /** Reverse what run did (idea.md 7.2.7: "Saved · Undo" instead of "are you sure"). */
+  undo?: (u: Record<string, any>) => Promise<unknown> };
+const UNDO_MS = 15000;
 
 const ROLES = ["Project Manager", "Site Engineer", "Superintendent", "Foreman", "Trade Lead", "Worker", "Architect", "Quantity Surveyor", "QA/QC Officer", "Executive", "Owner", "Viewer"];
 const today = () => new Date().toISOString().slice(0, 10);
@@ -44,8 +47,9 @@ export const AGENT: Record<string, Spec> = {
       need(d.name, "the project name");
       const code = (String(d.name).split(/\s+/).map((w) => w[0]).join("").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3) || "PRJ") + "-" + String(Date.now()).slice(-4);
       const p = await api.createProject({ name: d.name, code, city: d.city || "—", status: d.status || "Planning", progress: 0, value: d.contractSumKES ? `KES ${Number(d.contractSumKES).toLocaleString("en-KE")}` : "", contractSumKES: num(d.contractSumKES), startDate: d.startDate || null, targetEndDate: d.targetEndDate || null, description: [d.description, d.clientName ? `Client: ${d.clientName}` : ""].filter(Boolean).join("\n") || null } as any);
-      return { id: p.id, note: `${p.name} (${p.code})` };
+      return { id: p.id, note: `${p.name} (${p.code})`, undo: { projectId: p.id } };
     },
+    undo: (u) => api.deleteProject(u.projectId),
   },
   "invite-member": {
     title: "Invite team member", verb: "Send invite", view: "team",
@@ -86,8 +90,9 @@ export const AGENT: Record<string, Spec> = {
       const subtotal = linesTotal(items), tax = subtotal * ((Number(d.taxRate) || 0) / 100);
       const r = await api.createInvoice(d.projectId, { invoiceNumber: `INV-${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${String(Date.now()).slice(-3)}`, clientName: d.clientName, status: "draft", issueDate: today(), dueDate: d.dueDate || plusDays(14),
         items: JSON.stringify(items.map((l: any) => ({ description: l.description, quantity: Number(l.quantity) || 0, rate: Number(l.rate) || 0 }))), subtotal, taxRate: num(d.taxRate), amount: Math.round(subtotal + tax), paidAmount: 0, notes: d.notes || null } as any);
-      return { id: r.id, note: `${r.invoiceNumber} · KES ${Math.round(subtotal + tax).toLocaleString("en-KE")} (draft)` };
+      return { id: r.id, note: `${r.invoiceNumber} · KES ${Math.round(subtotal + tax).toLocaleString("en-KE")} (draft)`, undo: { projectId: d.projectId, id: r.id } };
     },
+    undo: (u) => api.deleteInvoice(u.projectId, u.id),
   },
   "add-material": {
     title: "Add material to inventory", verb: "Add material", view: "equipment",
@@ -175,6 +180,58 @@ export const AGENT: Record<string, Spec> = {
       return { id: (r as any).id, note: "Incident recorded" };
     },
   },
+  "site-day": {
+    title: "Site day", verb: "Save the day", view: "daily-log",
+    fields: [{ k: "projectId", label: "Project", type: "project" }, { k: "work", label: "Work done", type: "area" }, { k: "headcount", label: "Workers on site", type: "number", half: true },
+      { k: "date", label: "Day", type: "date", half: true }, { k: "summary", label: "Also saves", optional: true },
+      { k: "crew", label: "Crew / trades", half: true, optional: true }, { k: "weather", label: "Weather", half: true, optional: true }],
+    run: async (d) => {
+      need(d.work, "what was done");
+      const date = d.date || today();
+      const log: any = await api.createDailyLog(d.projectId, { date, crew: d.crew || "Site team", headcount: num(d.headcount) || 0, weather: d.weather || null, notes: d.work, materials: (d.deliveries || []).map((x: any) => `${x.quantity || ""} ${x.unit || ""} ${x.material}${x.supplier ? ` from ${x.supplier}` : ""}`.trim()).join("; ") || null, location: "" } as any);
+      // Deliveries into stock: an existing material by name, else a new one.
+      const stock = (d.deliveries || []).length ? await api.getInventory().catch(() => []) : [];
+      const moved: { id: string; quantity: number; created?: boolean }[] = [];
+      for (const x of d.deliveries || []) {
+        if (!String(x.material || "").trim() || !(Number(x.quantity) > 0)) continue;
+        let item: any = stock.find((i: any) => squash(i.name) === squash(x.material)) || stock.find((i: any) => squash(i.name).includes(squash(x.material)));
+        let created = false;
+        if (!item) { item = await api.createInventoryItem({ name: x.material, unit: x.unit || "pcs", currentStock: 0, category: "Other", projectId: d.projectId } as any); created = true; }
+        await api.addInventoryMovement(item.id, { type: "in", quantity: Number(x.quantity), reference: x.supplier || undefined, notes: "Delivery logged with the site day", date, projectId: d.projectId });
+        moved.push({ id: item.id, quantity: Number(x.quantity), created });
+      }
+      const snags: string[] = [];
+      for (const x of d.snags || []) {
+        if (!String(x.title || "").trim()) continue;
+        const r: any = await api.createPunchItem({ projectId: d.projectId, title: x.title, desc: x.title, area: x.area || "—", status: "open", priority: x.priority || "medium", category: "other" });
+        snags.push(r.id);
+      }
+      const bits = [`log saved${num(d.headcount) ? ` (${num(d.headcount)} on site)` : ""}`, moved.length ? `${moved.length} deliver${moved.length > 1 ? "ies" : "y"} into stock` : "", snags.length ? `${snags.length} snag${snags.length > 1 ? "s" : ""}` : ""].filter(Boolean);
+      return { id: log.id, note: bits.join(", "), undo: { projectId: d.projectId, logId: log.id, moved, snags } };
+    },
+    undo: async (u) => {
+      await api.deleteDailyLog(u.projectId, u.logId);
+      for (const id of u.snags || []) await api.deletePunchItem(id).catch(() => {});
+      for (const m of u.moved || []) {
+        if (m.created) await api.deleteInventoryItem(m.id).catch(() => {});
+        else await api.addInventoryMovement(m.id, { type: "out", quantity: m.quantity, notes: "Undo: delivery removed", projectId: u.projectId }).catch(() => {});
+      }
+    },
+  },
+  "add-expense": {
+    title: "Spending", verb: "Save spending", view: "financials",
+    fields: [{ k: "projectId", label: "Project", type: "project" }, { k: "description", label: "What for" }, { k: "amount", label: "Amount (KES)", type: "number", half: true },
+      { k: "date", label: "Date", type: "date", half: true }, { k: "supplier", label: "Supplier", half: true, optional: true },
+      { k: "category", label: "Category", type: "select", options: ["Materials", "Labour", "Transport", "Equipment hire", "Fuel", "Other"], half: true, optional: true }, { k: "reference", label: "Receipt no.", half: true, optional: true }],
+    run: async (d) => {
+      need(d.description, "what it was for");
+      const amount = num(d.amount) || 0;
+      if (!(amount > 0)) throw new Error("Add the amount.");
+      const r: any = await api.createLedgerEntry(d.projectId, { date: d.date || today(), desc: [d.description, d.supplier ? `(${d.supplier})` : "", d.reference ? `ref ${d.reference}` : ""].filter(Boolean).join(" "), type: "out", category: d.category || "Materials", amountUSD: amount } as any);
+      return { id: r?.id, note: `KES ${Math.round(amount).toLocaleString("en-KE")} · ${d.description}`, undo: { projectId: d.projectId, id: r?.id } };
+    },
+    undo: (u) => api.deleteLedgerEntry(u.projectId, u.id),
+  },
   "record-payment": {
     title: "Record payment received", verb: "Record payment", view: "invoicing",
     fields: [{ k: "projectId", label: "Project", type: "project" }, { k: "invoice", label: "Payment request no.", half: true }, { k: "amount", label: "Amount (KES)", type: "number", half: true },
@@ -186,8 +243,9 @@ export const AGENT: Record<string, Spec> = {
         || (invs.filter((i) => i.status !== "paid" && i.status !== "draft").length === 1 ? invs.find((i) => i.status !== "paid" && i.status !== "draft") : undefined);
       if (!inv) throw new Error("Which payment request is this for? Put its number on the card.");
       const r = await api.recordPayment(d.projectId, inv.id, { amount: num(d.amount) || 0, method: d.method || "mpesa", reference: d.reference || undefined, date: d.date || undefined });
-      return { id: inv.id, note: `${inv.invoiceNumber}: ${r.invoice.status === "paid" ? "paid in full" : `balance KES ${Math.round((r.invoice.amount || 0) - (r.invoice.paidAmount || 0)).toLocaleString("en-KE")}`}. The client has been told.` };
+      return { id: inv.id, note: `${inv.invoiceNumber}: ${r.invoice.status === "paid" ? "paid in full" : `balance KES ${Math.round((r.invoice.amount || 0) - (r.invoice.paidAmount || 0)).toLocaleString("en-KE")}`}. The client has been told.`, undo: { projectId: d.projectId, invoiceId: inv.id, paymentId: r.payment.id } };
     },
+    undo: (u) => api.deletePayment(u.projectId, u.invoiceId, u.paymentId),
   },
   "add-labourer": {
     title: "Add worker to the muster", verb: "Add worker", view: "attendance",
@@ -196,8 +254,9 @@ export const AGENT: Record<string, Spec> = {
     run: async (d) => {
       need(d.name, "the worker's name");
       const [w] = await api.addLabourers([{ name: d.name, trade: d.trade || undefined, dailyRate: num(d.dailyRate) || 0, phone: d.phone || undefined, projectId: d.projectId || undefined }]);
-      return { id: w.id, note: `${w.name}${w.trade ? `, ${w.trade}` : ""}${w.dailyRate ? `, KES ${w.dailyRate.toLocaleString("en-KE")} a day` : ""}` };
+      return { id: w.id, note: `${w.name}${w.trade ? `, ${w.trade}` : ""}${w.dailyRate ? `, KES ${w.dailyRate.toLocaleString("en-KE")} a day` : ""}`, undo: { id: w.id } };
     },
+    undo: (u) => api.updateLabourer(u.id, { active: false }),
   },
   muster: {
     title: "Mark the muster", verb: "Save muster", view: "attendance",
@@ -214,10 +273,12 @@ export const AGENT: Record<string, Spec> = {
       }
       if (/^(all|everyone|wote)$/i.test(String(d.present || "").trim())) m.workers.forEach((w) => { if (!marks.some((x) => x.labourerId === w.id)) marks.push({ labourerId: w.id, status: "present" }); });
       if (!marks.length) throw new Error(unknown.length ? `${unknown.join(", ")} ${unknown.length === 1 ? "isn't" : "aren't"} on this site's muster. Add them first.` : "Name who was present.");
+      const before = Object.fromEntries(m.workers.map((w) => [w.id, w.status]));
       await api.saveMuster(d.projectId, date, marks);
       const p = marks.filter((x) => x.status === "present").length, h = marks.filter((x) => x.status === "half").length;
-      return { id: d.projectId, note: `${p} present${h ? `, ${h} half day` : ""}${unknown.length ? `. Not on the muster: ${unknown.join(", ")}` : ""}` };
+      return { id: d.projectId, note: `${p} present${h ? `, ${h} half day` : ""}${unknown.length ? `. Not on the muster: ${unknown.join(", ")}` : ""}`, undo: { projectId: d.projectId, date, marks: marks.map((x) => ({ labourerId: x.labourerId, status: before[x.labourerId] ?? null })) } };
     },
+    undo: (u) => api.saveMuster(u.projectId, u.date, u.marks),
   },
   "add-units": {
     title: "Add units", verb: "Add units", view: "projects",
@@ -294,7 +355,9 @@ export const loadProjects = (fresh = false) => { if (fresh) projectsP = null; re
 export async function runAction(action: Extract<AiAction, { kind: "do" }>, newProjectId?: string): Promise<Done> {
   const spec = AGENT[action.action];
   if (!spec) throw new Error(`I can't do "${action.label}" yet.`);
-  const projects = await loadProjects(!!newProjectId);
+  let projects = await loadProjects(!!newProjectId);
+  const want = String(action.data.projectId || "");
+  if (want && want !== "new" && !projects.some((p) => p.id === want || p.name.toLowerCase() === want.toLowerCase())) projects = await loadProjects(true);
   const d = { ...action.data };
   const pf = spec.fields.find((f) => f.type === "project");
   if (pf) {
@@ -306,9 +369,11 @@ export async function runAction(action: Extract<AiAction, { kind: "do" }>, newPr
   return spec.run(d, { projects });
 }
 
-export function ActionCard({ action, newProjectId, onDone, onDismiss, onOpen, onChange }: {
+export function ActionCard({ action, newProjectId, onDone, onDismiss, onOpen, onChange, onUndo }: {
   action: Extract<AiAction, { kind: "do" }>; newProjectId?: string;
   onDone: (done: Done) => void; onDismiss: () => void; onOpen: (view: string) => void;
+  /** The saved record was reversed: the card goes back to its draft. */
+  onUndo?: () => void;
   /** Edits on the card, kept on the message (so "Do all" and history use them). */
   onChange?: (data: Record<string, any>) => void;
 }) {
@@ -327,10 +392,16 @@ export function ActionCard({ action, newProjectId, onDone, onDismiss, onOpen, on
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [busy, setBusy] = useState(false);
   const needsProject = !!spec?.fields.some((f) => f.type === "project");
-  useEffect(() => { if (needsProject) loadProjects(!!newProjectId).then(setProjects); }, [needsProject, newProjectId]);
-  // A project picked by name, or the one this reply just created.
+  // A project the AI names but the cached list lacks was made since: fetch the list again once.
   useEffect(() => {
     if (!needsProject) return;
+    const want = String(action.data.projectId || "");
+    loadProjects(!!newProjectId).then((list) => (want && want !== "new" && !list.some((p) => p.id === want || p.name.toLowerCase() === want.toLowerCase()) ? loadProjects(true) : list)).then(setProjects);
+  }, [needsProject, newProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A project picked by name, or the one this reply just created.
+  useEffect(() => {
+    // Wait for the list: resolving against an empty one would wipe the AI's choice.
+    if (!needsProject || !projects.length) return;
     setD((x) => {
       if (x.projectId === "new") return newProjectId ? { ...x, projectId: newProjectId } : x;
       if (x.projectId && projects.some((p) => p.id === x.projectId)) return x;
@@ -342,18 +413,32 @@ export function ActionCard({ action, newProjectId, onDone, onDismiss, onOpen, on
   const set = (k: string, v: any) => { const n = { ...d, [k]: v }; setD(n); onChange?.(n); };
   const waitingForProject = d.projectId === "new" && !newProjectId;
 
+  const [failed, setFailed] = useState<string | null>(null);
+  const [more, setMore] = useState(false);
+  const [undoing, setUndoing] = useState(false);
+  const [, tick] = useState(0);
+  const undoLeft = action.done?.at && action.done.undo && spec.undo ? UNDO_MS - (Date.now() - action.done.at) : 0;
+  useEffect(() => { if (undoLeft > 0) { const t = setTimeout(() => tick((x) => x + 1), Math.min(undoLeft, 1000)); return () => clearTimeout(t); } }, [undoLeft]);
   const run = async () => {
     const pf = spec.fields.find((f) => f.type === "project");
-    if (pf && !pf.optional && (!d.projectId || d.projectId === "new")) return toast.error(waitingForProject ? "Create the project above first." : "Pick the project first.");
-    setBusy(true);
-    try { const done = await spec.run(d, { projects }); onDone(done); toast.success(`${spec.title}: done`); }
-    catch (e: any) { toast.error(e?.message || "That didn't work."); }
+    if (pf && !pf.optional && (!d.projectId || d.projectId === "new")) { setFailed(waitingForProject ? "Create the project above first." : "Pick the project first."); return; }
+    setBusy(true); setFailed(null);
+    try { const done = await spec.run(d, { projects }); onDone({ ...done, at: Date.now() }); }
+    catch (e: any) { setFailed(e?.message || "That didn't work."); }
     setBusy(false);
+  };
+  const undo = async () => {
+    if (!spec.undo || !action.done?.undo) return;
+    setUndoing(true);
+    try { await spec.undo(action.done.undo); onUndo?.(); toast.success("Undone"); }
+    catch (e: any) { toast.error(e?.message || "Couldn't undo. Change it on the page instead."); }
+    setUndoing(false);
   };
 
   if (action.done) return (
     <div className="mt-2.5 rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/5 px-3.5 py-2.5 text-[12.5px] text-[#C2CAD6]">
-      <div className="flex items-center gap-2"><Check className="w-4 h-4 text-[#22C55E] shrink-0" /><span className="min-w-0 flex-1"><b className="text-white font-medium">{spec.title}</b>{action.done.note ? ` · ${action.done.note}` : ""}</span>
+      <div className="flex items-center gap-2"><Check className="w-4 h-4 text-[#22C55E] shrink-0" /><span className="min-w-0 flex-1"><b className="text-white font-medium">Saved</b> · {spec.title}{action.done.note ? ` · ${action.done.note}` : ""}</span>
+        {undoLeft > 0 && onUndo && <button onClick={undo} disabled={undoing} className="h-8 px-2.5 rounded-md border border-[#222A35] text-[12px] text-white inline-flex items-center gap-1 shrink-0 transition-transform active:scale-[0.97]">{undoing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />} Undo</button>}
         <button onClick={() => onOpen(spec.view)} className="text-[#FF8A47] hover:underline inline-flex items-center gap-1 shrink-0">Open <ArrowUpRight className="w-3.5 h-3.5" /></button></div>
       {action.done.link && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -373,7 +458,13 @@ export function ActionCard({ action, newProjectId, onDone, onDismiss, onOpen, on
         <button onClick={onDismiss} className="ml-auto text-[#8A95A5] hover:text-white" aria-label="Dismiss"><X className="w-3.5 h-3.5" /></button>
       </div>
       <div className="p-3.5 grid grid-cols-2 gap-2.5">
-        {spec.fields.map((f) => (
+        {(() => {
+          // At most five fields on the card (idea.md 7.2.8); the rest behind "More".
+          const shown = spec.fields.filter((f, i) => more || i < 5 || (!f.optional && !String(d[f.k] ?? "").trim()));
+          return shown;
+        })().map((f) => f.k === "summary" ? (
+          <div key={f.k} className="col-span-2 text-[12px] text-[#8A95A5]">{[...(d.deliveries || []).map((x: any) => `Delivery: ${x.quantity || ""} ${x.unit || ""} ${x.material}`.replace(/\s+/g, " ")), ...(d.snags || []).map((x: any) => `Snag: ${x.title}${x.area ? ` (${x.area})` : ""}`)].join(" · ") || "Just the daily log"}</div>
+        ) : (
           <label key={f.k} className={`block min-w-0 ${f.half ? "col-span-2 sm:col-span-1" : "col-span-2"}`}>
             <span className="text-[10.5px] uppercase tracking-wider text-[#5B6675]">{f.label}{f.optional ? "" : " *"}</span>
             {f.type === "project" ? (
@@ -396,9 +487,16 @@ export function ActionCard({ action, newProjectId, onDone, onDismiss, onOpen, on
           </label>
         ))}
       </div>
+      {spec.fields.length > 5 && !more && <button onClick={() => setMore(true)} className="mx-3.5 -mt-1 mb-2 text-[12px] text-[#8A95A5] hover:text-white inline-flex items-center gap-1">More <ChevronDown className="w-3.5 h-3.5" /></button>}
+      {failed && (
+        <div className="mx-3.5 mb-2.5 rounded-lg border border-[#EF4444]/30 bg-[#EF4444]/5 px-3 py-2 text-[12.5px] text-[#FCA5A5] flex flex-wrap items-center gap-2">
+          <span className="flex-1 min-w-0">Couldn't save: {failed}</span>
+          <button onClick={() => onOpen(spec.view)} className="text-[#FF8A47] inline-flex items-center gap-1">Do it on the page <ArrowUpRight className="w-3.5 h-3.5" /></button>
+        </div>
+      )}
       <div className="px-3.5 pb-3 flex flex-wrap items-center gap-2">
-        <button onClick={run} disabled={busy} className="h-9 px-4 rounded-lg bg-[#FF6B1A] hover:bg-[#FF7E33] text-[#ffffff] text-[13px] font-medium inline-flex items-center gap-1.5 disabled:opacity-60">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} {spec.verb}</button>
-        <span className="text-[11px] text-[#5B6675]">Check the details, then tap to do it.</span>
+        <button onClick={run} disabled={busy} className="h-11 sm:h-9 px-5 sm:px-4 rounded-lg bg-[#FF6B1A] hover:bg-[#FF7E33] text-[#ffffff] text-[14px] sm:text-[13px] font-medium inline-flex items-center gap-1.5 transition-transform active:scale-[0.97] disabled:opacity-60 max-sm:flex-1 max-sm:justify-center">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} {spec.verb}</button>
+        <span className="text-[11px] text-[#5B6675] max-sm:hidden">Check the details, then tap to save. You can undo.</span>
       </div>
     </div>
   );
