@@ -23,6 +23,8 @@ import {
 import { ClientPortalDialog } from "./ClientPortalDialog";
 import { SiteWeather } from "./SiteWeather";
 import { SelectionsFolder } from "./project-hub/SelectionsFolder";
+// idea.md 5.2: selections are hidden (code and data kept).
+const SHOW_SELECTIONS = false as boolean;
 import api, { absoluteFileUrl, type ProjectHubDto } from "../../services/api";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
 import { ImageLightbox } from "./ImageLightbox";
@@ -262,7 +264,7 @@ export function ProjectDetail({
           {folder === "client" && (
             <div className="space-y-4">
               <ClientFolder projectId={projectId} canInvite={canSharePortal} onOpenPortal={canSharePortal ? () => setPortalOpen(true) : undefined} />
-              <SelectionsFolder projectId={projectId} canEdit={canSharePortal} portalOn={!!data.project.portalToken} onOpenPortal={canSharePortal ? () => setPortalOpen(true) : undefined} />
+              {SHOW_SELECTIONS && <SelectionsFolder projectId={projectId} canEdit={canSharePortal} portalOn={!!data.project.portalToken} onOpenPortal={canSharePortal ? () => setPortalOpen(true) : undefined} />}
             </div>
           )}
           {folder === "units" && <UnitsFolder projectId={projectId} projectName={data.project.name} canShare={canSharePortal} />}

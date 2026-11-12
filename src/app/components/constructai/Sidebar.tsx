@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import type { Role } from "./roles";
-import { ROLES } from "./roles";
+import { ROLES, roleLabel } from "./roles";
 import { isViewVisible } from "../../config/features";
 import apiClient, { type UserProfile } from "../../services/api";
 import { BUSINESS_VIEWS } from "./planTier";
@@ -131,7 +131,7 @@ export function Sidebar({
     window.dispatchEvent(new CustomEvent("buildflex:open-settings", { detail: tab ? { tab } : undefined }));
   };
   const displayName = me?.name || "Your profile";
-  const displayRole = me?.role || role;
+  const displayRole = roleLabel(me?.role || role);
   const initials = (me?.name || "U").trim().split(/\s+/).map((s) => s[0]).slice(0, 2).join("").toUpperCase() || "U";
 
   const [last, setLast] = useState<Record<string, View>>(() => {

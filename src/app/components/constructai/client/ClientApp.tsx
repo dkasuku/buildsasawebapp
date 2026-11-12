@@ -36,6 +36,9 @@ const STATUS_TONE: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = { requested: "Waiting for Buildsasa", approved: "Approved, pay to start", active: "Active", paused: "Paused", ended: "Ended", declined: "Declined", pending: "Waiting for approval", rejected: "Not approved" };
 const Badge = ({ s, label }: { s: string; label?: string }) => <span className={`text-[10.5px] px-2 py-0.5 rounded-full whitespace-nowrap ${STATUS_TONE[s] || STATUS_TONE.closed}`}>{label || STATUS_LABEL[s] || s}</span>;
 
+// idea.md 5.2: site reporting, project requests and contractor ratings are switched off (code and data kept).
+const CLIENT_EXTRAS = false;
+
 export function ClientApp({ theme, setTheme, onSignOut }: { theme: "dark" | "light"; setTheme: (t: "dark" | "light") => void; onSignOut: () => void }) {
   const [view, setView] = useState<View>({ name: "home" });
   const [home, setHome] = useState<ClientHome | null>(null);
@@ -65,8 +68,7 @@ export function ClientApp({ theme, setTheme, onSignOut }: { theme: "dark" | "lig
     { key: "sites", label: "My sites", icon: Building2 },
     { key: "messages", label: "Messages", icon: MessageCircle },
     { key: "quotes", label: "Quotes & proposals", icon: FileSignature },
-    { key: "reporting", label: "Site reporting", icon: ShieldCheck },
-    { key: "request", label: "Request a project", icon: Briefcase },
+    ...(CLIENT_EXTRAS ? [{ key: "reporting" as const, label: "Site reporting", icon: ShieldCheck }, { key: "request" as const, label: "Request a project", icon: Briefcase }] : []),
     { key: "account", label: "Account", icon: User },
   ];
   const activeKey = view.name === "site" ? "sites" : view.name === "report" ? "reporting" : view.name;
@@ -172,9 +174,9 @@ function HomeView({ home, go }: { home: ClientHome; go: (v: View) => void }) {
           <div className="text-[15px] font-display">Let's get your site on Buildsasa</div>
           <p className="text-[12.5px] text-[#8A95A5] mt-1">If a contractor is already working for you, ask them to invite <b className="text-white">{home.user.email}</b> to the project, and it will appear here. Otherwise:</p>
           <div className="grid sm:grid-cols-3 gap-2 mt-4">
-            <Action icon={Briefcase} title="Request a project" text="Fencing, a borehole, a house… Buildsasa finds qualified contractors for you." onClick={() => go({ name: "request" })} />
+            {CLIENT_EXTRAS && <Action icon={Briefcase} title="Request a project" text="Fencing, a borehole, a house… Buildsasa finds qualified contractors for you." onClick={() => go({ name: "request" })} />}
             <Action icon={MessageCircle} title="Talk to Buildsasa" text="Questions about building in Kenya? Our team helps." onClick={() => window.open("https://wa.me/254782223749", "_blank")} />
-            <Action icon={ShieldCheck} title="Ask Buildsasa to report" text="Neutral visits and honest photo reports of every stage." onClick={() => go({ name: "reporting" })} />
+            {CLIENT_EXTRAS && <Action icon={ShieldCheck} title="Ask Buildsasa to report" text="Neutral visits and honest photo reports of every stage." onClick={() => go({ name: "reporting" })} />}
           </div>
         </section>
       ) : (
@@ -191,11 +193,11 @@ function HomeView({ home, go }: { home: ClientHome; go: (v: View) => void }) {
               <div className="space-y-2">{home.reporting.map((r) => <ReportingRow key={r.id} r={r} onClick={() => go({ name: "report", id: r.id })} />)}</div>
             </section>
           )}
-          <div className="grid sm:grid-cols-3 gap-2">
+          {CLIENT_EXTRAS && <div className="grid sm:grid-cols-3 gap-2">
             <Action icon={ShieldCheck} title="Neutral site reporting" text="Buildsasa visits and reports honestly, whoever builds." onClick={() => go({ name: "reporting" })} />
             <Action icon={Briefcase} title="Request a project" text="Need fencing, solar, CCTV or a gate? We find qualified contractors." onClick={() => go({ name: "request" })} />
             <Action icon={MessageCircle} title="Talk to Buildsasa" text="Questions about your site? Our team helps." onClick={() => window.open("https://wa.me/254782223749", "_blank")} />
-          </div>
+          </div>}
         </>
       )}
     </div>
@@ -259,10 +261,10 @@ function SitesView({ home, go, reload }: { home: ClientHome; go: (v: View) => vo
           <Building2 className="w-8 h-8 text-[#2C3744] mx-auto" />
           <div className="text-[14px] mt-2">Nothing here yet</div>
           <p className="text-[12.5px] text-[#8A95A5] mt-1 max-w-md mx-auto">Ask your contractor to invite <b className="text-white">{home.user.email}</b> from their Buildsasa project. Need a contractor? Send us a project request and we'll find qualified ones for you.</p>
-          <div className="flex flex-wrap justify-center gap-2 mt-4">
+          {CLIENT_EXTRAS && <div className="flex flex-wrap justify-center gap-2 mt-4">
             <button className={primary} onClick={() => go({ name: "request" })}><Briefcase className="w-4 h-4" /> Request a project</button>
             <button className={ghost} onClick={() => go({ name: "reporting" })}>Buildsasa site reporting</button>
-          </div>
+          </div>}
         </div>
       </div>
     );
@@ -328,7 +330,7 @@ function SiteView({ id, initialTab, go }: { id: string; initialTab?: string; go:
       {company && (company.phone || company.email) && (
         <div className="flex flex-wrap gap-2 mb-4">
           {company.phone && <a href={`tel:${company.phone}`} className={ghost}><Phone className="w-4 h-4" /> Call {company.name}</a>}
-          <button onClick={() => setRating(true)} className={ghost}>★ Rate {company.name}</button>
+          {CLIENT_EXTRAS && <button onClick={() => setRating(true)} className={ghost}>★ Rate {company.name}</button>}
           {company.phone && <a href={`https://wa.me/${String(company.phone).replace(/\D/g, "").replace(/^0/, "254")}`} target="_blank" rel="noreferrer" className={ghost}><MessageCircle className="w-4 h-4" /> WhatsApp</a>}
         </div>
       )}

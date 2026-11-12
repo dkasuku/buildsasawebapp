@@ -266,3 +266,24 @@ export const ROLE_DESCRIPTIONS: Record<Role, string> = {
   Worker: "Tradesperson on the jobsite. Mobile-first: view tasks, mark done, upload photos.",
   Viewer: "Read-only: architect, inspector, lender, or stakeholder.",
 };
+
+// idea.md R10: people see five roles only: Owner, Manager, Site staff, Viewer (plus Client,
+// which is invited from a project's Client tab). The detailed keys above stay as the stored
+// value because the API checks them; every picker offers just these four.
+export type SimpleRole = "Owner" | "Manager" | "Site staff" | "Viewer";
+export const SIMPLE_ROLES: { label: SimpleRole; key: Role; about: string }[] = [
+  { label: "Owner", key: "Executive", about: "Runs the company with you: sees money, approves, invites the team." },
+  { label: "Manager", key: "Project Manager", about: "Runs projects day to day: programme, money, payment requests, quotes." },
+  { label: "Site staff", key: "Site Engineer", about: "On site: daily log, muster, snags, checklists and photos. No money." },
+  { label: "Viewer", key: "Viewer", about: "Can look, can't change anything." },
+];
+const SIMPLE_OF: Partial<Record<Role, SimpleRole>> = {
+  Contractor: "Owner", Executive: "Owner", Owner: "Owner",
+  "Project Manager": "Manager", Superintendent: "Manager", "Quantity Surveyor": "Manager", Architect: "Manager",
+  "Site Engineer": "Site staff", Foreman: "Site staff", "Trade Lead": "Site staff", Worker: "Site staff", "QA/QC Officer": "Site staff",
+  Viewer: "Viewer",
+};
+/** The plain-language name of a stored role ("Foreman" -> "Site staff"). */
+export const roleLabel = (r: string): string => (r === "Client" ? "Client" : SIMPLE_OF[r as Role] || r);
+/** The stored key a picker should show as selected for this role. */
+export const simpleKey = (r: string): Role => (r === "Contractor" ? "Contractor" : SIMPLE_ROLES.find((s) => s.label === roleLabel(r))?.key || (r as Role));

@@ -58,7 +58,7 @@ export function DailyLogEditor({ projectId, projectLatLng, log, onClose, onSaved
   const [videos, setVideos] = useState<string[]>(parseUrls(log?.videos));
   const [clientVisible, setClientVisible] = useState(log?.clientVisible ?? true);
   const [unitIds, setUnitIds] = useState<string[]>(parseUnitIds((log as any)?.unitIds));
-  const [more, setMore] = useState(!!(log?.labour || log?.plant || log?.materials));
+  const [more, setMore] = useState(true);
   const [weatherNote, setWeatherNote] = useState("");
   const [fetchingWeather, setFetchingWeather] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -184,7 +184,7 @@ export function DailyLogEditor({ projectId, projectLatLng, log, onClose, onSaved
 
           <div>
             <button type="button" onClick={() => setMore((m) => !m)} className="text-[11.5px] text-[#FF6B1A] flex items-center gap-1">
-              <ChevronDown className={`w-3.5 h-3.5 transition ${more ? "rotate-180" : ""}`} /> Labour, plant and deliveries {more ? "" : "(optional)"}
+              <ChevronDown className={`w-3.5 h-3.5 transition ${more ? "rotate-180" : ""}`} /> Labour, plant and deliveries <span className="text-[#8A95A5]">(optional)</span>
             </button>
             {more && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2">

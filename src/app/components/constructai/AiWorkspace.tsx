@@ -89,6 +89,18 @@ const QUICK: { label: string; icon: any; ask?: string; fill?: string; photo?: bo
   { label: "Weekly client update", icon: FileText, ask: "Write this week's progress update for each of my active projects, ready to send to the clients." },
   { label: "Chase overdue invoices", icon: Wallet, money: true, ask: "Which invoices are overdue? Draft a polite but firm WhatsApp reminder for each client." },
 ];
+// What the AI does, shown on the home screen so people know it makes real records, not just chat.
+// Each one starts a message with an example the user can finish.
+const CAN: { title: string; text: string; icon: any; fill: string; money?: boolean }[] = [
+  { title: "Quotes and BOQs", text: "Priced from your own past rates. Send a sketch or plan photo too.", icon: Calculator, fill: "Write a quote for a 3-bedroom bungalow in Kitengela: " },
+  { title: "Payment requests", text: "Bill a stage that's done and send it to the client.", icon: Receipt, money: true, fill: "Make a payment request for " },
+  { title: "Record payments", text: "\"Kamau paid 200k by M-Pesa\" is filed against the right request.", icon: Wallet, money: true, fill: "Record a payment: " },
+  { title: "The site day", text: "Workers, work done, deliveries and snags, in one message.", icon: HardHat, fill: "Today on site: " },
+  { title: "Muster and wages", text: "Who came, half days, and this week's wage bill.", icon: Users, fill: "Mark the muster: " },
+  { title: "Receipts and spending", text: "Snap a receipt and it's filed as spending on the right site.", icon: Camera, money: true, fill: "File this spending: " },
+  { title: "Client updates", text: "A weekly progress update ready for WhatsApp.", icon: FileText, fill: "Write this week's update for " },
+  { title: "Projects and programme", text: "Start a project with its stages and dates.", icon: CalendarRange, fill: "Start a new project: " },
+];
 // A design's costed materials as a quote table, so it can be downloaded or saved as a quote.
 const estimateText = (m: Msg) => {
   const e = m.design?.estimate;
@@ -529,6 +541,24 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
                     <x.icon className="w-3.5 h-3.5 text-[#FF8A47]" /> {x.label}
                   </button>
                 ))}
+              </div>
+
+              {/* What the AI can do: it makes real records (quotes, payment requests, logs), not just chat. */}
+              <div className="mt-8">
+                <div className="text-[11px] uppercase tracking-wider text-[#5B6675] mb-2 px-1">What Buildsasa AI does for you</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {CAN.filter((x) => canSeeMoney || !x.money).map((x) => (
+                    <button key={x.title} onClick={() => { setQ(x.fill); requestAnimationFrame(() => { const el = inputRef.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }); }}
+                      className="text-left rounded-xl border border-[#222A35] bg-[#11161D] hover:border-[#FF6B1A]/50 px-3.5 py-3 flex items-start gap-3 transition-[border-color,transform] duration-150 active:scale-[0.98]">
+                      <span className="w-8 h-8 shrink-0 rounded-lg bg-[#FF6B1A]/10 flex items-center justify-center"><x.icon className="w-4 h-4 text-[#FF8A47]" /></span>
+                      <span className="min-w-0">
+                        <span className="block text-[13.5px] text-white">{x.title}</span>
+                        <span className="block text-[12px] text-[#8A95A5] leading-snug mt-0.5">{x.text}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11.5px] text-[#5B6675] mt-3 px-1">Every answer ends in a card you check and save with one tap. Nothing is saved until you tap it, and you can undo for 15 seconds after.</p>
               </div>
 
             </div>

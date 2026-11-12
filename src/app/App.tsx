@@ -15,11 +15,9 @@ import { isFirstSignIn, markWelcomed, storedUser } from "./components/constructa
 import { BUSINESS_VIEWS, setPlanTier } from "./components/constructai/planTier";
 import { PlanUpgrade } from "./components/constructai/PlanUpgrade";
 import { ErrorBoundary } from "./components/constructai/ErrorBoundary";
-import { Dashboard } from "./components/constructai/Dashboard";
 import { Projects } from "./components/constructai/Projects";
 import { ProjectDetail } from "./components/constructai/ProjectDetail";
 import { FieldView } from "./components/constructai/FieldView";
-import { Reports } from "./components/constructai/Reports";
 import { Plans } from "./components/constructai/Plans";
 import { Schedule } from "./components/constructai/Schedule";
 import Financials from "./components/constructai/Financials";
@@ -31,8 +29,6 @@ import Billing from "./components/constructai/Billing";
 import TeamMembers from "./components/constructai/TeamMembers";
 import api from "./services/api";
 import { Inbox } from "./components/constructai/Inbox";
-import { Announcements } from "./components/constructai/Announcements";
-import { RoleManager } from "./components/constructai/RoleManager";
 import Invoicing from "./components/constructai/Invoicing";
 import Quotes from "./components/constructai/Quotes";
 import Inspections from "./components/constructai/Inspections";
@@ -43,13 +39,8 @@ import { OutboxPill } from "./components/constructai/OutboxPill";
 import { AiWorkspace } from "./components/constructai/AiWorkspace";
 import { useAiSession } from "./components/constructai/aiSession";
 import { ChecklistsHub } from "./components/constructai/ChecklistsHub";
-import Observations from "./components/constructai/Observations";
-import Coordination from "./components/constructai/Coordination";
-import CorrespondenceModule from "./components/constructai/Correspondence";
-import Crews from "./components/constructai/Crews";
 import Directory from "./components/constructai/Directory";
 import CompanyDocs from "./components/constructai/CompanyDocs";
-import Subcontractors from "./components/constructai/Subcontractors";
 import type { Role } from "./components/constructai/roles";
 import { ROLES } from "./components/constructai/roles";
 import { CurrencyProvider } from "./components/constructai/CurrencyContext";
@@ -518,7 +509,7 @@ export default function App() {
   // prompt; paid companies get full access. (In demo mode without Paystack,
   // choosing a plan activates instantly so it stays testable.)
   const paywalled = gate.overdue || !gate.active;
-  const starter = gate.tier === "starter";
+  const starter = false; // idea.md R11: one plan, no feature locking by tier.
   // Not a hook: this sits below early returns, where hooks would break the render order.
   setPlanTier(starter ? "starter" : "business");
   const invoiceBanner = !paywalled && !!gate.unpaidDue;
@@ -611,13 +602,6 @@ export default function App() {
             )}
             {starter && BUSINESS_VIEWS.includes(effectiveView) ? <PlanUpgrade view={effectiveView} onUpgrade={() => navigate("billing")} /> : (
             <ErrorBoundary resetKey={effectiveView} onReset={() => setView(homeView(allowed))}>
-            {effectiveView === "dashboard" && (
-              <Dashboard
-                role={role}
-                onOpenChangeOrder={openChangeOrder}
-                onNavigate={navigate}
-              />
-            )}
             {effectiveView === "projects" && (
               <Projects
                 setView={navigate}
@@ -656,20 +640,11 @@ export default function App() {
             {/* The old standalone Commitments page read fields the API never returns (blank rows); show the real one inside Financials. */}
             {effectiveView === "commitments" && <Financials role={role} initialTab="commitments" only />}
             {effectiveView === "field-view" && <FieldView role={role} />}
-            {effectiveView === "reports" && <Reports />}
             {effectiveView === "financials" && <Financials role={role} />}
             {effectiveView === "team" && <TeamMembers role={role} />}
             {effectiveView === "inbox" && <Inbox role={role} />}
-            {effectiveView === "announcements" && <Announcements />}
-            {effectiveView === "observations" && <Observations role={role} />}
-            {effectiveView === "action-plans" && <Observations key="actions" role={role} initialTab="actions" />}
-            {effectiveView === "coordination" && <Coordination role={role} />}
-            {effectiveView === "correspondence" && <CorrespondenceModule role={role} />}
-            {effectiveView === "crews" && <Crews role={role} />}
             {effectiveView === "directory" && <Directory role={role} />}
-            {effectiveView === "subcontractors" && <Subcontractors role={role} />}
             {effectiveView === "company-docs" && <CompanyDocs role={role} />}
-            {effectiveView === "role-manager" && <RoleManager role={role} />}
             {effectiveView === "quotes" && <Quotes role={role} />}
             {effectiveView === "invoicing" && <Invoicing role={role} />}
             {effectiveView === "inspections" && <Inspections role={role} />}

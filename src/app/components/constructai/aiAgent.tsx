@@ -2,6 +2,7 @@
 // the card that runs them. Every action goes through the same API calls (and
 // the same server-side permission checks) as the page it belongs to, and only
 // after the user taps "Do it", so nothing happens behind their back.
+import { SIMPLE_ROLES, roleLabel } from "./roles";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ArrowUpRight, Check, ChevronDown, Copy, Loader2, MessageCircle, Plus, RotateCcw, Trash2, X, Zap } from "lucide-react";
@@ -16,7 +17,9 @@ type Spec = { title: string; verb: string; view: string; fields: Field[]; run: (
   undo?: (u: Record<string, any>) => Promise<unknown> };
 const UNDO_MS = 15000;
 
-const ROLES = ["Project Manager", "Site Engineer", "Superintendent", "Foreman", "Trade Lead", "Worker", "Architect", "Quantity Surveyor", "QA/QC Officer", "Executive", "Owner", "Viewer"];
+// idea.md R10: four roles to choose from. Older names the AI may still say map onto them.
+const ROLES = SIMPLE_ROLES.map((r) => r.label);
+const roleKey = (r: unknown) => { const l = roleLabel(String(r || "Site staff")); return SIMPLE_ROLES.find((x) => x.label === l)?.key || "Site Engineer"; };
 const today = () => new Date().toISOString().slice(0, 10);
 const plusDays = (n: number) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
 const num = (v: any) => (v === "" || v == null ? null : Number(String(v).replace(/[, ]/g, "")) || 0);
@@ -56,7 +59,7 @@ export const AGENT: Record<string, Spec> = {
     fields: [{ k: "name", label: "Name", half: true }, { k: "email", label: "Email", type: "email", half: true }, { k: "role", label: "Role", type: "select", options: ROLES, half: true }, { k: "trade", label: "Trade", half: true, optional: true }],
     run: async (d) => {
       need(d.name, "their name"); need(d.email, "their email");
-      const r = await api.inviteUser({ name: d.name, email: String(d.email).trim(), role: d.role || "Worker", trade: d.trade || undefined });
+      const r = await api.inviteUser({ name: d.name, email: String(d.email).trim(), role: roleKey(d.role), trade: d.trade || undefined });
       return { id: r.user?.id, note: r.emailed ? `Invite emailed to ${d.email}.` : r.tempPassword ? `Email isn't set up, so share this temporary password with ${d.name}: ${r.tempPassword}` : `Added ${d.name}.` };
     },
   },
@@ -67,8 +70,8 @@ export const AGENT: Record<string, Spec> = {
       const users = await api.getUsers();
       const u = users.find((x: any) => String(x.email).toLowerCase() === String(d.email || "").toLowerCase().trim() || String(x.name).toLowerCase() === String(d.email || "").toLowerCase().trim());
       if (!u) throw new Error("No team member with that email. Invite them instead.");
-      await api.updateUserRole(u.id, d.role);
-      return { id: u.id, note: `${u.name} is now ${d.role}.` };
+      await api.updateUserRole(u.id, roleKey(d.role));
+      return { id: u.id, note: `${u.name} is now ${roleLabel(roleKey(d.role))}.` };
     },
   },
   "share-portal": {

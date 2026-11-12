@@ -7,12 +7,10 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { UserPlus, Trash2, Copy, X, ShieldCheck, Loader2, Mail } from "lucide-react";
 import type { Role } from "./roles";
-import { ROLES, ROLE_COLORS, ROLE_DESCRIPTIONS } from "./roles";
+import { ROLES, ROLE_COLORS, SIMPLE_ROLES, roleLabel, simpleKey } from "./roles";
 import { PageHeader } from "./PageShell";
 
-const ALL_ROLES = Object.keys(ROLES) as Role[];
 // Clients aren't team members: they get their own account via a project's Client tab.
-const TEAM_ROLES = ALL_ROLES.filter((r) => r !== "Client");
 
 export default function TeamMembers({ role }: { role: Role }) {
   const canManage = ROLES[role].manageTeam || ROLES[role].isWorkspaceOwner;
@@ -67,20 +65,21 @@ export default function TeamMembers({ role }: { role: Role }) {
         {loading ? <div className="p-8 text-center text-[#5B6675] text-[13px]"><Loader2 className="w-4 h-4 animate-spin inline" /> Loading…</div> : (
           <table className="w-full text-[12px]">
             <thead><tr className="text-[10px] text-[#5B6675] uppercase tracking-wider border-b border-[#222A35]">
-              <th className="text-left px-4 py-2.5">Name</th><th className="text-left px-3 py-2.5">Email</th><th className="text-left px-3 py-2.5">Role</th><th className="px-3 py-2.5"></th>
+              <th className="text-left px-4 py-2.5">Name</th><th className="text-left px-3 py-2.5 hidden sm:table-cell">Email</th><th className="text-left px-3 py-2.5">Role</th><th className="px-3 py-2.5"></th>
             </tr></thead>
             <tbody>
               {users.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-[#5B6675]">No members yet. Invite your team.</td></tr>}
               {users.map((u) => (
                 <tr key={u.id} className="border-b border-[#222A35] last:border-0 hover:bg-[#161C24]">
-                  <td className="px-4 py-2.5 text-white flex items-center gap-2"><span className="w-2 h-2 rounded-full" style={{ background: ROLE_COLORS[u.role as Role] || "#5B6675" }} />{u.name}</td>
-                  <td className="px-3 py-2.5 text-[#8A95A5]">{u.email}</td>
+                  <td className="px-4 py-2.5 text-white"><div className="flex items-center gap-2 min-w-0"><span className="w-2 h-2 shrink-0 rounded-full" style={{ background: ROLE_COLORS[u.role as Role] || "#5B6675" }} /><span className="truncate">{u.name}</span></div><div className="sm:hidden text-[11px] text-[#8A95A5] truncate max-w-[45vw]">{u.email}</div></td>
+                  <td className="px-3 py-2.5 text-[#8A95A5] hidden sm:table-cell">{u.email}</td>
                   <td className="px-3 py-2.5">
                     {canManage ? (
-                      <select value={u.role} onChange={(e) => changeRole(u.id, e.target.value)} className="h-8 bg-[#0A0E14] border border-[#222A35] rounded px-2 text-[11px] text-white">
-                        {ALL_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                      <select aria-label={`${u.name} role`} value={simpleKey(u.role)} onChange={(e) => changeRole(u.id, e.target.value)} className="h-9 bg-[#0A0E14] border border-[#222A35] rounded px-2 text-[12px] text-white">
+                        {u.role === "Contractor" && <option value="Contractor">Owner (account)</option>}
+                        {SIMPLE_ROLES.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
                       </select>
-                    ) : <span className="text-[#C2CAD6]">{u.role}</span>}
+                    ) : <span className="text-[#C2CAD6]">{roleLabel(u.role)}</span>}
                   </td>
                   <td className="px-3 py-2.5 text-right">{canManage && <button onClick={() => remove(u.id)} className="text-[#5B6675] hover:text-[#EF4444]"><Trash2 className="w-3.5 h-3.5" /></button>}</td>
                 </tr>
@@ -175,9 +174,9 @@ function InviteModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
           <div><div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">Work email</div><input value={email} onChange={(e) => setEmail(e.target.value)} className={cls} placeholder="name@company.co.ke" /></div>
           <div>
             <div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">Role</div>
-            <select value={memberRole} onChange={(e) => setMemberRole(e.target.value as Role)} className={cls}>{TEAM_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select>
+            <select value={memberRole} onChange={(e) => setMemberRole(e.target.value as Role)} className={cls}>{SIMPLE_ROLES.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}</select>
             <p className="text-[11px] text-[#5B6675] mt-1">Inviting a client? Open the project and use its Client tab. They create their own free account and password.</p>
-            <div className="text-[10px] text-[#5B6675] mt-1">{ROLE_DESCRIPTIONS[memberRole]}</div>
+            <div className="text-[10px] text-[#5B6675] mt-1">{SIMPLE_ROLES.find((r) => r.key === memberRole)?.about}</div>
           </div>
           <div><div className="text-[10px] uppercase tracking-wider text-[#8A95A5] mb-1">Temp password (optional — auto-generated if blank)</div><input value={password} onChange={(e) => setPassword(e.target.value)} className={cls} placeholder="min 6 characters" /><div className="text-[10px] text-[#5B6675] mt-1">We'll email them an invite with sign-in details. If email isn't set up yet, you'll get the temporary password to share.</div></div>
         </div>

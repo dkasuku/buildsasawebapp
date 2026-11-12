@@ -296,7 +296,8 @@ export default function Billing({ role }: { role: Role }) {
         <div className="text-[13px] text-[#8A95A5] flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading plans…</div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {plans.map((p) => {
+          {/* idea.md R11: one plan (paid monthly or yearly) after the free trial. Old Starter plans stay only for whoever is on one. */}
+          {plans.filter((p) => (p as any).tier !== "starter" || (active && sub.plan === p.id)).map((p) => {
             const isYearly = p.cycle === "yearly";
             const mine = active && sub.plan === p.id;
             return (

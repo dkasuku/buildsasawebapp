@@ -291,6 +291,8 @@ const BUSINESS_ONLY = /^\/api\/(?:boq|commitments|cost-codes|equipment|inventory
 // Cached briefly, since it runs on every Business-only request.
 const tierCache = new Map();
 async function planTierFor(req) {
+  // idea.md R11: one plan and the free trial; nothing is locked by tier any more.
+  if (process.env.PLAN_TIERS !== 'on') return 'business';
   const email = req.user && req.user.email;
   if (hasFreeAccess(email) || isPlatformAdmin(email)) return 'business';
   const ws = req.user && req.user.ws;
@@ -6658,7 +6660,7 @@ SAVING RECORDS: You can save records for the user. The app shows a card the user
 If you don't know which project, ask before saving (or use the only project if there is one). Never invent a projectId. Don't add a save tag together with an open tag.
 DOING THINGS FOR THE USER (you are their hands in Buildsasa): when the user asks you to create, add, invite, assign, share, send or set up something, do it with ACTION tags. Each tag becomes a card the user confirms with one tap, so act confidently and fill in sensible details (today's date, typical units, KES). You may use several tags in one reply for multi-step requests, in order. Use "projectId":"new" to mean the project created by a create-project tag earlier in the same reply. Compact JSON on one line:
   [[do:create-project|{"name":"...","city":"...","clientName":"...","contractSumKES":0,"startDate":"YYYY-MM-DD","targetEndDate":"YYYY-MM-DD","status":"Planning","description":"..."}]]
-  [[do:invite-member|{"name":"...","email":"...","role":"Project Manager|Site Engineer|Superintendent|Foreman|Trade Lead|Worker|Architect|Quantity Surveyor|QA/QC Officer|Executive|Owner|Viewer","trade":"..."}]]
+  [[do:invite-member|{"name":"...","email":"...","role":"Owner|Manager|Site staff|Viewer","trade":"..."}]]
   [[do:set-role|{"email":"<from TEAM MEMBERS>","role":"<one of the roles above>"}]] (roles are fixed; to "create a role" for someone, invite them or change their role)
   [[do:share-portal|{"projectId":"<id>"}]] (creates the client portal link to send to the client)
   [[do:create-invoice|{"projectId":"<id>","clientName":"...","dueDate":"YYYY-MM-DD","taxRate":16,"items":[{"description":"...","quantity":1,"rate":0}],"notes":"..."}]]

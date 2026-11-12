@@ -107,7 +107,7 @@ export function LabourMuster() {
           {!projects.length && <option value="">Loading projects…</option>}
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
-        <input type="date" aria-label="Day" value={date} max={nairobiToday()} onChange={(e) => e.target.value && setDate(e.target.value)} className={field} />
+        <input type="date" aria-label="Day" lang="en-GB" value={date} max={nairobiToday()} onChange={(e) => e.target.value && setDate(e.target.value)} className={field} />
       </div>
 
       <div className="rounded-xl border border-[#222A35] bg-[#11161D]">
@@ -118,7 +118,7 @@ export function LabourMuster() {
           {!!m?.workers.length && <button onClick={allPresent} className="ml-auto h-8 px-3 rounded-lg border border-[#222A35] text-[12px] text-[#C2CAD6] hover:text-white">Everyone present</button>}
         </div>
         {!m ? <div className="p-6 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-[#5B6675]" /></div>
-          : !m.workers.length ? <div className="p-6 text-center text-[13px] text-[#8A95A5]">No workers on this site yet. Add your fundis and helpers below once; after that, marking the day takes a few taps. Or tell Buildsasa AI: "Add Juma, mason, 1,200 a day".</div>
+          : !m.workers.length ? <div className="p-6 text-center text-[13px] text-[#8A95A5]">No workers on this site yet. Add your fundis and helpers once below; after that, marking the day takes a few taps. Or tell Buildsasa AI: "Add Juma, mason, 1,200 a day".</div>
           : (
             <div className="divide-y divide-[#222A35]">
               {m.workers.map((w) => (
@@ -140,17 +140,25 @@ export function LabourMuster() {
               ))}
             </div>
           )}
-        <div className="px-4 py-3 border-t border-[#222A35] flex flex-wrap items-center gap-2">
-          <button onClick={() => setAdding((a) => !a)} className="h-9 px-3 rounded-lg border border-[#222A35] text-[12.5px] text-[#C2CAD6] hover:text-white inline-flex items-center gap-1.5"><UserPlus className="w-4 h-4" /> Add worker</button>
-          <button onClick={save} disabled={!changed.length || saving} className="ml-auto h-10 px-5 rounded-lg bg-[#FF6B1A] text-[#ffffff] text-[13.5px] font-medium inline-flex items-center gap-1.5 disabled:opacity-40">{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Save muster{changed.length ? ` (${changed.length})` : ""}</button>
-        </div>
-        {adding && (
-          <div className="px-4 pb-4 grid grid-cols-2 sm:grid-cols-[1.4fr_1fr_0.8fr_1fr_auto] gap-2">
-            <input aria-label="Worker name" value={nw.name} onChange={(e) => setNw({ ...nw, name: e.target.value })} onKeyDown={(e) => e.key === "Enter" && addWorker()} placeholder="Name" className={`${field} col-span-2 sm:col-span-1`} />
-            <select aria-label="Trade" value={nw.trade} onChange={(e) => setNw({ ...nw, trade: e.target.value })} className={field}>{TRADES.map((t) => <option key={t}>{t}</option>)}</select>
-            <input aria-label="Daily rate" value={nw.dailyRate} onChange={(e) => setNw({ ...nw, dailyRate: e.target.value })} inputMode="numeric" placeholder="KES/day" className={field} />
-            <input aria-label="Phone" value={nw.phone} onChange={(e) => setNw({ ...nw, phone: e.target.value })} placeholder="Phone (M-Pesa)" className={`${field} col-span-2 sm:col-span-1`} />
-            <button onClick={addWorker} className="h-10 px-3 rounded-lg bg-[#161C24] border border-[#2C3744] text-white text-[12.5px] inline-flex items-center justify-center gap-1 col-span-2 sm:col-span-1"><Plus className="w-4 h-4" /> Add</button>
+        {(adding || (m && !m.workers.length)) && (
+          <div className="px-4 py-4 border-t border-[#222A35]">
+            <div className="text-[12px] font-medium text-[#C2CAD6] mb-2">New worker</div>
+            <div className="grid grid-cols-2 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1.2fr)] gap-2">
+              <input aria-label="Worker name" autoFocus={adding} value={nw.name} onChange={(e) => setNw({ ...nw, name: e.target.value })} onKeyDown={(e) => e.key === "Enter" && addWorker()} placeholder="Name, e.g. Juma" className={`${field} w-full min-w-0 col-span-2 md:col-span-1`} />
+              <select aria-label="Trade" value={nw.trade} onChange={(e) => setNw({ ...nw, trade: e.target.value })} className={`${field} w-full min-w-0`}>{TRADES.map((t) => <option key={t}>{t}</option>)}</select>
+              <input aria-label="Daily rate" value={nw.dailyRate} onChange={(e) => setNw({ ...nw, dailyRate: e.target.value })} inputMode="numeric" placeholder="KES per day" className={`${field} w-full min-w-0`} />
+              <input aria-label="Phone" value={nw.phone} onChange={(e) => setNw({ ...nw, phone: e.target.value })} inputMode="tel" placeholder="M-Pesa phone" className={`${field} w-full min-w-0 col-span-2 md:col-span-1`} />
+            </div>
+            <div className="mt-2 flex justify-end gap-2">
+              {adding && !!m?.workers.length && <button onClick={() => setAdding(false)} className="h-10 px-3 rounded-lg text-[12.5px] text-[#8A95A5] hover:text-white">Cancel</button>}
+              <button onClick={addWorker} disabled={!nw.name.trim()} className="h-10 px-4 rounded-lg bg-[#FF6B1A] text-[#ffffff] text-[13px] font-medium inline-flex items-center justify-center gap-1.5 disabled:opacity-40"><Plus className="w-4 h-4" /> Add worker</button>
+            </div>
+          </div>
+        )}
+        {!!m?.workers.length && (
+          <div className="px-4 py-3 border-t border-[#222A35] flex flex-wrap items-center gap-2">
+            {!adding && <button onClick={() => setAdding(true)} className="h-10 px-3 rounded-lg border border-[#222A35] text-[12.5px] text-[#C2CAD6] hover:text-white inline-flex items-center gap-1.5"><UserPlus className="w-4 h-4" /> Add worker</button>}
+            <button onClick={save} disabled={!changed.length || saving} className="ml-auto h-10 px-5 rounded-lg bg-[#FF6B1A] text-[#ffffff] text-[13.5px] font-medium inline-flex items-center gap-1.5 disabled:opacity-40">{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Save muster{changed.length ? ` (${changed.length})` : ""}</button>
           </div>
         )}
       </div>
