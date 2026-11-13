@@ -634,7 +634,10 @@ export type BidPackageDto = {
 /** One line of today's brief, with ONE next step: ask the AI, open a page, or start a message. */
 export type AiBriefItem = { id: string; tone: "red" | "amber" | "blue"; icon: string; title: string; detail: string; button?: string; ask?: string; view?: string; fill?: string };
 export type CompanyPublic = { name: string; logoUrl?: string | null; phone?: string | null; email?: string | null; address?: string | null; kraPin?: string | null; paymentDetails?: string | null };
-export type CompanyDto = CompanyPublic & { quoteTerms?: string | null; canEdit: boolean };
+/** nameIsDefault: no real company name yet (Google sign-in); `name` is then the contractor's own name. */
+export type CompanyDto = CompanyPublic & { quoteTerms?: string | null; canEdit: boolean; nameIsDefault?: boolean };
+/** Tell every cached copy of the company profile that it changed. */
+export const companyChanged = () => { try { window.dispatchEvent(new Event("buildsasa:company-updated")); } catch { /* noop */ } };
 
 export type CreditsDto = {
   balance: number; plan: number; topup: number; allowance?: number; resetsAt?: string | null;
@@ -1378,7 +1381,7 @@ export const api = {
   submitPublicBid: (token: string, payload: { subcontractor?: string; contactName?: string; contactEmail?: string; contactPhone?: string; trade?: string; amount: number; notes?: string; fileUrl?: string }) => http<{ ok: boolean; id?: string }>(`/api/public/bids/${token}`, { method: "POST", body: JSON.stringify(payload) }),
   // Company profile (branding on quotes, invoices and the client pages)
   getCompany: () => http<CompanyDto>(`/api/company`),
-  updateCompany: (payload: Partial<Omit<CompanyDto, "canEdit">>) => http<CompanyDto>(`/api/company`, { method: "PUT", body: JSON.stringify(payload) }),
+  updateCompany: (payload: Partial<Omit<CompanyDto, "canEdit" | "nameIsDefault">>) => http<CompanyDto>(`/api/company`, { method: "PUT", body: JSON.stringify(payload) }).then((c) => { companyChanged(); return c; }),
   getCompanyLogoData: () => http<{ dataUrl: string | null; reason?: string }>(`/api/company/logo-data`),
   // Sasa Credits (AI allowance)
   getCredits: () => http<CreditsDto>(`/api/ai-credits`),

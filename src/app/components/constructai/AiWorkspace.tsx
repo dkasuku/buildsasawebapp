@@ -185,6 +185,21 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
   useEffect(() => { api.me().then((u) => setName((u?.name || "").trim().split(/\s+/)[0] || "")).catch(() => {}); }, []);
   // Today's brief: what needs attention, from the workspace data.
   const [brief, setBrief] = useState<AiBriefItem[] | null>(null);
+  // No company name yet (e.g. Google sign-in): ask for it, since it heads every quote.
+  const [coName, setCoName] = useState<{ ask: boolean; value: string; busy?: boolean }>({ ask: false, value: "" });
+  useEffect(() => {
+    const load = () => api.getCompany().then((c) => setCoName({ ask: !!(c.nameIsDefault && c.canEdit), value: "" })).catch(() => {});
+    load();
+    window.addEventListener("buildsasa:company-updated", load);
+    return () => window.removeEventListener("buildsasa:company-updated", load);
+  }, []);
+  const saveCoName = async () => {
+    const n = coName.value.trim();
+    if (!n) return;
+    setCoName((x) => ({ ...x, busy: true }));
+    try { const c = await api.updateCompany({ name: n }); toast.success(`Your quotes and invoices now show ${c.name}.`); setCoName({ ask: false, value: "" }); }
+    catch (e: any) { toast.error(e?.message || "Couldn't save the name."); setCoName((x) => ({ ...x, busy: false })); }
+  };
   useEffect(() => { if (!started) api.aiBrief().then((r) => setBrief(r.items)).catch(() => setBrief([])); }, [started]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, busy]);
   useEffect(() => { try { localStorage.setItem("buildsasa-ai-history", showHistory ? "1" : "0"); } catch { /* noop */ } }, [showHistory]);
@@ -518,6 +533,18 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
                 <Sparkles className="w-8 h-8 text-[#FF6B1A]" /> {greeting()}{name ? `, ${name}` : ""}
               </h1>
               <p className="text-center text-[13.5px] text-[#8A95A5] mt-2">Tell me what happened on site, or what you need done. Type, talk or snap a photo.</p>
+              {coName.ask && (
+                <div className="mt-6 rounded-2xl border border-[#FF6B1A]/40 bg-[#FF6B1A]/[0.06] p-4">
+                  <div className="text-[14px] text-white font-medium">What's your company called?</div>
+                  <div className="text-[12.5px] text-[#8A95A5] mt-0.5">It goes at the top of your quotes and payment requests. Work alone? Leave it and we'll use your own name.</div>
+                  <div className="mt-3 flex gap-2">
+                    <input aria-label="Company name" value={coName.value} onChange={(e) => setCoName((x) => ({ ...x, value: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && saveCoName()}
+                      placeholder="e.g. Mwangi Builders Ltd" className="flex-1 min-w-0 h-10 rounded-lg bg-[#0A0E14] border border-[#222A35] px-3 text-[14px] text-white focus:outline-none focus:border-[#FF6B1A]/60" />
+                    <button onClick={saveCoName} disabled={!coName.value.trim() || coName.busy} className="h-10 px-4 rounded-lg bg-[#FF6B1A] text-[#ffffff] text-[13px] font-medium disabled:opacity-50">{coName.busy ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save"}</button>
+                  </div>
+                  <button onClick={() => setCoName({ ask: false, value: "" })} className="mt-2 text-[12px] text-[#8A95A5] hover:text-white">Not now</button>
+                </div>
+              )}
               <div className="mt-7">{composer(true)}</div>
               {/* Today's brief (idea.md 7.2.1): at most five lines, each with one button for the next step. */}
               {brief && brief.length > 0 && (

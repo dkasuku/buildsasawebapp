@@ -13,6 +13,42 @@ import { exportQuote, quoteMarkdown, quoteSums } from "./aiQuote";
 const kes = (n: number) => `KES ${Math.round(n).toLocaleString("en-KE")}`;
 let companyP: Promise<CompanyDto | null> | null = null;
 const loadCompany = () => (companyP ||= api.getCompany().catch(() => null));
+if (typeof window !== "undefined") window.addEventListener("buildsasa:company-updated", () => { companyP = null; });
+
+/** Who the quote is from: the company name (or the contractor's own name when no
+ *  company name is set), editable in place so a wrong name never goes out. */
+export function QuoteFrom({ compact }: { compact?: boolean }) {
+  const [c, setC] = useState<CompanyDto | null>(null);
+  const [name, setName] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { loadCompany().then((x) => { setC(x); setName(x?.name || ""); }); }, []);
+  if (!c) return null;
+  const save = async () => {
+    const n = name.trim();
+    if (!n) return toast.error("Type your company name.");
+    setBusy(true);
+    try { const x = await api.updateCompany({ name: n }); companyP = Promise.resolve(x); setC(x); setName(x.name); setEditing(false); toast.success(`Quotes and invoices now show ${x.name}.`); }
+    catch (e: any) { toast.error(e?.message || "Couldn't save the name."); }
+    setBusy(false);
+  };
+  if (editing) return (
+    <div className={`flex items-center gap-1.5 ${compact ? "px-3.5 pb-2" : ""}`}>
+      <input autoFocus aria-label="Company name on quotes" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }}
+        placeholder="e.g. Mwangi Builders Ltd" className="flex-1 min-w-0 h-9 rounded-md bg-[#0A0E14] border border-[#FF6B1A]/50 px-2.5 text-[13px] text-white focus:outline-none" />
+      <button onClick={save} disabled={busy} className="h-9 px-3 rounded-md bg-[#FF6B1A] text-[#ffffff] text-[12.5px] font-medium disabled:opacity-60">{busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Save"}</button>
+      <button onClick={() => { setEditing(false); setName(c.name); }} className="h-9 px-2 text-[12px] text-[#8A95A5]">Cancel</button>
+    </div>
+  );
+  return (
+    <div className={`flex items-center gap-2 text-[12px] ${compact ? "px-3.5 pb-2" : ""}`}>
+      <span className="text-[#8A95A5] shrink-0">From</span>
+      <span className="text-white truncate min-w-0">{c.name}</span>
+      {c.canEdit && <button onClick={() => setEditing(true)} className="shrink-0 text-[12px] text-[#FF8A47] hover:underline inline-flex items-center gap-1"><Pencil className="w-3 h-3" /> {c.nameIsDefault ? (compact ? "Add company" : "Add company name") : "Change"}</button>}
+      {c.nameIsDefault && c.canEdit && !compact && <span className="text-[11px] text-[#FBBF24] truncate">Your own name is used until you add one.</span>}
+    </div>
+  );
+}
 
 /** Save a draft in Quotes, or update the quote it was saved as. */
 export async function saveQuoteDraft(q: QuoteDraft): Promise<{ id: string; quoteNumber: string }> {
@@ -62,6 +98,7 @@ export function QuoteCard({ q, onChange, onEdit, onOpenQuotes }: { q: QuoteDraft
         </span>
         <span className="text-right shrink-0"><span className="block text-[14px] text-white font-semibold">{kes(t.total)}</span><span className="block text-[11px] text-[#FF8A47] inline-flex items-center gap-1"><Pencil className="w-3 h-3" /> Edit quote</span></span>
       </button>
+      <QuoteFrom compact />
       <div className="px-3.5 pb-3 flex flex-wrap gap-1.5">
         <button className={btn} disabled={!!busy} onClick={() => download("pdf")}>{spin("pdf", FileText)} PDF</button>
         <button className={btn} disabled={!!busy} onClick={() => download("xlsx")}>{spin("xlsx", FileSpreadsheet)} Excel</button>
@@ -109,6 +146,7 @@ export function QuoteEditor({ q, onChange, onOpenQuotes }: { q: QuoteDraft; onCh
   const spin = (k: string, I: any) => (busy === k ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <I className="w-3.5 h-3.5" />);
   return (
     <div className="space-y-4">
+      <div className="rounded-lg border border-[#222A35] bg-[#11161D] p-3"><QuoteFrom /></div>
       {/* Letterhead logo */}
       <div className="rounded-lg border border-[#222A35] bg-[#11161D] p-3 flex items-center gap-3">
         <div className="w-16 h-12 rounded-md bg-[#ffffff] flex items-center justify-center overflow-hidden shrink-0 border border-[#222A35]">

@@ -63,6 +63,15 @@ export const AGENT: Record<string, Spec> = {
       return { id: r.user?.id, note: r.emailed ? `Invite emailed to ${d.email}.` : r.tempPassword ? `Email isn't set up, so share this temporary password with ${d.name}: ${r.tempPassword}` : `Added ${d.name}.` };
     },
   },
+  "set-company": {
+    title: "Company name", verb: "Save name", view: "company-docs",
+    fields: [{ k: "name", label: "Company name (goes on quotes and invoices)" }],
+    run: async (d) => {
+      need(d.name, "the company name");
+      const c = await api.updateCompany({ name: String(d.name).trim() });
+      return { note: `Quotes, payment requests and client pages now show ${c.name}.` };
+    },
+  },
   "set-role": {
     title: "Change role", verb: "Change role", view: "team",
     fields: [{ k: "email", label: "Team member's email", type: "email" }, { k: "role", label: "New role", type: "select", options: ROLES }],

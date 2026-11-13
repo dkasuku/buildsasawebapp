@@ -76,6 +76,7 @@ export const firstQuoteTable = (text: string) => {
 // ── Company letterhead, fetched once ──
 let companyP: Promise<CompanyPublic | null> | null = null;
 export const company = () => (companyP ||= api.getCompany().then((c) => c as CompanyPublic).catch(() => null));
+if (typeof window !== "undefined") window.addEventListener("buildsasa:company-updated", () => { companyP = null; });
 
 export const fileName = (title: string, ext: string) => `${(title || "Buildsasa document").replace(/[\\/:*?"<>|\n]/g, "-").slice(0, 80).trim()}.${ext}`;
 export const save = (blob: Blob, name: string) => {

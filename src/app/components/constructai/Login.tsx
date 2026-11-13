@@ -190,11 +190,11 @@ export function Login({ onContinue, theme, setTheme }: { onContinue: (user?: { r
               {mode === "signup" && !isClient && (
                 <>
                   <div>
-                    <label className="text-[11px] text-[#8A95A5] uppercase tracking-wider">Company Name</label>
+                    <label className="text-[11px] text-[#8A95A5] uppercase tracking-wider">Company name <span className="normal-case tracking-normal">(goes on your quotes)</span></label>
                     <input
                       value={company}
                       onChange={(e) => setCompany(e.target.value)}
-                      placeholder="e.g. Mwangi Builders Ltd"
+                      placeholder="e.g. Mwangi Builders Ltd, or your own name if you work alone"
                       className="mt-1.5 w-full h-11 bg-[#11161D] border border-[#222A35] rounded-md px-3 text-[13px] text-white focus:outline-none focus:border-[#FF6B1A]"
                     />
                   </div>

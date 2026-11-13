@@ -698,8 +698,8 @@ module.exports = function clientRoutes(app, d) {
       const company = await prismaBase.workspace.findUnique({ where: { id: p.workspaceId } });
       // Existing clients go to sign-in, new ones to sign-up; both open this project.
       const link = `${APP_URL}/?as=client&email=${encodeURIComponent(email)}&project=${p.id}${existingUser ? '' : '&signup=1'}`;
-      notify(email, `${company ? company.name : 'Your contractor'} invited you to follow ${p.name}`,
-        p14(`Hi${name ? ` ${name}` : ''}, <b>${company ? company.name : 'your contractor'}</b> is sharing <b>${p.name}</b> with you on Buildsasa. You'll see site photos and short videos of every stage, daily logs, inspections and invoices, approve changes, and chat with the team, from anywhere in the world.`)
+      notify(email, `${company ? String(company.name).replace(/'s company$/i, '') : 'Your contractor'} invited you to follow ${p.name}`,
+        p14(`Hi${name ? ` ${name}` : ''}, <b>${company ? String(company.name).replace(/'s company$/i, '') : 'your contractor'}</b> is sharing <b>${p.name}</b> with you on Buildsasa. You'll see site photos and short videos of every stage, daily logs, inspections and invoices, approve changes, and chat with the team, from anywhere in the world.`)
         + button(link, existingUser ? 'Open Buildsasa' : 'Create your free client account')
         + `<p style="font-size:12px;color:#8A95A5">Sign up or sign in with ${email} and the project appears automatically.</p>`);
       res.json({ id: row.id, email: row.email, name: row.name, joined: !!row.userId, createdAt: row.createdAt });

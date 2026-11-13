@@ -2625,7 +2625,7 @@ app.get('/api/public/bids/:token', async (req, res) => {
     let companyName = null;
     if (pkg.workspaceId) {
       const ws = await prismaBase.workspace.findUnique({ where: { id: pkg.workspaceId }, select: { name: true } });
-      companyName = ws ? ws.name : null;
+      companyName = ws ? brandName(ws) : null;
     }
     res.json({
       title: pkg.title,
@@ -2779,7 +2779,13 @@ app.delete('/api/projects/:projectId/invoices/:id', auth, async (req, res) => {
 // invoices and shown on the client's quote page and portal.
 const CAN_EDIT_COMPANY = ['Contractor', 'Executive'];
 const COMPANY_FIELDS = ['name', 'logoUrl', 'phone', 'email', 'address', 'kraPin', 'paymentDetails', 'quoteTerms', 'services', 'about'];
-const companyPublic = (w) => (w ? { name: w.name, logoUrl: w.logoUrl, phone: w.phone, email: w.email, address: w.address, kraPin: w.kraPin, paymentDetails: w.paymentDetails } : null);
+// Sign-ups without a company name (Google sign-in, old accounts) were saved as
+// "<Name>'s company". On quotes, invoices and client pages show the contractor's
+// own name instead, and flag it so the app asks for the real company name.
+const DEFAULT_CO = /'s company$/i;
+const isDefaultCompanyName = (n) => !n || DEFAULT_CO.test(String(n).trim());
+const brandName = (w) => (w ? String(w.name || '').trim().replace(DEFAULT_CO, '').trim() || w.name : null);
+const companyPublic = (w) => (w ? { name: brandName(w), logoUrl: w.logoUrl, phone: w.phone, email: w.email, address: w.address, kraPin: w.kraPin, paymentDetails: w.paymentDetails } : null);
 async function companyFor(workspaceId) {
   if (!workspaceId) return null;
   return prismaBase.workspace.findUnique({ where: { id: workspaceId } });
@@ -2791,7 +2797,7 @@ app.get('/api/company', auth, async (req, res) => {
     if (!w) return res.status(404).json({ error: 'No company for this account' });
     const out = {};
     for (const k of COMPANY_FIELDS) out[k] = w[k] ?? null;
-    res.json({ ...out, canEdit: hasRole(req, CAN_EDIT_COMPANY) });
+    res.json({ ...out, name: brandName(w), nameIsDefault: isDefaultCompanyName(w.name), canEdit: hasRole(req, CAN_EDIT_COMPANY) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2812,7 +2818,7 @@ app.put('/api/company', auth, async (req, res) => {
     const w = await prismaBase.workspace.update({ where: { id: ws }, data });
     const out = {};
     for (const k of COMPANY_FIELDS) out[k] = w[k] ?? null;
-    res.json({ ...out, canEdit: true });
+    res.json({ ...out, name: brandName(w), nameIsDefault: isDefaultCompanyName(w.name), canEdit: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2877,7 +2883,7 @@ app.get('/api/quotes', auth, async (req, res) => {
     const rows = await prisma.quote.findMany({ orderBy: { createdAt: 'desc' } });
     // The company name heads the quote PDF the browser builds.
     const ws = await companyFor(currentWs());
-    res.json({ companyName: ws ? ws.name : null, company: companyPublic(ws), defaultTerms: ws ? ws.quoteTerms : null, quotes: rows.map(quoteDto) });
+    res.json({ companyName: ws ? brandName(ws) : null, company: companyPublic(ws), defaultTerms: ws ? ws.quoteTerms : null, quotes: rows.map(quoteDto) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3035,7 +3041,7 @@ app.get('/api/public/quotes/:token', async (req, res) => {
     const ws = await companyFor(q.workspaceId);
     const d = quoteDto(q);
     res.json({
-      companyName: ws ? ws.name : null,
+      companyName: ws ? brandName(ws) : null,
       company: companyPublic(ws),
       quoteNumber: d.quoteNumber, title: d.title, clientName: d.clientName, clientAddress: d.clientAddress,
       items: d.items, subtotal: d.subtotal, discount: d.discount, taxRate: d.taxRate, total: d.total,
@@ -3106,7 +3112,7 @@ async function portalPayload(p) {
     const payByInv = {};
     for (const r of payRows) (payByInv[r.invoiceId] = payByInv[r.invoiceId] || []).push(r);
     return {
-      companyName: ws ? ws.name : null,
+      companyName: ws ? brandName(ws) : null,
       company: companyPublic(ws),
       project: {
         name: p.name, city: p.city, status: p.status, progress: p.progress,
@@ -6661,6 +6667,12 @@ app.post('/api/ai/assistant', auth, withCredits('assistant'), withDaily('upload'
 
     // ---- Safe (non-financial) context — available to all roles ----
     const safeLines = [];
+    try {
+      const cw = await companyFor(currentWs());
+      if (cw) safeLines.push(isDefaultCompanyName(cw.name)
+        ? `WHO THE USER IS: ${req.user?.name || brandName(cw)}, a contractor with no company name set yet. Sign quotes, letters and client messages as "${brandName(cw)}". When you write a quote, add one short line suggesting they add their company name (tap the name on the quote, or say "our company is called ...").`
+        : `WHO THE USER IS: ${req.user?.name || 'the user'} at ${brandName(cw)}. Sign quotes, letters and client messages as ${brandName(cw)}.`);
+    } catch { /* company name is optional context */ }
     safeLines.push(`User: ${user?.name || 'Unknown'} (${user?.role || 'Unknown'})`);
     if (projects.length) safeLines.push('PROJECTS:\n' + projects.map((p) => `  - [id ${p.id}] ${p.name} (${p.code}) | ${p.status} | ${p.progress}% complete | ${p.city}`).join('\n'));
     if (checklists.length) safeLines.push('CHECKLISTS:\n' + checklists.map((c) => `  - ${c.title} | ${c.category || 'N/A'} | ${c.status || c.source} | assigned: ${c.assigned}`).join('\n'));
@@ -6739,6 +6751,7 @@ If you don't know which project, ask before saving (or use the only project if t
 DOING THINGS FOR THE USER (you are their hands in Buildsasa): when the user asks you to create, add, invite, assign, share, send or set up something, do it with ACTION tags. Each tag becomes a card the user confirms with one tap, so act confidently and fill in sensible details (today's date, typical units, KES). You may use several tags in one reply for multi-step requests, in order. Use "projectId":"new" to mean the project created by a create-project tag earlier in the same reply. Compact JSON on one line:
   [[do:create-project|{"name":"...","city":"...","clientName":"...","contractSumKES":0,"startDate":"YYYY-MM-DD","targetEndDate":"YYYY-MM-DD","status":"Planning","description":"..."}]]
   [[do:invite-member|{"name":"...","email":"...","role":"Owner|Manager|Site staff|Viewer","trade":"..."}]]
+  [[do:set-company|{"name":"<the company name>"}]] (when the user tells you their company's name, or wants a different name on quotes and invoices)
   [[do:set-role|{"email":"<from TEAM MEMBERS>","role":"<one of the roles above>"}]] (roles are fixed; to "create a role" for someone, invite them or change their role)
   [[do:share-portal|{"projectId":"<id>"}]] (creates the client portal link to send to the client)
   [[do:create-invoice|{"projectId":"<id>","clientName":"...","dueDate":"YYYY-MM-DD","taxRate":16,"items":[{"description":"...","quantity":1,"rate":0}],"notes":"..."}]]

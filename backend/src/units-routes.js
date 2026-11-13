@@ -115,7 +115,7 @@ module.exports = function unitRoutes(app, h) {
       snags ? `Snags being fixed before handover: ${snags}.` : null,
       pdfUrl ? `PDF report: ${pdfUrl}` : null,
       link ? `See photos and every update here: ${link}` : null,
-      company ? `- ${company.name}` : null,
+      company ? `- ${String(company.name).replace(/'s company$/i, '')}` : null,
     ].filter(Boolean);
     const html = p14(lines.slice(0, -2).filter((l) => !l.startsWith('See photos') && !l.startsWith('PDF report')).join('<br/>'))
       + `<div style="margin:14px 0;height:10px;border-radius:6px;background:#EEE"><div style="height:10px;width:${u.progress}%;border-radius:6px;background:#FF6B1A"></div></div>`
@@ -261,7 +261,7 @@ module.exports = function unitRoutes(app, h) {
         });
         const company = await prismaBase.workspace.findUnique({ where: { id: p.workspaceId } });
         const link = `${APP_URL}/?as=client&email=${encodeURIComponent(to)}&project=${p.id}${existing ? '' : '&signup=1'}`;
-        notify(to, `Follow your unit ${u.code} at ${p.name}`, p14(`Hi${u.clientName ? ` ${u.clientName.split(' ')[0]}` : ''}, <b>${company ? company.name : 'your developer'}</b> is sharing the progress of <b>unit ${u.code}</b> at <b>${p.name}</b> with you on Buildsasa: photos, stage-by-stage progress, invoices for your unit, and a private chat with the team.`) + button(link, existing ? 'Open Buildsasa' : 'Create your free client account'));
+        notify(to, `Follow your unit ${u.code} at ${p.name}`, p14(`Hi${u.clientName ? ` ${u.clientName.split(' ')[0]}` : ''}, <b>${company ? String(company.name).replace(/'s company$/i, '') : 'your developer'}</b> is sharing the progress of <b>unit ${u.code}</b> at <b>${p.name}</b> with you on Buildsasa: photos, stage-by-stage progress, invoices for your unit, and a private chat with the team.`) + button(link, existing ? 'Open Buildsasa' : 'Create your free client account'));
         invited = to;
       }
       res.json({ ...dto(u), invited });
