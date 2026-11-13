@@ -22,6 +22,7 @@ export const MODULES: Module[] = [
   ] },
   { id: "money", label: "Money", icon: Wallet, hint: "Quotes, invoices, spending and materials", ask: "Price a job in KES, find overdue invoices…", tabs: [
     { key: "quotes", label: "Quotes" },
+    { key: "cost-estimate", label: "Cost estimate" },
     { key: "invoicing", label: "Invoices" },
     { key: "financials", label: "Budget & spending" },
     { key: "equipment", label: "Materials" },

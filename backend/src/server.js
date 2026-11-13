@@ -6422,6 +6422,7 @@ Rules: 6-14 items grouped into 2-5 logical groups; real construction terminology
 // What the AI page's categories ask the assistant to concentrate on.
 // Kept in step with AI_CATEGORIES in src/app/components/constructai/AiWorkspace.tsx.
 const AI_CATEGORY_GUIDE = {
+  costs: 'Cost of construction in Kenya: what a house, rental block, apartments or commercial building costs, from the BUILDING COST RATES, with a range, the split by stage, fees, permits and contingency; then a detailed quote.',
   labour: 'Casual labour: adding fundis and helpers with their daily rate, marking the muster (present, half day, absent), the weekly wage bill and paying wages by M-Pesa. Use add-labourer and muster actions.',
   receipts: 'Money spent: receipts, supplier invoices, fuel and hardware slips, filed as spending against the right project (add-expense), and spending against the budget.',
   design: 'Interior and exterior design for Kenyan homes and offices: layouts, finishes, colour palettes, furniture, lighting and materials, with a costed materials table in KES when useful. Images are generated right here in the chat.',
@@ -6773,6 +6774,7 @@ app.post('/api/ai/assistant', auth, withCredits('assistant'), withDaily('upload'
         }).join('\n');
       }).join('\n'));
     }
+    if (!['Worker', 'Trade Lead'].includes(req.user?.role)) safeLines.push(require('./cost-rates').COST_RATES_TEXT);
     if (pastRates.length) safeLines.push('PAST RATES (this company\'s own prices; use these first when pricing):\n' + pastRates.join('\n'));
     if (labourers.length) safeLines.push('CASUAL LABOUR (labour muster, no login; mark days with the muster action):\n' + labourers.map((l) => `  - ${l.name}${l.trade ? ` | ${l.trade}` : ''}${l.projectId ? ` | usual site: ${pName(l.projectId)}` : ''}`).join('\n'));
     if (team.length) safeLines.push('TEAM MEMBERS:\n' + team.map((u) => `  - ${u.name} <${u.email}> | ${u.role}${u.trade ? ` | ${u.trade}` : ''}`).join('\n'));
@@ -6820,7 +6822,7 @@ app.post('/api/ai/assistant', auth, withCredits('assistant'), withDaily('upload'
     // src/app/components/constructai/modules.ts.
     const actionGuide = `
 ACTING IN THE APP: People use you instead of clicking through tabs. When the user asks to open, go to, show, log, record, create or add something, answer briefly and end your reply with ONE action tag on its own line:
-  [[open:<page>]] where <page> is one of: projects, schedule, plans (drawings), change-orders (variations), daily-log, punch-list (snags), checklists, inspections, safety-incidents, attendance, field-view, quotes, invoicing, financials (budget & spending), equipment (materials & equipment), team, inbox (messages), directory (contacts, suppliers, subcontractors), company-docs, billing. There are no other pages: reports, letters, announcements and anything else are written by you, right here in the chat.
+  [[open:<page>]] where <page> is one of: projects, schedule, plans (drawings), change-orders (variations), daily-log, punch-list (snags), checklists, inspections, safety-incidents, attendance, field-view, quotes, cost-estimate (cost of construction calculator), invoicing, financials (budget & spending), equipment (materials & equipment), team, inbox (messages), directory (contacts, suppliers, subcontractors), company-docs, billing. There are no other pages: reports, letters, announcements and anything else are written by you, right here in the chat.
   [[project:<id>|<project name>]] to open one project (use the id from PROJECTS).
 Only add a tag when the user wants to go somewhere or do something; never for a plain question. Never show the tag syntax otherwise.
 SAVING RECORDS: You can save records for the user. The app shows a card the user confirms, so draft confidently. When the user describes something that belongs in a record (what happened on site today, a snag, an observation), or asks you to log/record/save it, write it up neatly AND end with ONE save tag holding compact JSON on a single line:

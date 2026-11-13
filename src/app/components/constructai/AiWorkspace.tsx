@@ -37,6 +37,9 @@ export const AI_CATEGORIES: Category[] = [
   { id: "quotes", label: "Quotes & BOQs", icon: Calculator, blurb: "A priced quote or BOQ in KES from a description, sketch or plan photo, using your own rates. Send it as PDF or on WhatsApp.",
     prompts: ["Quote a 3-bedroom bungalow in Kitengela, about 120 m²", "Price a 50 m perimeter wall in machine-cut stone with a gate"],
     tool: { label: "Open Quotes", view: "quotes" } },
+  { id: "costs", label: "Cost of building", icon: Building2, blurb: "A first budget for any building in Kenya: by size, finish and county, split by stage, then a detailed quote.",
+    prompts: ["How much does it cost to build a 4-bedroom maisonette in Ruiru, standard finish?", "Budget for a 3-storey block of 12 bedsitters in Kitengela"],
+    tool: { label: "Open Cost estimate", view: "cost-estimate" } },
   { id: "invoices", label: "Getting paid", icon: Receipt, money: true, blurb: "Payment requests for finished stages, record M-Pesa payments, and chase clients who are late.",
     prompts: ["Make a payment request for the roofing stage on Kitengela House: KES 850,000", "Mr Kamau paid 200,000 by M-Pesa, reference QWE12AB"],
     tool: { label: "Open Payment requests", view: "invoicing" } },
@@ -83,6 +86,7 @@ const QUICK: { label: string; icon: any; ask?: string; fill?: string; photo?: bo
 // Each one starts a message with an example the user can finish.
 const CAN: { title: string; text: string; icon: any; fill: string; money?: boolean }[] = [
   { title: "Quotes and BOQs", text: "Priced from your own past rates. Send a sketch or plan photo too.", icon: Calculator, fill: "Write a quote for a 3-bedroom bungalow in Kitengela: " },
+  { title: "Cost of building", text: "What a house or block costs in Kenya, by size, finish and county, with the split by stage.", icon: Building2, fill: "How much does it cost to build " },
   { title: "Payment requests", text: "Bill a stage that's done and send it to the client.", icon: Receipt, money: true, fill: "Make a payment request for " },
   { title: "Record payments", text: "\"Kamau paid 200k by M-Pesa\" is filed against the right request.", icon: Wallet, money: true, fill: "Record a payment: " },
   { title: "The site day", text: "Workers, work done, deliveries and snags, in one message.", icon: HardHat, fill: "Today on site: " },

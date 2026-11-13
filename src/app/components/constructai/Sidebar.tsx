@@ -44,6 +44,7 @@ export type View =
   | "role-manager"
   | "bidding"
   | "quotes"
+  | "cost-estimate"
   | "jobs"
   | "invoicing"
   | "inspections"
