@@ -39,6 +39,8 @@ model User {
 model Workspace {
   id        String   @id @default(cuid())
   name      String
+  // When the "your free trial ends tomorrow" email went out (sent once).
+  trialReminderAt DateTime?
   // Company profile, printed on quotes and invoices and shown to clients.
   logoUrl        String?
   phone          String?

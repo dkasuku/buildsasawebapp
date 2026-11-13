@@ -117,6 +117,8 @@ export default function App() {
       // payment is verified there (Billing reads the query param).
       const payRef = params.get("reference") || params.get("trxref");
       if (payRef && localStorage.getItem("constructai-token")) return "billing";
+      // "Keep my account" in the trial-ending email: straight to Billing.
+      if (params.get("view") === "billing" && localStorage.getItem("constructai-token")) return "billing";
       // Login is required: start on the login screen unless a session token
       // exists. Signed in, the workspace opens on Buildsasa AI.
       return localStorage.getItem("constructai-token") ? "buildflex-ai" : "login";

@@ -7618,6 +7618,59 @@ async function trialFor(workspaceId) {
 // Client pages count a company as active during its trial; the longest trial still running decides the window.
 clientRouteDeps.trialDays = Math.max(TRIAL_HOURS, Date.now() < OLD_TRIAL_BEFORE + OLD_TRIAL_HOURS * 3600e3 ? OLD_TRIAL_HOURS : 0) / 24;
 
+// ===== TRIAL ENDING REMINDER =====
+// About a day before a company's free trial ends, its owner gets one friendly
+// email: what they have set up so far, what happens next, and how to pay.
+async function sendTrialReminders() {
+  if (!TRIAL_HOURS) return;
+  try {
+    const now = Date.now();
+    // Trials last at most 7 days, so only companies younger than that can be ending.
+    const recent = await prismaBase.workspace.findMany({ where: { createdAt: { gt: new Date(now - 8 * 864e5) }, trialReminderAt: null }, select: { id: true, name: true, createdAt: true } });
+    for (const w of recent) {
+      const endsAt = new Date(w.createdAt).getTime() + trialHoursFor(w.createdAt) * 3600e3;
+      const left = endsAt - now;
+      if (left <= 0 || left > 26 * 3600e3) continue;
+      if (await prismaBase.subscription.findFirst({ where: { workspaceId: w.id, status: 'active' }, select: { id: true } })) continue;
+      const owner = await prismaBase.user.findFirst({ where: { workspaceId: w.id, role: 'Contractor', status: 'active' }, orderBy: { createdAt: 'asc' } })
+        || await prismaBase.user.findFirst({ where: { workspaceId: w.id, role: { not: 'Client' } }, orderBy: { createdAt: 'asc' } });
+      if (!owner || !owner.email || hasFreeAccess(owner.email) || isPlatformAdmin(owner.email)) continue;
+      // Claim it first, so a second server or a retry never sends it twice.
+      const claimed = await prismaBase.workspace.updateMany({ where: { id: w.id, trialReminderAt: null }, data: { trialReminderAt: new Date() } });
+      if (!claimed.count) continue;
+      const count = (model) => prismaBase[model].count({ where: { workspaceId: w.id } }).catch(() => 0);
+      const [projects, logs, quotes, workers, invoices] = await Promise.all([count('project'), count('dailyLog'), count('quote'), count('labourer'), count('invoice')]);
+      const did = [
+        projects && `${projects} site${projects === 1 ? '' : 's'}`, logs && `${logs} daily log${logs === 1 ? '' : 's'}`,
+        quotes && `${quotes} quote${quotes === 1 ? '' : 's'}`, workers && `${workers} worker${workers === 1 ? '' : 's'}`,
+        invoices && `${invoices} payment request${invoices === 1 ? '' : 's'}`,
+      ].filter(Boolean);
+      const first = String(owner.name || '').trim().split(/\s+/)[0] || 'there';
+      const app = process.env.APP_URL || 'https://console.buildsasa.com';
+      const hours = Math.max(1, Math.round(left / 3600e3));
+      const plans = await loadPlans().catch(() => []);
+      const monthly = plans.find((x) => x.cycle === 'monthly');
+      const yearly = plans.find((x) => x.cycle === 'yearly');
+      const price = monthly ? `KES ${monthly.kes.toLocaleString('en-KE')} a month${yearly ? `, or KES ${yearly.kes.toLocaleString('en-KE')} a year (2 months free)` : ''}` : 'one simple monthly plan';
+      const html = emailShell('Your free trial ends tomorrow', `
+        <p style="font-size:15px;color:#11161D">Hi ${first},</p>
+        <p style="font-size:14px;color:#11161D;line-height:1.6">Your Buildsasa free trial ends in about ${hours} hours.</p>
+        ${did.length
+          ? `<p style="font-size:14px;color:#11161D;line-height:1.6">So far you've set up <b>${did.join(', ')}</b>. All of it is kept safe.</p>`
+          : `<p style="font-size:14px;color:#11161D;line-height:1.6">You still have time to try it: open Buildsasa and type <i>"A 3-bedroom bungalow in Kitengela for Mr Kamau, KES 6.5M"</i>. It sets up the site for you in seconds.</p>`}
+        <p style="font-size:14px;color:#11161D;line-height:1.6">To keep going, choose the plan in Billing: <b>${price}</b>, with Buildsasa AI included. Pay with M-Pesa or card.</p>
+        <p style="text-align:center;margin:24px 0"><a href="${app}/?view=billing" style="background:#FF6B1A;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-size:14px;font-weight:600;display:inline-block">Keep my account</a></p>
+        <p style="font-size:13px;color:#5B6675;line-height:1.6">If you don't choose a plan, nothing is deleted. Your account just pauses, and everything is back the moment you pay.</p>
+        <p style="font-size:13px;color:#5B6675;line-height:1.6">Questions, or need more time to decide? WhatsApp us at <a href="https://wa.me/254782223749" style="color:#FF6B1A">+254 782 223 749</a>.</p>
+        <p style="font-size:14px;color:#11161D">Asante,<br>The Buildsasa team</p>`);
+      await sendEmail({ to: owner.email, subject: `${first}, your Buildsasa trial ends tomorrow`, html }).catch((e) => console.error('[trial reminder]', e.message));
+      console.log(`[trial reminder] sent to ${owner.email} (${w.name})`);
+    }
+  } catch (e) { console.error('[trial reminder]', e.message); }
+}
+setInterval(sendTrialReminders, 60 * 60 * 1000).unref();
+setTimeout(sendTrialReminders, 90 * 1000).unref();
+
 app.get('/api/billing/subscription', auth, async (req, res) => {
   try {
     // Comped accounts (FREE_ACCESS_EMAILS) and platform admins always report an
