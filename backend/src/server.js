@@ -6433,16 +6433,32 @@ async function readOwnUpload(req, url, maxBytes = 15 * 1024 * 1024) {
   throw new Error('Only files uploaded to Buildsasa can be read.');
 }
 /** The text of a PDF, Word, Excel/CSV or text file, trimmed for the prompt. */
+// Reading the words in a photo (receipt, delivery note, invoice, handwritten
+// BOQ) on our own server, free. Used when the vision model is unavailable or out
+// of credit, so a photo still gets understood and filed.
+let ocrWorkerP = null;
+async function ocrImage(buf) {
+  if (!ocrWorkerP) ocrWorkerP = require('tesseract.js').createWorker('eng').catch((e) => { ocrWorkerP = null; throw e; });
+  const worker = await ocrWorkerP;
+  const run = worker.recognize(buf).then((r) => String(r.data.text || ''));
+  const text = await Promise.race([run, new Promise((_, rej) => setTimeout(() => rej(new Error('Reading the photo took too long')), 45000))]);
+  return text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, 8000);
+}
+
 async function uploadText(req, url, label) {
   const { buf, type, name } = await readOwnUpload(req, url);
   const ext = String(label || name).split('.').pop().toLowerCase();
   let text = '';
-  if (type === 'application/pdf' || ext === 'pdf') text = (await pdfParse(buf)).text;
+  if (type === 'application/pdf' || ext === 'pdf') {
+    text = (await pdfParse(buf)).text;
+    if (String(text).replace(/\s/g, '').length < 40) text = '(This PDF is a scan with no readable text. Ask the user to snap a photo of the page instead, or type the key figures.)';
+  }
   else if (/wordprocessingml/.test(type) || ext === 'docx') text = (await mammoth.extractRawText({ buffer: buf })).value;
   else if (/spreadsheet|ms-excel|csv/.test(type) || ['xlsx', 'xls', 'csv'].includes(ext)) {
     const wb = xlsx.read(buf, { type: 'buffer' });
     text = wb.SheetNames.map((s) => `Sheet "${s}":\n${xlsx.utils.sheet_to_csv(wb.Sheets[s])}`).join('\n\n');
   } else if (/^text\//.test(type) || ['txt', 'md'].includes(ext)) text = buf.toString('utf8');
+  else if (/^image\//.test(type) || ['png', 'jpg', 'jpeg', 'webp'].includes(ext)) text = `(Words read from the image)\n${await ocrImage(buf)}`;
   else throw new Error(`${label || name}: this file type can't be read. Use PDF, Word, Excel, CSV or a photo.`);
   return text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, 25000);
 }
@@ -6775,6 +6791,18 @@ DOING THINGS FOR THE USER (you are their hands in Buildsasa): when the user asks
 HOW TO BEHAVE (Buildsasa's rules):
 - THE SITE DAY IN ONE MESSAGE: when the user describes a day on site ("12 workers, slab formwork done, 40 bags delivered, crack on the east wall"), answer with ONE site-day tag that covers all of it (headcount, work, deliveries, snags). Don't split it into separate save tags.
 - PHOTO FIRST: a photo with no words is a normal message. Say in one line what it is (site progress, a snag, a delivery note, a receipt or supplier invoice, a drawing) and propose filing it: progress -> site-day or share-update; snag -> save:punch; delivery note -> site-day with deliveries; receipt -> add-expense with the amount, supplier, date and receipt number read from it. Mark anything you couldn't read clearly with "(check)".
+- FILES FIRST: an attached document or photo with few or no words is a normal request: work out what it is and do the useful thing, ending with the tag for it:
+  * receipt, supplier invoice, fuel or hardware slip -> add-expense (amount, supplier, date, receipt no.)
+  * delivery note or LPO -> site-day with deliveries (materials into stock)
+  * BOQ, price list, supplier quotation or a sketch/plan -> price it as a quote (save:quote with a priced table) using PAST RATES
+  * drawings or plans -> list the main quantities and offer a quote or a materials list
+  * contract or letter of award -> the key facts (client, contract sum, start and end dates, payment terms, retention, penalties) and offer create-project
+  * programme or schedule -> offer create-project with the stages and dates
+  * M-Pesa or bank message/statement -> record-payment against the matching payment request
+  * a list of workers or a muster sheet -> add-labourer / muster
+  * site, progress or snag photo -> site-day or save:punch
+  * anything else -> a short summary and the one most useful next step
+  Never answer only "I see a document": always say what it is and what you'll do with it.
 - ASK FOR AT MOST ONE THING: fill in what you can, mark guesses with "(guess)", and ask at most ONE question, never a list.
 - SHOW THE SOURCE: when you state a number from the data (a cost, balance, days late), name the record it came from (e.g. "PR-0042", "Kitengela House programme"). If there's no record, say so; don't estimate it as fact.
 - EVERY ANSWER ENDS IN AN ACTION: if your answer could become a record (a log, snag, payment request, client update, quote), end with the tag for it. Plain advice only when nothing could be recorded.
@@ -6846,11 +6874,25 @@ ${actionGuide}`;
       ? '\n(This message was SPOKEN and turned into text by speech recognition, so some words may be misheard. Match names to PROJECTS, TEAM MEMBERS, UNITS and contacts above (e.g. "kiting gela" = Kitengela), turn spoken emails and numbers into their written form ("jane at gmail dot com" = jane@gmail.com, "five hundred k" = 500000). If a name, amount, phone or email is still unclear, ask instead of guessing. When you propose actions, say the key details back in one short sentence (who, what, how much) so the user can confirm by voice.)'
       : '';
     const text = `${question}${voiceNote}${logoNote}${attached}`;
-    const answer = await callAi([
-      { role: 'system', content: AI_TOPIC_RULE + '\n\n' + systemPrompt },
-      ...hist,
-      { role: 'user', content: pictures.length ? [{ type: 'text', text }, ...pictures] : text }
-    ], { temperature: 0.4, max_tokens: 3500 });
+    const sys = { role: 'system', content: AI_TOPIC_RULE + '\n\n' + systemPrompt };
+    let answer;
+    try {
+      answer = await callAi([sys, ...hist, { role: 'user', content: pictures.length ? [{ type: 'text', text }, ...pictures] : text }], { temperature: 0.4, max_tokens: 3500 });
+    } catch (err) {
+      if (!pictures.length) throw err;
+      // The vision model is down or out of credit: read the words in each photo instead.
+      console.warn('[assistant] vision failed, reading the photos instead:', err.message);
+      let read = '';
+      for (let i = 0; i < pictures.length; i++) {
+        try {
+          const b64 = pictures[i].image_url.url.split(',')[1];
+          const words = await ocrImage(Buffer.from(b64, 'base64'));
+          read += `\n\n--- Photo ${i + 1}: words read from it ---\n${words.replace(/\s/g, '').length > 15 ? words : '(almost no text: probably a site, progress, snag or room photo)'}`;
+        } catch (e) { read += `\n\n--- Photo ${i + 1}: could not be read (${e.message}) ---`; }
+      }
+      const note = '\n(You cannot see these photos right now; only the words read from them are below. Use them: receipts and supplier invoices -> add-expense; delivery notes -> site-day deliveries; a BOQ or price list -> a quote; an M-Pesa or bank message -> record-payment. If a photo has almost no text, it is a picture of the site or a room: say you can\'t view pictures at the moment and ask in ONE question what it shows, then file it.)';
+      answer = await callAi([sys, ...hist, { role: 'user', content: text + note + read }], { temperature: 0.4, max_tokens: 3500 });
+    }
     res.json({ answer });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

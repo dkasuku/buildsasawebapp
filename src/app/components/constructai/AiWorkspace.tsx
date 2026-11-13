@@ -242,7 +242,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
     const images = imgs === undefined ? att.filter((a) => a.image).map((a) => a.url) : imgs;
     const files = imgs === undefined ? att.filter((a) => !a.image).map(({ url, name }) => ({ url, name })) : [];
     const mode: ImageMode = imgs === undefined ? imgMode : "auto";
-    const text = (raw ?? q).trim() || (images.length ? (mode === "logo" ? "Use this as my logo on quotes" : "What is this photo? File it where it belongs.") : files.length ? "Summarise this and tell me what needs my attention" : "");
+    const text = (raw ?? q).trim() || (images.length ? (mode === "logo" ? "Use this as my logo on quotes" : "What is this photo? File it where it belongs.") : files.length ? "What is this document? Do what it needs: file it, price it or record it." : "");
     if (!text || busy || uploading) return null;
     // The first message of a new owner opens the setup conversation.
     const onboarding = !!firstRun && !fresh && !started;
