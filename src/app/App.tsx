@@ -301,7 +301,7 @@ export default function App() {
   // Start locked (active:false) so we NEVER flash the dashboard before the
   // subscription status is known. `gateLoaded` stays false until the first
   // check resolves; until then we hold on a neutral loading screen.
-  const [gate, setGate] = useState<{ configured: boolean; active: boolean; overdue: boolean; unpaidDue: string | null; isBillingOwner: boolean; trialDaysLeft?: number | null; trialEnded?: boolean; tier?: "starter" | "business" }>({ configured: false, active: false, overdue: false, unpaidDue: null, isBillingOwner: false });
+  const [gate, setGate] = useState<{ configured: boolean; active: boolean; overdue: boolean; unpaidDue: string | null; isBillingOwner: boolean; trialDaysLeft?: number | null; trialHoursLeft?: number | null; trialEnded?: boolean; tier?: "starter" | "business" }>({ configured: false, active: false, overdue: false, unpaidDue: null, isBillingOwner: false });
   const [gateLoaded, setGateLoaded] = useState(false);
   const [gateNonce, setGateNonce] = useState(0);
   useEffect(() => {
@@ -330,6 +330,7 @@ export default function App() {
           unpaidDue: soonest,
           isBillingOwner,
           trialDaysLeft: (sub as any)?.trial ? (sub as any).trialDaysLeft : null,
+          trialHoursLeft: (sub as any)?.trial ? (sub as any).trialHoursLeft ?? null : null,
           tier: (sub as any)?.tier === "starter" ? "starter" : "business",
           trialEnded: !!(sub as any)?.trialEnded,
         });
@@ -591,7 +592,7 @@ export default function App() {
             )}
             {!paywalled && gate.trialDaysLeft != null && effectiveView !== "billing" && (
               <div className="ws-trial" role="status">
-                <strong>{gate.trialDaysLeft <= 1 ? "Last day" : `${gate.trialDaysLeft} days left`}</strong> on your free trial. Everything is unlocked until then.{" "}
+                <strong>{gate.trialHoursLeft != null && gate.trialHoursLeft <= 24 ? (gate.trialHoursLeft <= 1 ? "Less than an hour left" : `${gate.trialHoursLeft} hours left`) : `${gate.trialDaysLeft} days left`}</strong> on your free trial. Everything is unlocked until then.{" "}
                 {gate.isBillingOwner
                   ? <button type="button" className="ws-link" onClick={() => navigate("billing")}>Choose a plan →</button>
                   : <span>Ask whoever manages your account to choose a plan.</span>}
