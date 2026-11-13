@@ -499,6 +499,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
       // Multi-tenant: a new Google account creates its own isolated company.
       const gws = await prisma.workspace.create({ data: { name: `${profile.name || email.split('@')[0]}'s company` } });
       user = await prisma.user.create({ data: { email, name: profile.name || email.split('@')[0], role: 'Contractor', avatar: profile.picture || null, workspaceId: gws.id } });
+      sendWelcomeEmail(user);
     } else if (!user.avatar && profile.picture) {
       try { user = await prisma.user.update({ where: { id: user.id }, data: { avatar: profile.picture } }); } catch { /* ignore */ }
     }
@@ -698,6 +699,7 @@ app.post('/api/signup', async (req, res) => {
     const ws = await prisma.workspace.create({ data: { name: (company && String(company).trim()) || `${name}'s company` } });
     const user = await prisma.user.create({ data: { name, email: String(email).toLowerCase(), passwordHash: bcrypt.hashSync(password, 10), role: role || 'Contractor', workspaceId: ws.id } });
     sendVerifyEmail(user);
+    if (user.role !== 'Client') sendWelcomeEmail(user);
     recordAccess(req, user); res.json({ ...authTokens(user), user: publicUser(user) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -739,6 +741,32 @@ app.post('/api/auth/resend-verification', auth, async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// A warm welcome for a new company: what Buildsasa does, three things to try
+// first, how long the trial is, and a real person to talk to on WhatsApp.
+function sendWelcomeEmail(user) {
+  try {
+    if (!user || !user.email) return;
+    const first = String(user.name || '').trim().split(/\s+/)[0] || 'there';
+    const app = process.env.APP_URL || 'https://console.buildsasa.com';
+    const days = Math.round((TRIAL_HOURS || 72) / 24);
+    const li = (t, d) => `<li style="margin:0 0 10px"><b>${t}</b><br><span style="color:#5B6675">${d}</span></li>`;
+    const html = emailShell('Karibu Buildsasa', `
+      <p style="font-size:15px;color:#11161D">Karibu ${first},</p>
+      <p style="font-size:14px;color:#11161D;line-height:1.6">Thank you for joining Buildsasa. Think of it as a site secretary in your phone: you tell it what happened on site, and it does the paperwork. Quotes, payment requests, the daily log, the muster and the wage bill.</p>
+      <p style="font-size:14px;color:#11161D;margin-top:18px"><b>Three things to try today:</b></p>
+      <ol style="font-size:14px;color:#11161D;line-height:1.5;padding-left:20px">
+        ${li('Set up your first site in one sentence', '"A 3-bedroom bungalow in Kitengela for Mr Kamau, KES 6.5M, starting next month."')}
+        ${li('Tell it about your day on site', '"12 workers, slab formwork done, 40 bags of cement delivered, crack on the east wall." One message fills the daily log, stock and snag list.')}
+        ${li('Write a quote', '"Quote a 3-bedroom bungalow, about 120 m²." Or send a photo of a sketch or BOQ.')}
+      </ol>
+      <p style="text-align:center;margin:24px 0"><a href="${app}" style="background:#FF6B1A;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-size:14px;font-weight:600;display:inline-block">Open Buildsasa</a></p>
+      <p style="font-size:13px;color:#5B6675;line-height:1.6">Everything is open for the next ${days} days, no card needed. You can type, talk or send a photo, in English, Swahili or Sheng.</p>
+      <p style="font-size:13px;color:#5B6675;line-height:1.6">Stuck, or want us to set it up with you? Message us on WhatsApp at <a href="https://wa.me/254782223749" style="color:#FF6B1A">+254 782 223 749</a>. A real person answers.</p>
+      <p style="font-size:14px;color:#11161D">Karibu sana,<br>The Buildsasa team</p>`);
+    sendEmail({ to: user.email, subject: `Karibu Buildsasa, ${first}: your site secretary is ready`, html }).catch((e) => console.error('[welcome email]', e.message));
+  } catch (e) { console.error('[welcome email]', e.message); }
+}
 
 app.post('/api/login', async (req, res) => {
   try {
