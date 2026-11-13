@@ -260,7 +260,7 @@ export function Sidebar({
           {menu === "user" && (
             <>
               <div className="fixed inset-0 z-20" onClick={() => setMenu(null)} />
-              <div className="ws-menu" role="menu" style={{ left: 10, right: 10, bottom: 52 }}>
+              <div className="ws-menu" role="menu" style={collapsed ? { left: 8, bottom: 52, width: 240 } : { left: 10, right: 10, bottom: 52 }}>
                 <button role="menuitem" className="ws-menu-item" onClick={() => openSettings()}><Settings /> Settings</button>
                 {allowed("billing") && <button role="menuitem" className="ws-menu-item" onClick={() => { setMenu(null); go("billing"); }}><CreditCard /> Billing &amp; plan</button>}
                 <button role="menuitem" className="ws-menu-item" onClick={() => setCurrency(currency === "KES" ? "USD" : "KES")}><Coins /> Amounts in {currency} <span style={{ marginLeft: "auto", color: "var(--ws-muted)", fontSize: 12 }}>switch to {currency === "KES" ? "USD" : "KES"}</span></button>
