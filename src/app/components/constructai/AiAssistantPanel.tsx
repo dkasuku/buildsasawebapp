@@ -181,7 +181,7 @@ export const aiErrorText = (err: any): string => {
   return String(raw).replace(/\s+/g, " ").trim().slice(0, 240) || "unknown error";
 };
 
-export const AI_GREETING: Msg = { role: "ai", text: "Hi, I'm Buildsasa AI. Tell me what you need and I'll find it, open it or work it out for you: \"How is Kitengela House doing?\", \"Open today's daily log\", \"Estimate materials for a 3-bedroom bungalow\", or \"Which invoices are overdue?\"" };
+export const AI_GREETING: Msg = { role: "ai", text: "Hi, I'm Buildsasa AI, your site secretary. Tell me what happened on site and I'll fill in the paperwork, or ask me for a quote, a payment request or this week's wage bill. You can also send a photo of a receipt or delivery note." };
 
 export function AiAssistantPanel({
   open,
@@ -293,7 +293,7 @@ export function AiAssistantPanel({
 
   const newChat = () => { abortRef.current?.abort(); setMessages([AI_GREETING]); setQ(""); };
 
-  const quick = ["How are my projects doing?", "What needs my attention today?", "Estimate materials for a 3-bedroom house", "Which invoices are overdue?", "Open the daily log"];
+  const quick = ["What needs my attention today?", "Log today's site work", "Quote a 3-bedroom bungalow", "Who owes me money?", "This week's wage bill"];
 
   return (
     <>

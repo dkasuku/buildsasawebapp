@@ -2791,6 +2791,34 @@ async function companyFor(workspaceId) {
   return prismaBase.workspace.findUnique({ where: { id: workspaceId } });
 }
 
+// Getting started: the six first steps a new contractor takes, ticked off from
+// their real data, for the checklist on the AI home.
+app.get('/api/onboarding/progress', auth, async (req, res) => {
+  try {
+    const ws = currentWs();
+    const w = ws ? await companyFor(ws) : null;
+    const safe = (p) => p.catch(() => 0);
+    const projects = await prisma.project.findMany({ select: { id: true, portalToken: true }, take: 200 }).catch(() => []);
+    const ids = projects.map((p) => p.id);
+    const [logs, quotes, workers, invoices, clients] = await Promise.all([
+      safe(prisma.dailyLog.count()), safe(prisma.quote.count()), safe(prisma.labourer.count()), safe(prisma.invoice.count()),
+      ids.length ? safe(prismaBase.projectClient.count({ where: { projectId: { in: ids } } })) : 0,
+    ]);
+    res.json({
+      createdAt: w ? w.createdAt : null,
+      steps: {
+        company: !!(w && !isDefaultCompanyName(w.name)),
+        project: projects.length > 0,
+        siteDay: logs > 0,
+        quote: quotes > 0,
+        workers: workers > 0,
+        invoice: invoices > 0,
+        client: clients > 0 || projects.some((p) => p.portalToken),
+      },
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/company', auth, async (req, res) => {
   try {
     const w = await companyFor(currentWs());
@@ -6366,6 +6394,8 @@ Rules: 6-14 items grouped into 2-5 logical groups; real construction terminology
 // What the AI page's categories ask the assistant to concentrate on.
 // Kept in step with AI_CATEGORIES in src/app/components/constructai/AiWorkspace.tsx.
 const AI_CATEGORY_GUIDE = {
+  labour: 'Casual labour: adding fundis and helpers with their daily rate, marking the muster (present, half day, absent), the weekly wage bill and paying wages by M-Pesa. Use add-labourer and muster actions.',
+  receipts: 'Money spent: receipts, supplier invoices, fuel and hardware slips, filed as spending against the right project (add-expense), and spending against the budget.',
   design: 'Interior and exterior design for Kenyan homes and offices: layouts, finishes, colour palettes, furniture, lighting and materials, with a costed materials table in KES when useful. Images are generated right here in the chat.',
   quotes: 'Quotes, bills of quantities and material estimates. Always answer with a markdown table (item, description, quantity, unit, rate, amount in KES) and a bold total, state your assumptions (sizes, specification) and offer to adjust them.',
   site: 'Site work: daily logs, progress, labour, deliveries, delays, quality and safety. Summarise from the data and, when the user describes a day, write it up as a clean daily log they can paste.',
@@ -7546,7 +7576,7 @@ app.get('/api/billing/seats', auth, async (req, res) => {
 // It is counted from the workspace's creation date, so it can't be restarted.
 // 72 hours (3 days). Set TRIAL_HOURS on the server to change it.
 const TRIAL_HOURS = Math.max(0, Number(process.env.TRIAL_HOURS ?? 72) || 0);
-const OLD_TRIAL_BEFORE = new Date('2026-11-14T00:00:00+03:00').getTime();
+const OLD_TRIAL_BEFORE = new Date('2026-11-13T21:00:00+03:00').getTime();
 const OLD_TRIAL_HOURS = 7 * 24;
 const trialHoursFor = (createdAt) => (new Date(createdAt).getTime() < OLD_TRIAL_BEFORE ? OLD_TRIAL_HOURS : TRIAL_HOURS);
 async function trialFor(workspaceId) {

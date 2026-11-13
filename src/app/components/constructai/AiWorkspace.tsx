@@ -23,6 +23,7 @@ import { VoiceChat, speakable } from "./VoiceChat";
 import { isViewVisible } from "../../config/features";
 import { draftFromAnswer, exportQuote } from "./aiQuote";
 import { FinancialReports } from "./BuildflexAI";
+import { GettingStarted } from "./GettingStarted";
 import { DesignStudio } from "./DesignStudio";
 
 type Tool = { label: string; view?: string; kind?: "design" | "financial" | "photo" };
@@ -30,54 +31,42 @@ type Category = { id: string; label: string; icon: any; blurb: string; prompts: 
 
 // Kept in step with AI_CATEGORY_GUIDE in backend/src/server.js.
 export const AI_CATEGORIES: Category[] = [
-  { id: "projects", label: "Projects & clients", icon: Building2, blurb: "Set up projects from a description, drawing, contract or photo, send the client their portal link.",
-    prompts: ["Create a project: 4-bedroom maisonette in Ruiru for Mr Otieno, KES 9.5M, starting next month", "Share the client portal link for my latest project"],
-    tool: { label: "Open Projects", view: "projects" } },
-  { id: "quotes", label: "Quotes & estimates", icon: Calculator, blurb: "Quotes and bills of quantities priced in KES, editable and ready to send.",
-    prompts: ["Quote a 3-bedroom bungalow, about 120 m², as a PDF", "Price a 50 m perimeter wall in machine-cut stone, in Excel"],
-    tool: { label: "Open Quotes", view: "quotes" } },
-  { id: "invoices", label: "Invoices & payments", icon: Receipt, money: true, blurb: "Raise invoices from a sentence, deposits and stage payments, chase what's overdue.",
-    prompts: ["Invoice the client for the roofing stage: KES 850,000 plus VAT, due in 14 days", "Which invoices are overdue? Draft WhatsApp reminders"],
-    tool: { label: "Open Invoices", view: "invoicing" } },
-  { id: "budget", label: "Budgeting & cost control", icon: PiggyBank, money: true, blurb: "Budgets and BOQs by stage, budget vs actual, cash flow and savings.",
-    prompts: ["Put a substructure budget on my latest project", "Which projects are over budget, and why?"],
-    tool: { label: "Build a financial report", kind: "financial" } },
-  { id: "materials", label: "Materials & equipment", icon: Package, blurb: "Take-offs, stock, reorders, suppliers, owned and hired plant.",
-    prompts: ["How many bags of cement, ballast and sand for a 150 m² slab, 150 mm thick?", "Add 200 bags of cement at KES 780 each to inventory"],
-    tool: { label: "Open Inventory", view: "equipment" } },
-  { id: "site", label: "Site & daily logs", icon: HardHat, blurb: "What happened on site, write-ups of the day, delays, labour and deliveries.",
-    prompts: ["What happened on my sites this week?", "Log today's site work: 12 workers, first-floor slab formwork, cement delivered"],
+  { id: "site", label: "Today on site", icon: HardHat, blurb: "Tell it the day in one message: workers, work done, deliveries, snags. It fills the daily log, stock and snag list.",
+    prompts: ["12 workers today, slab formwork done, 40 bags of cement delivered, crack on the east wall", "What happened on my sites this week?"],
     tool: { label: "Open Daily log", view: "daily-log" } },
-  { id: "team", label: "Team, roles & crews", icon: Users, blurb: "Invite people, set roles and permissions, organise crews and foremen.",
-    prompts: ["Invite jane@example.com as a Site Engineer", "Who on my team can approve variations?"],
-    tool: { label: "Open Team", view: "team" } },
-  { id: "planning", label: "Planning & schedule", icon: CalendarRange, blurb: "Programmes, durations, sequencing and lead times, added to the schedule.",
-    prompts: ["Draft a programme for a 4-bedroom maisonette", "Add 'Ring beam' to my latest project's schedule for next week"],
+  { id: "quotes", label: "Quotes & BOQs", icon: Calculator, blurb: "A priced quote or BOQ in KES from a description, sketch or plan photo, using your own rates. Send it as PDF or on WhatsApp.",
+    prompts: ["Quote a 3-bedroom bungalow in Kitengela, about 120 m²", "Price a 50 m perimeter wall in machine-cut stone with a gate"],
+    tool: { label: "Open Quotes", view: "quotes" } },
+  { id: "invoices", label: "Getting paid", icon: Receipt, money: true, blurb: "Payment requests for finished stages, record M-Pesa payments, and chase clients who are late.",
+    prompts: ["Make a payment request for the roofing stage on Kitengela House: KES 850,000", "Mr Kamau paid 200,000 by M-Pesa, reference QWE12AB"],
+    tool: { label: "Open Payment requests", view: "invoicing" } },
+  { id: "labour", label: "Workers & wages", icon: Users, blurb: "Add your fundis and helpers, mark who came, and get Friday's wage bill ready for M-Pesa.",
+    prompts: ["Add Juma, mason, 1,200 a day, 0722 000000", "What is this week's wage bill on Ruiru Maisonette?"],
+    tool: { label: "Open Attendance", view: "attendance" } },
+  { id: "receipts", label: "Receipts & spending", icon: Wallet, money: true, blurb: "Snap a receipt or supplier invoice and it's filed as spending on the right site.",
+    prompts: ["Hardware receipt: 20 bags of cement, KES 15,600, Mwangi Hardware, for Kitengela House", "How much have I spent on Ruiru Maisonette this month?"],
+    tool: { label: "Snap a receipt", kind: "photo" } },
+  { id: "projects", label: "Clients & updates", icon: Building2, blurb: "Set up a site from a sentence or contract, and send the client a weekly update on WhatsApp.",
+    prompts: ["New project: 4-bedroom maisonette in Ruiru for Mr Otieno, KES 9.5M, starting next month", "Write this week's update for my clients"],
+    tool: { label: "Open Projects", view: "projects" } },
+  { id: "budget", label: "Budgets", icon: PiggyBank, money: true, blurb: "A budget by stage, then budget against what you've really spent.",
+    prompts: ["Make a substructure budget for my latest project", "Which of my projects are over budget?"],
+    tool: { label: "Open Budget & spending", view: "financials" } },
+  { id: "materials", label: "Materials", icon: Package, blurb: "How much cement, ballast, sand, blocks and steel you need, and what's in stock.",
+    prompts: ["How many bags of cement, ballast and sand for a 150 m² slab, 150 mm thick?", "How many blocks for a 3-bedroom bungalow?"],
+    tool: { label: "Open Materials", view: "equipment" } },
+  { id: "planning", label: "Programme", icon: CalendarRange, blurb: "A programme with stages and dates, and what's running late.",
+    prompts: ["Draft a programme for a 4-bedroom maisonette, starting 1 December", "What is behind schedule?"],
     tool: { label: "Open Schedule", view: "schedule" } },
-  { id: "checklists", label: "Quality & inspections", icon: ClipboardCheck, blurb: "Checklists by trade, inspections, snags and standards.",
-    prompts: ["Create a pre-pour concrete inspection checklist", "Schedule a foundation inspection for Friday"],
+  { id: "checklists", label: "Snags & checklists", icon: ClipboardCheck, blurb: "Checklists for each stage and a snag list you can share with the client.",
+    prompts: ["Make a checklist before pouring the slab", "List the open snags on Kitengela House"],
     tool: { label: "Open Checklists", view: "checklists" } },
-  { id: "safety", label: "Health & safety", icon: ShieldAlert, blurb: "Risk assessments, toolbox talks, PPE, incidents and OSHA/NCA/NEMA compliance.",
-    prompts: ["Write a toolbox talk on working at height", "Report a near miss: a plank fell from the scaffold, nobody hurt"],
-    tool: { label: "Open Safety", view: "safety-incidents" } },
-  { id: "procurement", label: "Suppliers & subcontractors", icon: Truck, blurb: "Find and compare suppliers and subcontractors, bids and purchase orders.",
-    prompts: ["Compare these supplier quotes and tell me which is cheaper overall", "Add Mwangi Hardware, 0722 000000, to my suppliers"],
-    tool: { label: "Open Directory", view: "directory" } },
-  { id: "money", label: "Money & reports", icon: Wallet, money: true, blurb: "Spend, cash flow, change orders and progress reports.",
-    prompts: ["Write a weekly progress report for all my projects", "Summarise change orders and their cost impact"],
-    tool: { label: "Open Reports", view: "reports" } },
-  { id: "documents", label: "Letters & contracts", icon: FileText, blurb: "Client letters, delay notices, contracts, minutes and method statements, ready as Word or PDF.",
-    prompts: ["Write a delay notice to the client: 2 weeks for heavy rain", "Draft a simple labour subcontract for a masonry crew"],
-  },
-  { id: "design", label: "Interior design", icon: Palette, blurb: "Snap or attach a photo of a raw space to see it finished, with a costed materials list.",
-    prompts: ["Design a modern living room for a 4 m × 5 m space with warm lighting", "Render a 3-bedroom bungalow facade with a hipped roof and stone cladding"],
-    tool: { label: "Design from a photo", kind: "photo" } },
-  { id: "drawings", label: "Drawings & architecture", icon: DraftingCompass, blurb: "Read plans, room schedules and areas, specifications, design options and approvals.",
-    prompts: ["What approvals do I need from the county to build a maisonette in Kiambu?", "Work out the floor areas from this plan"],
-    tool: { label: "Open Drawings", view: "plans" } },
+  { id: "design", label: "Designs & renders", icon: Palette, blurb: "Floor plans, 3D renders and interiors to show the client before you build. Uses design credits.",
+    prompts: ["Design a modern kitchen for a 3 m × 4 m room with an island", "Render a 3-bedroom bungalow with a hipped roof and stone cladding"],
+    tool: { label: "Open AI Design", kind: "design" } },
+  { id: "documents", label: "Letters & contracts", icon: FileText, blurb: "Delay notices, client letters and simple contracts, ready as Word or PDF.",
+    prompts: ["Write a delay notice to the client: 2 weeks for heavy rain", "Draft a simple labour contract for a masonry crew"] },
 ];
-// Design tools are switched off until idea.md section 6 ships (A7).
-AI_CATEGORIES.splice(AI_CATEGORIES.findIndex((c) => c.id === "design"), 1);
 const catOf = (id?: string) => AI_CATEGORIES.find((c) => c.id === id);
 
 // Shortcuts under the composer. `fill` puts a starter in the box for the user to
@@ -87,7 +76,8 @@ const QUICK: { label: string; icon: any; ask?: string; fill?: string; photo?: bo
   { label: "Log today's site work", icon: HardHat, fill: "Log today's site work: " },
   { label: "Snap a receipt or site photo", icon: Camera, photo: true },
   { label: "Weekly client update", icon: FileText, ask: "Write this week's progress update for each of my active projects, ready to send to the clients." },
-  { label: "Chase overdue invoices", icon: Wallet, money: true, ask: "Which invoices are overdue? Draft a polite but firm WhatsApp reminder for each client." },
+  { label: "This week's wages", icon: Users, ask: "What is this week's wage bill for each site, worker by worker?" },
+  { label: "Chase late payments", icon: Wallet, money: true, ask: "Which payment requests are overdue? Draft a polite but firm WhatsApp reminder for each client." },
 ];
 // What the AI does, shown on the home screen so people know it makes real records, not just chat.
 // Each one starts a message with an example the user can finish.
@@ -391,7 +381,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
       )}
       <textarea ref={inputRef} aria-label="Message Buildsasa AI" value={q} onChange={(e) => { cancelHeard(); setQ(e.target.value); }} onFocus={cancelHeard} rows={big ? 2 : 1}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-        placeholder={cat ? `Ask about ${cat.label.toLowerCase()}…` : "How can I help with your projects today?"}
+        placeholder={cat ? `Ask about ${cat.label.toLowerCase()}…` : firstRun && !started ? "e.g. A 3-bedroom bungalow in Kitengela for Mr Kamau, KES 6.5M, starting next month" : "Tell me what happened on site, or ask for a quote, payment request or wage bill…"}
         className="w-full resize-none bg-transparent px-2 py-1 text-[16px] sm:text-[14px] text-white placeholder:text-[#5B6675] focus:outline-none" />
       <input ref={camRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { attach(e.target.files); e.target.value = ""; }} />
       {voice.state === "recording" ? (
@@ -546,6 +536,7 @@ export function AiWorkspace({ session, canSeeMoney, onNavigate, onOpenProject, o
                 </div>
               )}
               <div className="mt-7">{composer(true)}</div>
+              <GettingStarted canSeeMoney={canSeeMoney} onFill={(t) => { setQ(t); requestAnimationFrame(() => { const el = inputRef.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }); }} />
               {/* Today's brief (idea.md 7.2.1): at most five lines, each with one button for the next step. */}
               {brief && brief.length > 0 && (
                 <div className="mt-6 rounded-2xl border border-[#222A35] bg-[#11161D] divide-y divide-[#222A35] overflow-hidden" aria-label="Today">
