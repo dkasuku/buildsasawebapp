@@ -1,0 +1,3 @@
+
+# Photo text reader (tesseract) downloads its language data here at run time
+*.traineddata
