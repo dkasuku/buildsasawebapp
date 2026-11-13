@@ -5932,8 +5932,8 @@ const withCredits = (action) => async (req, res, next) => {
 // bought on the spot (M-Pesa or card). Admins can change the numbers in the
 // ai_credits settings (daily / extra).
 const DAILY_DEFAULTS = {
-  trial: { image: 3, document: 10, upload: 15, voice: 30 },
-  paid: { image: 15, document: 60, upload: 80, voice: 200 },
+  trial: { image: 3, document: 10, upload: 10, voice: 30 },
+  paid: { image: 15, document: 60, upload: 25, voice: 200 },
   comp: { image: 50, document: 300, upload: 300, voice: 600 },
 };
 const EXTRA_DEFAULTS = { image: 25, document: 2, upload: 1, voice: 1 };
@@ -6161,7 +6161,9 @@ function noteOpenAiOk() { aiHealth.lastOkAt = new Date(); if (aiHealth.lastError
 // company's history can't make every question expensive or overflow the model.
 const capContext = (lines, max = 40000) => { const t = lines.join('\n\n'); return t.length > max ? `${t.slice(0, max)}\n…(older records not shown; ask about something specific to see it)` : t; };
 const OPENAI_TEXT_MODEL = process.env.OPENAI_TEXT_MODEL || 'gpt-4o-mini';
-const OPENAI_VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4o';
+// gpt-4o-mini for photos: about 80% cheaper than gpt-4o and good enough for site,
+// snag and room photos (printed paper is read free by OCR first).
+const OPENAI_VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4o-mini';
 const hasPictures = (messages) => messages.some((m) => Array.isArray(m.content) && m.content.some((c) => c && c.type === 'image_url'));
 async function callAi(messages, { temperature = 0.5, max_tokens = 2048 } = {}) {
   const vision = hasPictures(messages);
