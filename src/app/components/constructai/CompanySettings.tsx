@@ -17,7 +17,8 @@ const area = "w-full bg-[#0A0E14] border border-[#222A35] rounded-md px-2.5 py-2
 
 type Form = { name: string; logoUrl: string; phone: string; email: string; address: string; kraPin: string; paymentDetails: string; quoteTerms: string; about: string };
 
-export function CompanySettings() {
+/** onSaved: close the window it sits in once the save worked. */
+export function CompanySettings({ onSaved }: { onSaved?: () => void } = {}) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [canEdit, setCanEdit] = useState(false);
@@ -55,6 +56,7 @@ export function CompanySettings() {
       // Quotes and other open screens refresh their branding.
       window.dispatchEvent(new Event("buildflex:company-updated"));
       toast.success("Company profile saved. It now appears on your quotes, invoices and client pages.");
+      onSaved?.();
     } catch (e: any) { toast.error(e.message || "Could not save"); }
     finally { setSaving(false); }
   };

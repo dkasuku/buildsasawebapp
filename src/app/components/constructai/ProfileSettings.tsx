@@ -103,6 +103,7 @@ export function ProfileSettings({ onClose, initialTab = "profile" }: { onClose: 
       await api.changePassword(pwd.current, pwd.next);
       toast.success("Password changed");
       setPwd({ current: "", next: "", confirm: "" });
+      onClose();
     } catch (e: any) { toast.error(e?.message || "Could not change password"); }
     setSavingPwd(false);
   };
@@ -176,7 +177,7 @@ export function ProfileSettings({ onClose, initialTab = "profile" }: { onClose: 
         ))}
 
         {/* ACCOUNT & SECURITY */}
-        {tab === "company" && <CompanySettings />}
+        {tab === "company" && <CompanySettings onSaved={onClose} />}
 
         {tab === "account" && (
           <div className="p-5 space-y-4">
