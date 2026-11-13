@@ -16,12 +16,12 @@ import { PageHeader } from "./PageShell";
 type Plan = { id: string; name: string; cycle: string; usd: number; kes: number; note?: string; features?: string[]; aiCredits?: number; includedUsers?: number; perUserUsd?: number; perUserKes?: number };
 
 const FEATURES = [
-  "Unlimited projects & drawings",
-  "Checklists, punch list & inspections",
-  "Change orders & financial tracking",
-  "Buildsasa AI assistant & reports",
-  "Multi-assignee tasks & approvals",
-  "Document storage & sharing",
+  "Buildsasa AI: unlimited chat, quotes, payment requests and site logs",
+  "Reads your receipts, delivery notes and documents",
+  "Unlimited projects, with labour muster and weekly wage bill",
+  "Payment requests, M-Pesa payment records and budgets",
+  "Client updates and a client page for every project",
+  "Works on a weak network, in English, Swahili or Sheng",
 ];
 
 export default function Billing({ role }: { role: Role }) {

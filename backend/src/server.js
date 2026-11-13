@@ -5652,11 +5652,11 @@ app.post('/api/projects/:projectId/messages', auth, async (req, res) => {
 const CREDIT_DEFAULTS = {
   costs: { assistant: 0, checklist: 0, extract: 5, design: 20, design_photos: 30 },
   packs: [
-    { id: 'starter', name: 'Starter pack', credits: 100, kes: 500 },
-    { id: 'builder', name: 'Builder pack', credits: 300, kes: 1350 },
-    { id: 'pro', name: 'Pro pack', credits: 1000, kes: 4000 },
+    { id: 'small', name: 'Small pack', credits: 60, kes: 300 },
+    { id: 'builder', name: 'Builder pack', credits: 220, kes: 1000 },
+    { id: 'pro', name: 'Pro pack', credits: 700, kes: 3000 },
   ],
-  trialCredits: 50,   // a month's allowance before the company subscribes
+  trialCredits: 40,   // a month's allowance before the company subscribes
   compCredits: 500,   // comped (free-access) companies
 };
 const CREDIT_ACTION_LABEL = { assistant: 'Buildsasa AI question', checklist: 'AI checklist', extract: 'AI document reading', design: 'AI design', design_photos: 'AI design from photos' };
@@ -6437,9 +6437,13 @@ async function readOwnUpload(req, url, maxBytes = 15 * 1024 * 1024) {
 // BOQ) on our own server, free. Used when the vision model is unavailable or out
 // of credit, so a photo still gets understood and filed.
 let ocrWorkerP = null;
-async function ocrImage(buf) {
+async function ocrImage(buf, withConfidence = false) {
   if (!ocrWorkerP) ocrWorkerP = require('tesseract.js').createWorker('eng').catch((e) => { ocrWorkerP = null; throw e; });
   const worker = await ocrWorkerP;
+  if (withConfidence) {
+    const r = await Promise.race([worker.recognize(buf), new Promise((_, rej) => setTimeout(() => rej(new Error('Reading the photo took too long')), 45000))]);
+    return { text: String(r.data.text || '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, 8000), confidence: Number(r.data.confidence) || 0 };
+  }
   const run = worker.recognize(buf).then((r) => String(r.data.text || ''));
   const text = await Promise.race([run, new Promise((_, rej) => setTimeout(() => rej(new Error('Reading the photo took too long')), 45000))]);
   return text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, 8000);
@@ -6873,7 +6877,23 @@ ${actionGuide}`;
     const voiceNote = req.body.voice
       ? '\n(This message was SPOKEN and turned into text by speech recognition, so some words may be misheard. Match names to PROJECTS, TEAM MEMBERS, UNITS and contacts above (e.g. "kiting gela" = Kitengela), turn spoken emails and numbers into their written form ("jane at gmail dot com" = jane@gmail.com, "five hundred k" = 500000). If a name, amount, phone or email is still unclear, ask instead of guessing. When you propose actions, say the key details back in one short sentence (who, what, how much) so the user can confirm by voice.)'
       : '';
-    const text = `${question}${voiceNote}${logoNote}${attached}`;
+    // Paper first, for cost: receipts, delivery notes, invoices and price lists
+    // are read on our server for free. Only photos without clear text (site,
+    // snag and room photos, handwriting) go to the paid vision model.
+    let paper = '';
+    if (pictures.length && !req.body.logo && process.env.OCR_FIRST !== 'off') {
+      const keep = [];
+      for (let i = 0; i < pictures.length; i++) {
+        try {
+          const r = await ocrImage(Buffer.from(pictures[i].image_url.url.split(',')[1], 'base64'), true);
+          const words = (r.text.match(/[A-Za-z]{3,}/g) || []).length;
+          if (r.confidence >= 75 && words >= 12) paper += `\n\n--- Photo ${i + 1} (a printed document; its words read clearly) ---\n${r.text}`;
+          else keep.push(pictures[i]);
+        } catch { keep.push(pictures[i]); }
+      }
+      pictures.splice(0, pictures.length, ...keep);
+    }
+    const text = `${question}${voiceNote}${logoNote}${attached}${paper}`;
     const sys = { role: 'system', content: AI_TOPIC_RULE + '\n\n' + systemPrompt };
     let answer;
     try {
@@ -7440,15 +7460,15 @@ const USD_TO_KES = Number(process.env.USD_TO_KES || 130);
 // unreachable, so billing keeps working through a bad deploy or an empty
 // catalogue. The live catalogue is admin-editable and lives in the DB.
 const PLANS_FALLBACK = [
-  { id: 'standard-monthly', name: 'Buildsasa Standard — Monthly', cycle: 'monthly', usd: 250, kes: Math.round(250 * USD_TO_KES), days: 30, note: 'Billed every month. Cancel anytime.', aiCredits: 200 },
-  { id: 'standard-yearly', name: 'Buildsasa Standard — Yearly', cycle: 'yearly', usd: 2500, kes: Math.round(2500 * USD_TO_KES), days: 365, note: 'Billed once a year — save $500 (2 months free).', aiCredits: 300 },
+  { id: 'standard-monthly', name: 'Buildsasa — Monthly', cycle: 'monthly', usd: 23, kes: Math.round(23 * USD_TO_KES), days: 30, note: 'Billed monthly. Cancel anytime.', aiCredits: 100, includedUsers: 3, perUserUsd: 3.846, perUserKes: Math.round(3.846 * USD_TO_KES), tier: 'business' },
+  { id: 'standard-yearly', name: 'Buildsasa — Yearly', cycle: 'yearly', usd: 230, kes: Math.round(230 * USD_TO_KES), days: 365, note: 'Billed once a year: 2 months free.', aiCredits: 100, includedUsers: 3, perUserUsd: 38.46, perUserKes: Math.round(38.46 * USD_TO_KES), tier: 'business' },
 ];
 
 // Map a SubscriptionPackage row to the plan shape the SaaS pricing screen and
 // checkout expect. `kes` is derived here so it always tracks the current rate.
-// Buildsasa AI is part of every plan: +$10 a month (+$100 a year) on top of the
-// catalogue price, which pays for the AI allowance included each month.
-const AI_UPLIFT_USD = { monthly: Number(process.env.AI_UPLIFT_MONTHLY_USD ?? 10), yearly: Number(process.env.AI_UPLIFT_YEARLY_USD ?? 100) };
+// Buildsasa AI is included in the plan price (KES 2,990 a month, Nov 2026). An
+// extra AI charge on top can still be set with AI_UPLIFT_MONTHLY_USD / _YEARLY_USD.
+const AI_UPLIFT_USD = { monthly: Number(process.env.AI_UPLIFT_MONTHLY_USD ?? 0), yearly: Number(process.env.AI_UPLIFT_YEARLY_USD ?? 0) };
 const withAiUplift = (p) => { const add = AI_UPLIFT_USD[p.cycle] || 0; if (!add) return p; const usd = (p.usd || 0) + add; return { ...p, usd, kes: Math.round(usd * USD_TO_KES), aiUpliftUsd: add }; };
 function planShape(row) {
   let features;
@@ -7522,7 +7542,7 @@ app.get('/api/billing/seats', auth, async (req, res) => {
 // Free trial: every new company gets full access for TRIAL_DAYS (default 7)
 // from the day it signed up, with no card. Set TRIAL_DAYS=0 to switch it off.
 // It is counted from the workspace's creation date, so it can't be restarted.
-const TRIAL_DAYS = Math.max(0, parseInt(process.env.TRIAL_DAYS ?? '7', 10) || 0);
+const TRIAL_DAYS = Math.max(0, parseInt(process.env.TRIAL_DAYS ?? '14', 10) || 0);
 async function trialFor(workspaceId) {
   if (!TRIAL_DAYS || !workspaceId) return null;
   const ws = await prismaBase.workspace.findUnique({ where: { id: workspaceId }, select: { createdAt: true } });
