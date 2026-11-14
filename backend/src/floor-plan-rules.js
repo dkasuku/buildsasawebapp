@@ -43,6 +43,10 @@ SERVICE ROOMS AND BATHROOMS
 - Corridors are short: no corridor longer than 10 m. Put the bedrooms around a short corridor or hall instead of along one long passage.
 - A bathroom or toilet is NEVER reached through another bathroom or an en-suite. The shared bathroom opens straight off the corridor.
 - One corridor, not pieces: never split a corridor or hall into parts with a wall and a door between them.
+- A bedroom is NEVER reached through the kitchen or the dining room. Bedrooms open off a corridor, a hall or (in small houses) the living room.
+FURNITURE IN THE RIGHT ROOM
+- Beds and wardrobes only in bedrooms. Toilet, shower, bath and basin only in bathrooms, toilets and en-suites. Cooker, fridge and counter only in the kitchen. Nothing at all stands in a corridor.
+- Every bathroom has a toilet, a basin and a shower or bath; a separate toilet has a toilet and a small basin; an en-suite has a toilet, basin and shower.
 EVERY ROOM FURNISHED SENSIBLY
 - Every bedroom has a bed (master: double 160x200 or 180x200; others: double or single) and a wardrobe. The living room has seating; the dining room a table and chairs; the kitchen a counter, cooker and fridge.
 - Furniture never stands in front of a window: wardrobes, counters and tall items go on solid walls; a bed head goes against a solid wall.
@@ -204,6 +208,12 @@ function checkPlan(plan, prompt) {
   return [...new Set(issues)];
 }
 
+// Which rooms each piece of furniture belongs in (null = anywhere).
+const BED_HOMES = ['bedroom', 'master'];
+const WET_HOMES = ['bathroom', 'toilet', 'ensuite'];
+const KITCHEN_HOMES = ['kitchen'];
+const homeOf = (kind) => (['bed', 'wardrobe'].includes(kind) ? BED_HOMES : ['toilet', 'shower', 'bath', 'basin'].includes(kind) ? WET_HOMES : ['cooker', 'fridge', 'counter'].includes(kind) ? KITCHEN_HOMES : null);
+
 /** Furniture, door and wet-room rules learned from real AI plans. */
 function furnishingIssues(rooms, doors, windows, furniture) {
   const issues = [];
@@ -219,6 +229,30 @@ function furnishingIssues(rooms, doors, windows, furniture) {
     const l = linked(d);
     const cs = l.filter((r) => type(r.name) === 'corridor');
     if (cs.length >= 2) issues.push(`"${cs[0].name}" and "${cs[1].name}" are one passage split by a door. Join them into a single corridor with no wall or door between.`);
+  }
+  // Furniture in the wrong room.
+  for (const f of furniture) {
+    const r = rooms.find((x) => inside(centre(f), x));
+    if (!r) continue;
+    const t = type(r.name), home = homeOf(f.kind);
+    if (t === 'corridor') { issues.push(`A ${f.name || f.kind} stands in "${r.name}". Keep corridors completely clear.`); continue; }
+    if (home && !home.includes(t)) issues.push(`A ${f.name || f.kind} is in "${r.name}". ${home === WET_HOMES ? 'Bathroom fittings belong only in bathrooms, toilets and en-suites.' : home === BED_HOMES ? 'Beds and wardrobes belong only in bedrooms.' : 'Cookers, fridges and counters belong only in the kitchen.'}`);
+  }
+  // Bedrooms never through the kitchen or dining room.
+  for (const d of doors) {
+    const l = linked(d);
+    const bed = l.find((r) => ['bedroom', 'master'].includes(type(r.name))), via = l.find((r) => ['kitchen', 'dining'].includes(type(r.name)));
+    if (bed && via) issues.push(`"${bed.name}" opens into "${via.name}". A bedroom is never reached through the kitchen or dining room; open it off the corridor or hall.`);
+  }
+  // Wet rooms have their fittings.
+  for (const r of rooms) {
+    const t = type(r.name);
+    if (!WET.has(t)) continue;
+    const mine = furniture.filter((f) => inRoom(f, r)).map((f) => f.kind);
+    const need = t === 'toilet' ? ['toilet'] : ['toilet', 'basin'];
+    const missing = need.filter((k) => !mine.includes(k));
+    if (t !== 'toilet' && !mine.includes('shower') && !mine.includes('bath')) missing.push('shower or bath');
+    if (missing.length) issues.push(`"${r.name}" has no ${missing.join(', ')}. Draw its fittings so the client sees it works.`);
   }
   // Every bedroom has a bed; living seating; kitchen counter, cooker and fridge.
   for (const r of rooms) {
@@ -498,12 +532,41 @@ function autoFix(plan, prompt) {
     }
     return cands.find(ok) || null;
   };
+  // 5b2. Furniture in the wrong room (a bed in the kitchen, a shower in a corridor) is removed.
+  out = out.filter((f) => {
+    const home = homeOf(f.kind);
+    if (['room', 'wall', 'door', 'window', 'stairs', 'car', 'plant'].includes(f.kind)) return true;
+    const r = rooms.find((x) => inside(centre(f), x));
+    if (!r) return false;
+    const t = type(r.name);
+    if (t === 'corridor') return false;
+    return !home || home.includes(t);
+  });
   // 5c. Bedrooms without a bed get one.
   for (const r of rooms.filter((x) => ['bedroom', 'master'].includes(type(x.name)))) {
     if (out.some((f) => f.kind === 'bed' && inside(centre(f), r))) continue;
     const double = Math.min(r.w, r.h) >= 300 || type(r.name) === 'master';
     const spot = freeSpot(r, double ? 160 : 100, 200);
     if (spot) out.push({ kind: 'bed', name: double ? 'Double bed' : 'Single bed', ...spot });
+  }
+  // 5c2. Bathrooms, toilets and en-suites get the fittings they are missing, where they fit.
+  for (const r of rooms.filter((x) => WET.has(type(x.name)))) {
+    const t = type(r.name);
+    const has = (k) => out.some((f) => f.kind === k && inside(centre(f), r));
+    const want = t === 'toilet' ? [['toilet', 40, 70], ['basin', 50, 40]] : [['toilet', 40, 70], ['basin', 60, 50], ...(has('bath') ? [] : [['shower', 90, 90]])];
+    for (const [k, w, h] of want) {
+      if (has(k)) continue;
+      const spot = freeSpot(r, w, h);
+      if (spot) out.push({ kind: k, name: k.charAt(0).toUpperCase() + k.slice(1), ...spot });
+    }
+  }
+  // 5c3. The kitchen gets a counter, cooker and fridge if any is missing (the fridge is then moved beside the counter below).
+  for (const k of rooms.filter((x) => type(x.name) === 'kitchen')) {
+    for (const [kind, w, h] of [['counter', 240, 60], ['cooker', 60, 60], ['fridge', 60, 70]]) {
+      if (out.some((f) => f.kind === kind && inside(centre(f), k))) continue;
+      const spot = freeSpot(k, w, h);
+      if (spot) out.push({ kind, name: kind.charAt(0).toUpperCase() + kind.slice(1), ...spot });
+    }
   }
   // 5d. A fridge standing alone moves to the end of the counter run.
   for (const fr of out.filter((f) => f.kind === 'fridge')) {
