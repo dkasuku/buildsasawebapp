@@ -80,6 +80,7 @@ const catOf = (id?: string) => AI_CATEGORIES.find((c) => c.id === id);
 const QUICK: { label: string; icon: any; ask?: string; fill?: string; photo?: boolean; money?: boolean }[] = [
   { label: "Write a quote", icon: Calculator, fill: "Write a quote for " },
   { label: "Log today's site work", icon: HardHat, fill: "Log today's site work: " },
+  { label: "Draw a floor plan", icon: DraftingCompass, fill: "Draw a floor plan: " },
   { label: "Snap a receipt or site photo", icon: Camera, photo: true },
   { label: "Weekly client update", icon: FileText, ask: "Write this week's progress update for each of my active projects, ready to send to the clients." },
   { label: "This week's wages", icon: Users, ask: "What is this week's wage bill for each site, worker by worker?" },

@@ -76,10 +76,10 @@ export function FloorPlan() {
           </div>
         </form>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px]">
-          <label className="inline-flex items-center gap-1.5 text-[#C2CAD6] cursor-pointer">
+          <label className="inline-flex items-center gap-1.5 text-[12.5px] text-[#C2CAD6] cursor-pointer">
             <input type="checkbox" checked={change} onChange={(e) => setChange(e.target.checked)} className="accent-[#FF6B1A] w-4 h-4" /> Change the plan on the sheet
           </label>
-          {!change && EXAMPLES.map((ex) => <button key={ex} type="button" onClick={() => setQ(ex)} className="h-7 px-2.5 rounded-full border border-[#222A35] text-[#8A95A5] hover:text-white">{ex}</button>)}
+          {!change && EXAMPLES.map((ex) => <button key={ex} type="button" onClick={() => setQ(ex)} className="h-7 px-2.5 rounded-full border border-[#222A35] text-[12px] text-[#8A95A5] hover:text-white whitespace-nowrap">{ex}</button>)}
         </div>
       </div>
       <div className="relative flex-1 min-h-0">

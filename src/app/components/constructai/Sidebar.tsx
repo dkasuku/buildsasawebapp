@@ -1,6 +1,6 @@
 import {
   Settings, LifeBuoy, Eye, ChevronDown, CreditCard, LogOut,
-  Lock, Search, SquarePen, X, FolderOpen, Building2, Sparkles, PanelLeftClose, PanelLeftOpen, Coins, SunMoon, Box } from "lucide-react";
+  Lock, Search, SquarePen, X, FolderOpen, Building2, Sparkles, PanelLeftClose, PanelLeftOpen, Coins, SunMoon, Box, LayoutGrid } from "lucide-react";
 import { useState, useEffect } from "react";
 import type { Role } from "./roles";
 import { ROLES, roleLabel } from "./roles";
@@ -212,6 +212,12 @@ export function Sidebar({
               <Box aria-hidden style={{ color: "#FF6B1A" }} />
               <span className="ws-row-label">AI Design</span>
             </button>
+            {allowed("floor-plan" as View) && (
+              <button type="button" className="ws-row" onClick={() => go("floor-plan" as View)} aria-label="Floor plans" title="Floor plans: describe a house and the AI draws a plan you can edit" aria-current={view === "floor-plan" ? "page" : undefined} style={{ marginBottom: 6 }}>
+                <LayoutGrid aria-hidden style={{ color: "#FF6B1A" }} />
+                <span className="ws-row-label">Floor plans</span>
+              </button>
+            )}
             {MODULES.map((m) => {
               if (!m.tabs.some((t) => allowed(t.key))) return null;
               const on = active?.id === m.id;
