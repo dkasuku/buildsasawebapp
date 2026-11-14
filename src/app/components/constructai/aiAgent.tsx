@@ -3,6 +3,7 @@
 // the same server-side permission checks) as the page it belongs to, and only
 // after the user taps "Do it", so nothing happens behind their back.
 import { SIMPLE_ROLES, roleLabel } from "./roles";
+import { queueFloorPlanPrompt } from "./FloorPlan";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ArrowUpRight, Check, ChevronDown, Copy, Loader2, MessageCircle, Plus, RotateCcw, Trash2, X, Zap } from "lucide-react";
@@ -61,6 +62,15 @@ export const AGENT: Record<string, Spec> = {
       need(d.name, "their name"); need(d.email, "their email");
       const r = await api.inviteUser({ name: d.name, email: String(d.email).trim(), role: roleKey(d.role), trade: d.trade || undefined });
       return { id: r.user?.id, note: r.emailed ? `Invite emailed to ${d.email}.` : r.tempPassword ? `Email isn't set up, so share this temporary password with ${d.name}: ${r.tempPassword}` : `Added ${d.name}.` };
+    },
+  },
+  "floor-plan": {
+    title: "Draw a floor plan", verb: "Draw it", view: "floor-plan",
+    fields: [{ k: "prompt", label: "What to draw" }],
+    run: async (d) => {
+      need(d.prompt, "what to draw");
+      queueFloorPlanPrompt(String(d.prompt));
+      return { note: "Open Floor plans: the AI is drawing it there, and you can drag anything to change it." };
     },
   },
   "set-company": {

@@ -45,6 +45,7 @@ export type View =
   | "bidding"
   | "quotes"
   | "cost-estimate"
+  | "floor-plan"
   | "jobs"
   | "invoicing"
   | "inspections"

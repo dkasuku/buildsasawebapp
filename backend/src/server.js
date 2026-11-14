@@ -6095,6 +6095,61 @@ app.get('/api/admin/ai-status', auth, async (req, res) => {
   res.json(out);
 });
 
+// ===== AI FLOOR PLANS =====
+// Describe a building and Buildsasa AI (DeepSeek, text only, so it costs almost
+// nothing) draws an editable floor plan on the Floor plans sheet. The answer is
+// the sheet's own JSON: rooms, walls, doors, windows and furniture in centimetres.
+const FP_KINDS = ['room', 'wall', 'door', 'window', 'stairs', 'bed', 'sofa', 'table', 'chair', 'desk', 'wardrobe', 'counter', 'cooker', 'fridge', 'basin', 'toilet', 'shower', 'bath', 'car', 'plant'];
+const FLOOR_PLAN_PROMPT = `You draw floor plans for Kenyan buildings as JSON for a plan editor. Reply with ONLY one JSON object, no words, no code fences:
+{"name":"<short plan name, e.g. 3-bedroom bungalow, 120 m²>","units":"cm","items":[{"kind":"room","name":"Living room","x":0,"y":0,"w":500,"h":400,"rot":0}, ...]}
+RULES
+- Units are centimetres. x grows to the right, y grows down. The top-left of the building is (0,0). Round every number to 10.
+- kind is one of: ${FP_KINDS.join(', ')}.
+- Rooms are rectangles that touch each other with no gaps or overlaps, and together form the building outline. Give each room a clear name (Living room, Kitchen, Master bedroom, Bedroom 2, Bathroom, Toilet, Corridor, Dining, Store, Veranda, Parking...).
+- Use realistic Kenyan sizes: bedroom 300x300 to 400x400, master bedroom about 400x400 with an en-suite of about 200x250, living room 450x400 to 600x500, kitchen 300x300 to 400x350, bathroom 200x250, toilet 120x150, corridor 120 wide.
+- The total floor area should match what the user asked for (e.g. "120 m²" means the room areas add up to about 1,200,000 cm²). If no size is given, choose a typical one for the brief.
+- Doors: w=90 (or 80 inside bathrooms), h=90. Place the door where a wall line between two rooms (or the outside) is, with its square inside the room it opens into. rot 0 = the door's hinge wall runs along the top edge of its box, rot 1/2/3 turn it 90°/180°/270°. Every room needs at least one door; the main entrance goes on the outside wall of the living room.
+- Windows: on outside walls only. Along a top or bottom wall: w=120 to 180, h=20, centred on the wall line (y = wall y - 10). Along a left or right wall: w=20, h=120 to 180, x = wall x - 10, rot 1. Every bedroom and the living room gets at least one window; bathrooms get a small one (60).
+- Furniture goes inside its room, against walls, not blocking doors: bed 160x200 (double) or 100x200 (single), wardrobe 180x60, sofa 200x90, table 160x90 with chairs 45x45, desk 140x70, kitchen counter 240x60 along a wall with a cooker 60x60 and fridge 60x70, bathroom basin 60x50, toilet 40x70, shower 90x90 or bath 170x75. Use rot to turn furniture to face the room.
+- Keep it to at most 80 items. Two-storey buildings: draw the ground floor only and say "(ground floor)" in the name.
+- If CURRENT PLAN is given, change it as the user asks and return the WHOLE updated plan, keeping everything they did not ask to change.`;
+
+function parseFloorPlan(text) {
+  const raw = String(text || '').replace(/```(?:json)?/gi, '').trim();
+  const a = raw.indexOf('{'), b = raw.lastIndexOf('}');
+  if (a < 0 || b <= a) throw new Error('no JSON');
+  const d = JSON.parse(raw.slice(a, b + 1));
+  const items = (Array.isArray(d.items) ? d.items : []).slice(0, 120).map((i) => ({
+    kind: FP_KINDS.includes(i && i.kind) ? i.kind : null,
+    name: String((i && i.name) || '').slice(0, 40),
+    x: Math.round(Number(i && i.x) || 0), y: Math.round(Number(i && i.y) || 0),
+    w: Math.round(Math.min(5000, Math.max(10, Number(i && i.w) || 0))), h: Math.round(Math.min(5000, Math.max(10, Number(i && i.h) || 0))),
+    rot: ((Math.round(Number(i && i.rot) || 0) % 4) + 4) % 4,
+  })).filter((i) => i.kind);
+  if (!items.some((i) => i.kind === 'room')) throw new Error('no rooms');
+  return { name: String(d.name || 'Floor plan').slice(0, 60), units: 'cm', items };
+}
+
+app.post('/api/ai/floor-plan', auth, async (req, res) => {
+  try {
+    const prompt = String(req.body?.prompt || '').trim().slice(0, 1500);
+    if (prompt.length < 4) return res.status(400).json({ error: 'Describe the building, e.g. "3-bedroom bungalow, 120 m², open kitchen, master en-suite".' });
+    let current = null;
+    try { if (req.body?.current && Array.isArray(req.body.current.items) && req.body.current.items.length) current = JSON.stringify({ name: req.body.current.name, items: req.body.current.items.slice(0, 120) }).slice(0, 14000); } catch { /* ignore */ }
+    const user = current ? `CURRENT PLAN:\n${current}\n\nCHANGE REQUEST: ${prompt}` : `BRIEF: ${prompt}`;
+    let plan = null, lastErr = null;
+    for (let attempt = 0; attempt < 2 && !plan; attempt++) {
+      try {
+        const answer = await callAiDeepSeekFirst([{ role: 'system', content: FLOOR_PLAN_PROMPT }, { role: 'user', content: attempt ? user + '\n\nReply with the JSON object only.' : user }], { temperature: 0.2, max_tokens: 6000 });
+        plan = parseFloorPlan(answer);
+      } catch (e) { lastErr = e; }
+    }
+    if (!plan) { console.error('[floor-plan]', lastErr && lastErr.message); return res.status(502).json({ error: "Buildsasa AI couldn't draw that plan. Try again, or describe it more simply (rooms and size)." }); }
+    const area = plan.items.filter((i) => i.kind === 'room').reduce((t, r) => t + r.w * r.h, 0) / 10000;
+    res.json({ plan, area: Math.round(area) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Today's allowances, for the usage meter in the AI page.
 app.get('/api/ai/limits', auth, async (req, res) => {
   try {
@@ -6422,6 +6477,7 @@ Rules: 6-14 items grouped into 2-5 logical groups; real construction terminology
 // What the AI page's categories ask the assistant to concentrate on.
 // Kept in step with AI_CATEGORIES in src/app/components/constructai/AiWorkspace.tsx.
 const AI_CATEGORY_GUIDE = {
+  floorplan: 'Floor plans: when the user describes a building to draw, answer in one line and end with a floor-plan tag carrying a clear brief (rooms, sizes, total m², special needs). For questions about layouts and room sizes, give practical Kenyan advice, then offer to draw it.',
   costs: 'Cost of construction in Kenya: what a house, rental block, apartments or commercial building costs, from the BUILDING COST RATES, with a range, the split by stage, fees, permits and contingency; then a detailed quote.',
   labour: 'Casual labour: adding fundis and helpers with their daily rate, marking the muster (present, half day, absent), the weekly wage bill and paying wages by M-Pesa. Use add-labourer and muster actions.',
   receipts: 'Money spent: receipts, supplier invoices, fuel and hardware slips, filed as spending against the right project (add-expense), and spending against the budget.',
@@ -6822,7 +6878,7 @@ app.post('/api/ai/assistant', auth, withCredits('assistant'), withDaily('upload'
     // src/app/components/constructai/modules.ts.
     const actionGuide = `
 ACTING IN THE APP: People use you instead of clicking through tabs. When the user asks to open, go to, show, log, record, create or add something, answer briefly and end your reply with ONE action tag on its own line:
-  [[open:<page>]] where <page> is one of: projects, schedule, plans (drawings), change-orders (variations), daily-log, punch-list (snags), checklists, inspections, safety-incidents, attendance, field-view, quotes, cost-estimate (cost of construction calculator), invoicing, financials (budget & spending), equipment (materials & equipment), team, inbox (messages), directory (contacts, suppliers, subcontractors), company-docs, billing. There are no other pages: reports, letters, announcements and anything else are written by you, right here in the chat.
+  [[open:<page>]] where <page> is one of: projects, schedule, plans (drawings), change-orders (variations), daily-log, punch-list (snags), checklists, inspections, safety-incidents, attendance, field-view, quotes, cost-estimate (cost of construction calculator), floor-plan (floor plan drawing sheet), invoicing, financials (budget & spending), equipment (materials & equipment), team, inbox (messages), directory (contacts, suppliers, subcontractors), company-docs, billing. There are no other pages: reports, letters, announcements and anything else are written by you, right here in the chat.
   [[project:<id>|<project name>]] to open one project (use the id from PROJECTS).
 Only add a tag when the user wants to go somewhere or do something; never for a plain question. Never show the tag syntax otherwise.
 SAVING RECORDS: You can save records for the user. The app shows a card the user confirms, so draft confidently. When the user describes something that belongs in a record (what happened on site today, a snag, an observation), or asks you to log/record/save it, write it up neatly AND end with ONE save tag holding compact JSON on a single line:
@@ -6833,6 +6889,7 @@ If you don't know which project, ask before saving (or use the only project if t
 DOING THINGS FOR THE USER (you are their hands in Buildsasa): when the user asks you to create, add, invite, assign, share, send or set up something, do it with ACTION tags. Each tag becomes a card the user confirms with one tap, so act confidently and fill in sensible details (today's date, typical units, KES). You may use several tags in one reply for multi-step requests, in order. Use "projectId":"new" to mean the project created by a create-project tag earlier in the same reply. Compact JSON on one line:
   [[do:create-project|{"name":"...","city":"...","clientName":"...","contractSumKES":0,"startDate":"YYYY-MM-DD","targetEndDate":"YYYY-MM-DD","status":"Planning","description":"..."}]]
   [[do:invite-member|{"name":"...","email":"...","role":"Owner|Manager|Site staff|Viewer","trade":"..."}]]
+  [[do:floor-plan|{"prompt":"<the building to draw, with rooms and size, e.g. 3-bedroom bungalow, 120 m², open kitchen, master en-suite>"}]] (an EDITABLE floor plan on the Floor plans page, drawn from the description; free. Use this for "draw/make a floor plan / house plan / layout". For a realistic picture or 3D render use AI Design instead)
   [[do:set-company|{"name":"<the company name>"}]] (when the user tells you their company's name, or wants a different name on quotes and invoices)
   [[do:set-role|{"email":"<from TEAM MEMBERS>","role":"<one of the roles above>"}]] (roles are fixed; to "create a role" for someone, invite them or change their role)
   [[do:share-portal|{"projectId":"<id>"}]] (creates the client portal link to send to the client)

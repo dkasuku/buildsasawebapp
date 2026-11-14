@@ -13,6 +13,7 @@ export const MODULES: Module[] = [
   { id: "projects", label: "Projects", icon: FolderKanban, hint: "Your sites and their programme", ask: "Plan a project, draft a programme, price a variation…", tabs: [
     { key: "projects", label: "All projects" },
     { key: "schedule", label: "Schedule" },
+    { key: "floor-plan", label: "Floor plans" },
   ] },
   { id: "site", label: "Site", icon: HardHat, hint: "Daily logs, snags, checklists and the labour muster", ask: "Tell me what happened on site today…", tabs: [
     { key: "daily-log", label: "Daily log" },

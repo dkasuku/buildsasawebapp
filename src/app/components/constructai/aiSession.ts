@@ -24,6 +24,9 @@ export const looksLikeDesignRequest = (t: string, category?: string) => {
   // "Create a project for a 4-bedroom house", "add a task", "invite…": app work
   // for the agent, not a picture, unless an image is asked for outright.
   const imageWords = /\b(render|visuali[sz]e|image|picture|photo|3d|interior design|mood ?board)\b/i.test(s);
+  // Floor plans and layouts are drawn, editable and free, on the Floor plans sheet
+  // (the assistant's floor-plan card), not generated as a paid image.
+  if (/\b(floor ?plans?|house ?plans?|layouts?|plan (of|for)|draw (a |the |me a )?plan)\b/i.test(s) && !imageWords) return false;
   if (/\b(project|invite|invoice|budget|task|schedule|team|member|role|crew|contact|supplier|inventory|stock|material|equipment|portal|link|announce\w*|incident|inspection|variation|change order|log|record|save|assign|send|client|programme|report|letter|contract)\b/i.test(s) && !imageWords) return false;
   const verb = /\b(design|redesign|render|visuali[sz]e|show me|draw|imagine|mock ?up|picture of|image of)\b/i.test(s)
     || (/\b(generate|create|make)\b/i.test(s) && (imageWords || /\b(look|style|modern|luxury|minimalist|interior)\b/i.test(s)));

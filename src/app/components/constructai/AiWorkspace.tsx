@@ -37,6 +37,9 @@ export const AI_CATEGORIES: Category[] = [
   { id: "quotes", label: "Quotes & BOQs", icon: Calculator, blurb: "A priced quote or BOQ in KES from a description, sketch or plan photo, using your own rates. Send it as PDF or on WhatsApp.",
     prompts: ["Quote a 3-bedroom bungalow in Kitengela, about 120 m²", "Price a 50 m perimeter wall in machine-cut stone with a gate"],
     tool: { label: "Open Quotes", view: "quotes" } },
+  { id: "floorplan", label: "Floor plans", icon: DraftingCompass, blurb: "Describe a building and get an editable floor plan with sizes, doors, windows and furniture. Free.",
+    prompts: ["Draw a floor plan: 3-bedroom bungalow, 120 m², open kitchen, master en-suite", "Draw a 2-bedroom rental unit of 70 m²"],
+    tool: { label: "Open Floor plans", view: "floor-plan" } },
   { id: "costs", label: "Cost of building", icon: Building2, blurb: "A first budget for any building in Kenya: by size, finish and county, split by stage, then a detailed quote.",
     prompts: ["How much does it cost to build a 4-bedroom maisonette in Ruiru, standard finish?", "Budget for a 3-storey block of 12 bedsitters in Kitengela"],
     tool: { label: "Open Cost estimate", view: "cost-estimate" } },
@@ -86,6 +89,7 @@ const QUICK: { label: string; icon: any; ask?: string; fill?: string; photo?: bo
 // Each one starts a message with an example the user can finish.
 const CAN: { title: string; text: string; icon: any; fill: string; money?: boolean }[] = [
   { title: "Quotes and BOQs", text: "Priced from your own past rates. Send a sketch or plan photo too.", icon: Calculator, fill: "Write a quote for a 3-bedroom bungalow in Kitengela: " },
+  { title: "Floor plans", text: "Describe the house and get a plan you can edit: rooms, doors, windows and furniture.", icon: DraftingCompass, fill: "Draw a floor plan: " },
   { title: "Cost of building", text: "What a house or block costs in Kenya, by size, finish and county, with the split by stage.", icon: Building2, fill: "How much does it cost to build " },
   { title: "Payment requests", text: "Bill a stage that's done and send it to the client.", icon: Receipt, money: true, fill: "Make a payment request for " },
   { title: "Record payments", text: "\"Kamau paid 200k by M-Pesa\" is filed against the right request.", icon: Wallet, money: true, fill: "Record a payment: " },

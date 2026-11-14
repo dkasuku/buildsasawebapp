@@ -54,6 +54,7 @@ import { AiAssistantPanel, type AiFormDraft } from "./components/constructai/AiA
 import ShemmySupport from "./components/constructai/ShemmySupport";
 import { DesignStudio } from "./components/constructai/DesignStudio";
 import { CostEstimator } from "./components/constructai/CostEstimator";
+import { FloorPlan } from "./components/constructai/FloorPlan";
 
 const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Executive overview" },
@@ -85,6 +86,7 @@ const TITLES: Record<Exclude<View, "login">, { title: string; subtitle: string }
   "role-manager": { title: "Role manager", subtitle: "Configure team roles and permissions" },
   bidding: { title: "Bidding", subtitle: "Subcontractor bids and tendering" },
   jobs: { title: "Jobs board", subtitle: "Work opportunities from Buildsasa, open for bids" },
+  "floor-plan": { title: "Floor plans", subtitle: "Describe a house and Buildsasa AI draws an editable floor plan" },
   "cost-estimate": { title: "Cost estimate", subtitle: "What a building costs in Kenya, by size, finish and location" },
   quotes: { title: "Quotes", subtitle: "Price jobs, send them for online acceptance, convert wins to projects" },
   invoicing: { title: "Invoices", subtitle: "What clients owe you, and what's overdue" },
@@ -655,6 +657,7 @@ export default function App() {
             {effectiveView === "directory" && <Directory role={role} />}
             {effectiveView === "company-docs" && <CompanyDocs role={role} />}
             {effectiveView === "quotes" && <Quotes role={role} />}
+            {effectiveView === "floor-plan" && <FloorPlan />}
             {effectiveView === "cost-estimate" && <CostEstimator onAsk={(text) => { setAiStart({ text, images: [], key: Date.now(), page: "Cost estimate" }); navigate("buildflex-ai"); }} />}
             {effectiveView === "invoicing" && <Invoicing role={role} />}
             {effectiveView === "inspections" && <Inspections role={role} />}
