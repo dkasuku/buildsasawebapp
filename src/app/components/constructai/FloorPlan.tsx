@@ -25,6 +25,7 @@ export function FloorPlan() {
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [change, setChange] = useState(false);
+  const [issues, setIssues] = useState<string[] | null>(null);
   const pending = useRef<string | null>(null);
 
   const send = (msg: any) => frame.current?.contentWindow?.postMessage(msg, window.location.origin);
@@ -42,9 +43,10 @@ export function FloorPlan() {
     setBusy(true);
     try {
       const current = edit ? await currentPlan() : null;
-      const r = await http<{ plan: Plan; area: number }>("/api/ai/floor-plan", { method: "POST", body: JSON.stringify({ prompt, current }) });
+      const r = await http<{ plan: Plan; area: number; issues?: string[] }>("/api/ai/floor-plan", { method: "POST", body: JSON.stringify({ prompt, current }) });
       send({ type: "buildsasa:load-plan", plan: r.plan, message: `${edit ? "Plan changed" : "Plan drawn"}: about ${r.area} m². Drag anything to change it.` });
       setChange(true);
+      setIssues(r.issues || []);
     } catch (e: any) { toast.error(e?.message || "Couldn't draw the plan. Try again."); }
     setBusy(false);
   }, [busy]);
@@ -81,6 +83,13 @@ export function FloorPlan() {
           </label>
           {!change && EXAMPLES.map((ex) => <button key={ex} type="button" onClick={() => setQ(ex)} className="h-7 px-2.5 rounded-full border border-[#222A35] text-[12px] text-[#8A95A5] hover:text-white whitespace-nowrap">{ex}</button>)}
         </div>
+        {issues && (issues.length === 0
+          ? <div className="mt-2 text-[12px] text-[#22C55E]">Checked against the building rules: rooms, doors, windows, light, sizes and circulation all pass.</div>
+          : <details className="mt-2 text-[12px] text-[#FBBF24]">
+              <summary className="cursor-pointer">Checked against the building rules: {issues.length} thing{issues.length === 1 ? "" : "s"} to look at</summary>
+              <ul className="mt-1 ml-4 list-disc text-[#C2CAD6] space-y-0.5">{issues.map((x) => <li key={x}>{x}</li>)}</ul>
+              <div className="text-[#8A95A5] mt-1">Fix them by dragging, or tick "Change the plan" and ask, e.g. "fix the problems".</div>
+            </details>)}
       </div>
       <div className="relative flex-1 min-h-0">
         <iframe ref={frame} src="/floor-plan.html" title="Floor plan sheet" className="absolute inset-0 w-full h-full border-0 bg-white" />
