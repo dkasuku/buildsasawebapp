@@ -6141,13 +6141,22 @@ app.post('/api/ai/floor-plan', auth, async (req, res) => {
     if (prompt.length < 4) return res.status(400).json({ error: 'Describe the building, e.g. "3-bedroom bungalow, 120 m², open kitchen, master en-suite".' });
     let current = null;
     try { if (req.body?.current && Array.isArray(req.body.current.items) && req.body.current.items.length) current = JSON.stringify({ name: req.body.current.name, items: req.body.current.items.slice(0, 120) }).slice(0, 14000); } catch { /* ignore */ }
-    const user = current ? `CURRENT PLAN:\n${current}\n\nCHANGE REQUEST: ${prompt}` : `BRIEF: ${prompt}`;
+    // Redo one part: the selected room is redesigned, everything else stays exactly where it is.
+    const f = req.body?.focus;
+    const focus = current && f && Number.isFinite(+f.x) && Number.isFinite(+f.w)
+      ? { name: String(f.name || 'the selected room').slice(0, 40), x: Math.round(+f.x), y: Math.round(+f.y), w: Math.round(+f.w), h: Math.round(+f.h) } : null;
+    // Try another design: a fresh arrangement of the same brief, different from the last one.
+    const variation = !current && !!req.body?.variation;
+    let user;
+    if (focus) user = `CURRENT PLAN:\n${current}\n\nREDESIGN ONLY "${focus.name}" (the area x=${focus.x}, y=${focus.y}, w=${focus.w}, h=${focus.h}). Re-arrange its furniture, doors and windows for a better, rule-following layout${prompt && !/^redesign/i.test(prompt) ? ` and: ${prompt}` : ''}. You may adjust this room's size slightly if neighbours allow, but keep EVERY other room, door, window and piece of furniture exactly as it is. Return the WHOLE plan.`;
+    else if (current) user = `CURRENT PLAN:\n${current}\n\nCHANGE REQUEST: ${prompt}`;
+    else user = `BRIEF: ${prompt}${variation ? '\n\nDraw a DIFFERENT arrangement from the usual one: change where the living area, kitchen and bedrooms sit, while still following every rule.' : ''}`;
     const { checkPlan, autoFix } = require('./floor-plan-rules');
     // The area target: from this request, or (for a change) from the plan as it is.
-    const areaBrief = /(\d{2,4})\s*(m²|m2|sqm|square met)/i.test(prompt) ? prompt : '';
+    const areaBrief = !focus && /(\d{2,4})\s*(m²|m2|sqm|square met)/i.test(prompt) ? prompt : '';
     const ask = async (content, temperature = 0.2) => autoFix(parseFloorPlan(await callAiDeepSeekFirst([{ role: 'system', content: FLOOR_PLAN_PROMPT }, { role: 'user', content }], { temperature, max_tokens: 6000 })), areaBrief);
     // New plans: two drafts at once (one careful, one freer); keep the one that breaks fewer rules.
-    const drafts = await Promise.allSettled(current ? [ask(user)] : [ask(user, 0.2), ask(user, 0.6)]);
+    const drafts = await Promise.allSettled(current ? [ask(user)] : variation ? [ask(user, 0.7), ask(user, 0.9)] : [ask(user, 0.2), ask(user, 0.6)]);
     let plan = null, lastErr = null, issues = null;
     for (const d of drafts) {
       if (d.status !== 'fulfilled') { lastErr = d.reason; continue; }

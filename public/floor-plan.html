@@ -419,7 +419,15 @@ function render(){
   syncSide(it);
 }
 
+var lastSelSent='';
+function sendSelection(it){
+  if(window.parent===window)return;
+  var v=it?{id:it.id,kind:it.kind,name:it.name,x:it.x,y:it.y,w:it.w,h:it.h}:null,k=JSON.stringify(v);
+  if(k===lastSelSent)return;lastSelSent=k;
+  try{window.parent.postMessage({type:'buildsasa:selection',item:v},location.origin)}catch(e){}
+}
 function syncSide(it){
+  sendSelection(it);
   $('noSel').hidden=!!it;$('selPane').hidden=!it;$('selFields').hidden=!it;
   if(!it)return;
   var act=document.activeElement;
@@ -658,7 +666,7 @@ window.addEventListener('message',function(e){
   }else if(d.type==='buildsasa:fit'){
     fit();
   }else if(d.type==='buildsasa:get-plan'){
-    (e.source||parent).postMessage({type:'buildsasa:plan',id:d.id,plan:planData()},location.origin);
+    var si=sel();(e.source||parent).postMessage({type:'buildsasa:plan',id:d.id,plan:planData(),selected:si?{kind:si.kind,name:si.name,x:si.x,y:si.y,w:si.w,h:si.h}:null},location.origin);
   }
 });
 if(window.parent!==window)window.parent.postMessage({type:'buildsasa:plan-ready'},location.origin);

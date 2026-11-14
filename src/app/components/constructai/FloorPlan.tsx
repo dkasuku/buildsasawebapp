@@ -3,7 +3,7 @@
 // rooms, doors, windows and furniture; then drag anything to change it, or ask
 // the AI to change the current plan.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Maximize2, Minimize2, Sparkles, Wand2 } from "lucide-react";
+import { Loader2, Maximize2, Minimize2, RefreshCw, Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { http } from "../../services/api";
 
@@ -46,14 +46,26 @@ export function FloorPlan() {
     setTimeout(() => { window.removeEventListener("message", on); resolve(null); }, 1500);
   });
 
-  const draw = useCallback(async (text: string, edit: boolean) => {
+  // The description the current plan was drawn from, for "Try another design".
+  const [lastBrief, setLastBrief] = useState<string>(() => { try { return localStorage.getItem("buildsasa-floorplan-brief") || ""; } catch { return ""; } });
+  // What's selected on the sheet, for "Redesign this room".
+  const [selected, setSelected] = useState<{ kind: string; name: string; x: number; y: number; w: number; h: number } | null>(null);
+  useEffect(() => {
+    const on = (e: MessageEvent) => { if (e.origin === window.location.origin && e.data?.type === "buildsasa:selection") setSelected(e.data.item); };
+    window.addEventListener("message", on);
+    return () => window.removeEventListener("message", on);
+  }, []);
+
+  const draw = useCallback(async (text: string, edit: boolean, opts: { variation?: boolean; focus?: typeof selected } = {}) => {
     const prompt = text.trim();
     if (!prompt || busy) return;
     setBusy(true);
     try {
-      const current = edit ? await currentPlan() : null;
-      const r = await http<{ plan: Plan; area: number; issues?: string[] }>("/api/ai/floor-plan", { method: "POST", body: JSON.stringify({ prompt, current }) });
-      send({ type: "buildsasa:load-plan", plan: r.plan, message: `${edit ? "Plan changed" : "Plan drawn"}: about ${r.area} m². Drag anything to change it.` });
+      const current = edit || opts.focus ? await currentPlan() : null;
+      const r = await http<{ plan: Plan; area: number; issues?: string[] }>("/api/ai/floor-plan", { method: "POST", body: JSON.stringify({ prompt, current, variation: !!opts.variation, focus: opts.focus || undefined }) });
+      const what = opts.focus ? `${opts.focus.name} redesigned` : opts.variation ? "New design" : edit ? "Plan changed" : "Plan drawn";
+      send({ type: "buildsasa:load-plan", plan: r.plan, message: `${what}: about ${r.area} m². Undo on the sheet brings back the last version.` });
+      if (!edit && !opts.focus) { setLastBrief(prompt); try { localStorage.setItem("buildsasa-floorplan-brief", prompt); } catch { /* noop */ } }
       setChange(true);
       setIssues(r.issues || []);
     } catch (e: any) { toast.error(e?.message || "Couldn't draw the plan. Try again."); }
@@ -96,6 +108,26 @@ export function FloorPlan() {
           </label>
           {!change && EXAMPLES.map((ex) => <button key={ex} type="button" onClick={() => setQ(ex)} className="h-7 px-2.5 rounded-full border border-[#222A35] text-[12px] text-[#8A95A5] hover:text-white whitespace-nowrap">{ex}</button>)}
         </div>
+        {/* Redo with the AI: the whole plan, or just the selected room. Undo/Redo on the sheet step between versions. */}
+        {(lastBrief || selected) && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {lastBrief && (
+              <button type="button" disabled={busy} onClick={() => draw(lastBrief, false, { variation: true })} title={`Redraw "${lastBrief}" with a different arrangement`}
+                className="h-9 px-3 rounded-lg border border-[#FF6B1A]/50 bg-[#FF6B1A]/10 text-[12.5px] text-white hover:bg-[#FF6B1A]/20 inline-flex items-center gap-1.5 disabled:opacity-50">
+                <RefreshCw className="w-3.5 h-3.5 text-[#FF8A47]" /> Try another design
+              </button>
+            )}
+            {selected?.kind === "room" ? (
+              <button type="button" disabled={busy} onClick={() => draw(change && q.trim() ? q : `Redesign ${selected.name}`, true, { focus: selected })} title="Redo only this room: its furniture, doors and windows. Type in the box first to say how."
+                className="h-9 px-3 rounded-lg border border-[#222A35] bg-[#0A0E14] text-[12.5px] text-white hover:border-[#FF6B1A]/60 inline-flex items-center gap-1.5 disabled:opacity-50">
+                <Wand2 className="w-3.5 h-3.5 text-[#FF8A47]" /> Redesign {selected.name || "this room"}
+              </button>
+            ) : (
+              <span className="text-[11.5px] text-[#8A95A5]">Tip: tap a room on the sheet to redesign just that room.</span>
+            )}
+            <span className="text-[11.5px] text-[#5B6675]">Undo and Redo on the sheet go back and forward between versions.</span>
+          </div>
+        )}
         {issues && (issues.length === 0
           ? <div className="mt-2 text-[12px] text-[#22C55E]">Checked against the building rules: rooms, doors, windows, light, sizes and circulation all pass.</div>
           : <details className="mt-2 text-[12px] text-[#FBBF24]">
