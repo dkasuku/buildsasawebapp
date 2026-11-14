@@ -30,7 +30,17 @@ FURNITURE AND CLEARANCES
 - Kitchen: counter along an outside wall under the window; cooker, sink (counter) and fridge form a working triangle; 100 cm free in front of counters.
 - Furniture never blocks a door or covers a window, and every item sits fully inside its room.
 SHAPE
-- Keep the outline simple (rectangle or L-shape) and line up internal walls, which is cheaper to build. Rooms touch with no gaps and no overlaps.`;
+- Keep the outline simple (rectangle or L-shape, at most 8 outside corners) and line up internal walls, which is cheaper to build. Rooms touch with no gaps and no overlaps. Nothing sticks out of the outline at odd depths: veranda, store and toilets fit inside the rectangle or line up with the building edge.
+- No small leftover pieces: every room is a real, usable room (at least 2 m² and 90 cm wide). Do not split one bathroom into two fragments.
+ENTRANCE AND OUTDOOR SPACE
+- The main entrance door (100 cm) is on an outside wall of the living room or an entrance hall, never into a corridor deep in the house or a bedroom.
+- A veranda goes at the FRONT, sharing a wall with the living room (or dining), and you step from the veranda into the living room. Never put the veranda behind a bedroom or only reachable through a bedroom.
+LIVING, DINING, KITCHEN
+- Living and dining share a wall with a wide opening (150 cm or more) between them, or are one open room. The kitchen shares a wall with the dining (or living) room.
+SERVICE ROOMS AND BATHROOMS
+- A store, pantry or laundry opens off the kitchen, corridor or dining room, never through a bedroom.
+- If there are bedrooms without an en-suite, a shared bathroom opens off the corridor so they can reach it without crossing another room. An en-suite sits inside the master bedroom's footprint edge and opens only into it.
+- Corridors are short: no corridor longer than 10 m. Put the bedrooms around a short corridor or hall instead of along one long passage.`;
 
 const norm = (s) => String(s || '').toLowerCase();
 const isRoom = (i) => i.kind === 'room';
@@ -117,7 +127,8 @@ function checkPlan(plan, prompt) {
   for (const r of rooms) {
     const t = type(r.name), a = r.w * r.h, short = Math.min(r.w, r.h), long = Math.max(r.w, r.h);
     const mn = MIN[t];
-    if (mn && (a < mn[0] || short < mn[1])) issues.push(`"${r.name}" is ${m2(a)} m² (${r.w}x${r.h} cm): too small. It needs at least ${m2(mn[0])} m² and a narrow side of at least ${mn[1]} cm.`);
+    if (mn && a < mn[0]) issues.push(`"${r.name}" is ${m2(a)} m² (${r.w}x${r.h} cm): too small. It needs at least ${m2(mn[0])} m² and a narrow side of at least ${mn[1]} cm.`);
+    else if (mn && short < mn[1]) issues.push(`"${r.name}" is only ${short} cm wide (${r.w}x${r.h} cm): too narrow to use. Make its narrow side at least ${mn[1]} cm.`);
     if (t !== 'corridor' && t !== 'other' && long > 2 * short + 20) issues.push(`"${r.name}" is long and thin (${r.w}x${r.h} cm). Keep the long side at most twice the short side.`);
     if (t === 'corridor' && short < 100) issues.push(`"${r.name}" is ${short} cm wide; corridors need 100-150 cm.`);
   }
@@ -160,9 +171,6 @@ function checkPlan(plan, prompt) {
       }
     }
   }
-  if (!doors.some((d) => rooms.some((r) => outsideEdges(r, rooms) > 0 && doorRooms(d, rooms).length === 1 && ['living', 'corridor', 'dining', 'kitchen'].includes(type(r.name))))) {
-    issues.push('There is no main entrance door on an outside wall of the living room or entrance hall.');
-  }
   // Furniture inside rooms and clear of doors.
   for (const f of furniture) {
     if (['car', 'plant'].includes(f.kind)) continue;
@@ -183,7 +191,81 @@ function checkPlan(plan, prompt) {
     const far = wet.filter((r, i) => Math.hypot(cs[i].x - cx, cs[i].y - cy) > 900);
     if (far.length) issues.push(`Wet rooms are spread out (${far.map((r) => r.name).join(', ')} far from the others). Group the kitchen, bathrooms and toilets to share plumbing.`);
   }
+  issues.push(...layoutIssues(rooms, doors));
   return [...new Set(issues)];
+}
+
+/** Share of a wall two rooms have in common (cm), or 0. */
+function sharedLen(r, o) {
+  if (Math.abs(r.y - (o.y + o.h)) < 5 || Math.abs(r.y + r.h - o.y) < 5) return Math.max(0, Math.min(r.x + r.w, o.x + o.w) - Math.max(r.x, o.x));
+  if (Math.abs(r.x - (o.x + o.w)) < 5 || Math.abs(r.x + r.w - o.x) < 5) return Math.max(0, Math.min(r.y + r.h, o.y + o.h) - Math.max(r.y, o.y));
+  return 0;
+}
+/** Corners of the building outline, counted on a 10 cm grid. Rectangle 4, L-shape 6. */
+function outlineCorners(rooms) {
+  if (!rooms.length) return 0;
+  const S = 10;
+  const x0 = Math.min(...rooms.map((r) => r.x)), y0 = Math.min(...rooms.map((r) => r.y));
+  const W = Math.ceil((Math.max(...rooms.map((r) => r.x + r.w)) - x0) / S) + 2, H = Math.ceil((Math.max(...rooms.map((r) => r.y + r.h)) - y0) / S) + 2;
+  if (W * H > 400000) return 0;
+  const g = new Uint8Array(W * H);
+  for (const r of rooms) for (let x = Math.floor((r.x - x0) / S) + 1; x < Math.ceil((r.x + r.w - x0) / S) + 1; x++) for (let y = Math.floor((r.y - y0) / S) + 1; y < Math.ceil((r.y + r.h - y0) / S) + 1; y++) g[y * W + x] = 1;
+  let corners = 0;
+  for (let y = 0; y < H - 1; y++) for (let x = 0; x < W - 1; x++) {
+    const a = g[y * W + x], b = g[y * W + x + 1], c = g[(y + 1) * W + x], d = g[(y + 1) * W + x + 1], n = a + b + c + d;
+    if (n === 1 || n === 3) corners++;
+    else if (n === 2 && a === d) corners += 2;
+  }
+  return corners;
+}
+
+/** Room-arrangement rules: outline, entrance, veranda, living/dining/kitchen, service rooms, bathrooms, corridors. */
+function layoutIssues(rooms, doors) {
+  const issues = [];
+  const of = (t) => rooms.filter((r) => type(r.name) === t);
+  const named = (re) => rooms.filter((r) => re.test(norm(r.name)));
+  const linked = (d) => doorRooms(d, rooms);
+  // Outline.
+  const corners = outlineCorners(rooms);
+  if (corners > 8) issues.push(`The building outline has ${corners} corners: rooms stick out at different depths. Make it a clean rectangle or L-shape (at most 8 corners) by lining up the outer rooms.`);
+  // Fragments.
+  for (const r of rooms) {
+    const t = type(r.name), a = r.w * r.h, short = Math.min(r.w, r.h);
+    if (t === 'corridor') continue;
+    // Toilets are legitimately small (1.2 m²); everything else under 2 m² is a leftover.
+    if (a < (t === 'toilet' ? 1.2e4 : 2e4) || short < 90) issues.push(`"${r.name}" is a leftover fragment (${r.w}x${r.h} cm). Merge it into a neighbouring room or make it a real room of at least 2 m² and 90 cm wide.`);
+  }
+  // Main entrance on the living room or an entrance hall.
+  const entranceRooms = rooms.filter((r) => type(r.name) === 'living' || /hall|entr|lobby|foyer/.test(norm(r.name)));
+  const hasEntrance = doors.some((d) => { const l = linked(d); return l.length === 1 && entranceRooms.includes(l[0]); })
+    || doors.some((d) => { const l = linked(d); return l.length === 2 && l.some((r) => /veranda|porch/.test(norm(r.name))) && l.some((r) => entranceRooms.includes(r)); });
+  if (entranceRooms.length && !hasEntrance) issues.push('The main entrance must be a door on an outside wall of the living room (or entrance hall), or from the front veranda into the living room.');
+  // Veranda at the front, joined to living or dining, not behind a bedroom.
+  for (const v of named(/veranda|porch|terrace/)) {
+    if (!rooms.some((o) => ['living', 'dining'].includes(type(o.name)) && sharedLen(v, o) >= 100)) issues.push(`"${v.name}" does not touch the living or dining room. Put the veranda at the front, along the living room, and step from it into the living room.`);
+    for (const d of doors) { const l = linked(d); if (l.includes(v) && l.some((o) => ['bedroom', 'master'].includes(type(o.name)))) issues.push(`"${v.name}" opens into a bedroom. The veranda should open into the living room.`); }
+  }
+  // Living - dining - kitchen.
+  const living = of('living')[0], dining = of('dining')[0], kitchen = of('kitchen')[0];
+  if (living && dining) {
+    if (sharedLen(living, dining) < 100) issues.push(`"${dining.name}" does not share a wall with "${living.name}". Put dining next to the living room with a wide opening between them.`);
+    else if (!doors.some((d) => { const l = linked(d); return l.includes(living) && l.includes(dining); })) issues.push(`"${living.name}" and "${dining.name}" have a solid wall between them. Add a wide opening (150 cm or more) so they connect.`);
+  }
+  if (kitchen && !rooms.some((o) => ['dining', 'living'].includes(type(o.name)) && sharedLen(kitchen, o) >= 100)) issues.push(`"${kitchen.name}" is not next to the dining or living room. Put the kitchen beside the dining area.`);
+  // Service rooms never through a bedroom.
+  for (const s of named(/store|pantry|laundry/)) {
+    for (const d of doors) { const l = linked(d); if (l.includes(s) && l.some((o) => ['bedroom', 'master'].includes(type(o.name)))) issues.push(`"${s.name}" opens into a bedroom. A store opens off the kitchen, corridor or dining room.`); }
+  }
+  // Shared bathroom for bedrooms without an en-suite.
+  const beds = rooms.filter((r) => ['bedroom', 'master'].includes(type(r.name)));
+  const suites = of('ensuite').length;
+  if (beds.length - suites > 0 && rooms.some((r) => type(r.name) === 'corridor')) {
+    const shared = doors.some((d) => { const l = linked(d); return l.some((r) => ['bathroom', 'toilet'].includes(type(r.name))) && l.some((r) => type(r.name) === 'corridor'); });
+    if (!shared) issues.push('There is no shared bathroom or toilet opening off the corridor, so bedrooms without an en-suite cannot reach one. Add a bathroom off the corridor.');
+  }
+  // Long corridors.
+  for (const c of of('corridor')) if (Math.max(c.w, c.h) > 1000) issues.push(`"${c.name}" is ${(Math.max(c.w, c.h) / 100).toFixed(1)} m long. Keep corridors under 10 m: group the bedrooms around a short corridor or hall.`);
+  return issues;
 }
 
 // ---------------------------------------------------------------------------
@@ -311,6 +393,36 @@ function autoFix(plan, prompt) {
         placed = true; break;
       }
       if (placed) break;
+    }
+  }
+  // 4c. Living and dining sharing a wall get a wide opening between them.
+  const lv = rooms.find((r) => type(r.name) === 'living'), dn = rooms.find((r) => type(r.name) === 'dining');
+  if (lv && dn) {
+    const w = sharedWall(dn, lv);
+    const joined = out.some((d) => d.kind === 'door' && overlap({ x: d.x - 15, y: d.y - 15, w: d.w + 30, h: d.h + 30 }, lv) > 0 && overlap({ x: d.x - 15, y: d.y - 15, w: d.w + 30, h: d.h + 30 }, dn) > 0);
+    if (w && !joined && w.b - w.a >= 180) {
+      const len = Math.min(180, r10(w.b - w.a - 40)), at = r10((w.a + w.b) / 2 - len / 2);
+      if (w.side === 'top') out.push({ kind: 'door', name: 'Wide opening', x: at, y: dn.y, w: len, h: 90, rot: 0 });
+      else if (w.side === 'bottom') out.push({ kind: 'door', name: 'Wide opening', x: at, y: dn.y + dn.h - 90, w: len, h: 90, rot: 2 });
+      else if (w.side === 'left') out.push({ kind: 'door', name: 'Wide opening', x: dn.x, y: at, w: 90, h: len, rot: 1 });
+      else out.push({ kind: 'door', name: 'Wide opening', x: dn.x + dn.w - 90, y: at, w: 90, h: len, rot: 3 });
+    }
+  }
+  // 4d. A front door on the living room's outside wall when there is no main entrance.
+  if (lv) {
+    const into = (d) => rooms.filter((r) => overlap({ x: d.x - 15, y: d.y - 15, w: d.w + 30, h: d.h + 30 }, r) > 0);
+    const hasFront = out.some((d) => d.kind === 'door' && into(d).length === 1 && into(d)[0] === lv);
+    const viaVeranda = out.some((d) => d.kind === 'door' && into(d).includes(lv) && into(d).some((r) => /veranda|porch/.test(norm(r.name))));
+    if (!hasFront && !viaVeranda) {
+      const run = longestOutsideRun(lv, rooms);
+      if (run && run.len >= 140) {
+        // Near the start of the wall, so it doesn't land on the window centred on the same wall.
+        const at = r10(run.from + 20);
+        if (run.side === 'top') out.push({ kind: 'door', name: 'Front door', x: lv.x + at, y: lv.y, w: 100, h: 100, rot: 0 });
+        else if (run.side === 'bottom') out.push({ kind: 'door', name: 'Front door', x: lv.x + at, y: lv.y + lv.h - 100, w: 100, h: 100, rot: 2 });
+        else if (run.side === 'left') out.push({ kind: 'door', name: 'Front door', x: lv.x, y: lv.y + at, w: 100, h: 100, rot: 1 });
+        else out.push({ kind: 'door', name: 'Front door', x: lv.x + lv.w - 100, y: lv.y + at, w: 100, h: 100, rot: 3 });
+      }
     }
   }
   // 5. Furniture must sit inside a room and clear of doors; anything else is dropped.
