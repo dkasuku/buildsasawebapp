@@ -176,8 +176,11 @@ function drawHouse(spec, variant, k) {
   let out = items;
   if (variant % 2 === 1) out = out.map((i) => ({ ...i, x: W - i.x - i.w, rot: i.kind === 'door' ? ({ 1: 3, 3: 1 }[i.rot] ?? i.rot) : i.rot }));
   if (variant >= 2 && spec.cars) {
+    // A forecourt in front of the veranda, on the living-room side: it blocks no room's light.
     const p = out.find((i) => i.name === 'Parking');
-    p.x = variant % 2 === 1 ? W : -p.w; p.y = yBack; p.h = Math.max(520, Math.min(depth, 700));
+    const pw = p.w, ph = 560;
+    p.w = Math.min(W, Math.max(pw, 300)); p.h = ph; p.y = -ph;
+    p.x = variant % 2 === 1 ? W - p.w : 0;
   }
   const x0 = Math.min(...out.map((i) => i.x)), y0 = Math.min(...out.map((i) => i.y));
   out = out.map((i) => ({ ...i, x: i.x - x0, y: i.y - y0 }));

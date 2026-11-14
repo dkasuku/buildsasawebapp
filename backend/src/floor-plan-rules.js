@@ -46,6 +46,7 @@ SERVICE ROOMS AND BATHROOMS
 - A bedroom is NEVER reached through the kitchen or the dining room. Bedrooms open off a corridor, a hall or (in small houses) the living room.
 STOREYS, PARKING, VERANDA
 - A maisonette, two-storey or duplex (or any "ground floor" plan) MUST have a staircase: kind "stairs", at least 100 x 270 cm, off the living room or entrance hall, never inside a bedroom, kitchen or bathroom.
+- Parking never sits against bedrooms or bathrooms: a window onto parked cars doesn't count as daylight. Put parking beside the front zone or in front of the house.
 - Parking: each car needs 250 x 500 cm. Two cars side by side need about 550 x 550 cm (or 300 x 1100 cm one behind the other). Every car is drawn fully inside the parking area. Parking and veranda do NOT count toward the floor area asked for.
 - The veranda is at least 300 cm long and 150 cm deep and runs along the living room, inside the building line (not a small box stuck on).
 - The size you write in the plan name must be the size you actually draw.
@@ -100,7 +101,7 @@ function outsideEdges(r, rooms) {
   let total = 0;
   for (const e of edges) {
     let free = 0;
-    for (let t = 10; t < e.len; t += 20) { const p = e.probe(t); if (!rooms.some((o) => o !== r && !OUTDOOR.test(norm(o.name)) && inside(p, o))) free += 20; }
+    for (let t = 10; t < e.len; t += 20) { const p = e.probe(t); if (!rooms.some((o) => o !== r && !OPEN_AIR.test(norm(o.name)) && inside(p, o))) free += 20; }
     total += free;
   }
   return total;
@@ -180,7 +181,7 @@ function checkPlan(plan, prompt) {
     const c = centre(w), horiz = w.w >= w.h;
     const sideA = horiz ? { x: c.x, y: c.y - 30 } : { x: c.x - 30, y: c.y };
     const sideB = horiz ? { x: c.x, y: c.y + 30 } : { x: c.x + 30, y: c.y };
-    const indoor = rooms.filter((r) => !OUTDOOR.test(norm(r.name)));
+    const indoor = rooms.filter((r) => !OPEN_AIR.test(norm(r.name)));
     const ra = indoor.find((r) => inside(sideA, r)), rb = indoor.find((r) => inside(sideB, r));
     if (ra && rb && ra !== rb) issues.push(`A window at (${w.x},${w.y}) is on the wall between "${ra.name}" and "${rb.name}". Windows go on outside walls only.`);
     if (!ra && !rb) issues.push(`A window at (${w.x},${w.y}) is not on any room's wall.`);
@@ -228,6 +229,8 @@ function checkPlan(plan, prompt) {
 
 // ---- Area, stairs and parking ----
 const OUTDOOR = /veranda|porch|terrace|balcony|parking|garage|carport/;
+// Open air a window may face for daylight. Parking is NOT: cars block light, bring fumes and noise.
+const OPEN_AIR = /veranda|porch|terrace|balcony/;
 /** Indoor floor area (cm²): veranda, parking and the like are left out. */
 const indoorArea = (rooms) => rooms.filter((r) => !OUTDOOR.test(norm(r.name))).reduce((t, r) => t + r.w * r.h, 0);
 /** The floor area the plan should have (cm²): from the brief, else from the plan's own name, else none. */
@@ -440,7 +443,7 @@ function longestOutsideRun(r, rooms) {
   for (const s of sides) {
     let start = null;
     for (let t = 10; t <= s.len; t += 10) {
-      const free = t < s.len && !rooms.some((o) => o !== r && !OUTDOOR.test(norm(o.name)) && inside(s.at(t), o));
+      const free = t < s.len && !rooms.some((o) => o !== r && !OPEN_AIR.test(norm(o.name)) && inside(s.at(t), o));
       if (free && start === null) start = t;
       if ((!free || t >= s.len) && start !== null) {
         const run = { side: s.side, from: start, to: t, len: t - start };
@@ -496,7 +499,7 @@ function autoFix(plan, prompt) {
   let out = items.filter((w) => {
     if (w.kind !== 'window') return true;
     const c = centre(w), horiz = w.w >= w.h;
-    const ind = rooms.filter((r) => !OUTDOOR.test(norm(r.name)));
+    const ind = rooms.filter((r) => !OPEN_AIR.test(norm(r.name)));
     const a = ind.find((r) => inside(horiz ? { x: c.x, y: c.y - 30 } : { x: c.x - 30, y: c.y }, r));
     const b = ind.find((r) => inside(horiz ? { x: c.x, y: c.y + 30 } : { x: c.x + 30, y: c.y }, r));
     return !(a && b && a !== b) && (a || b);
