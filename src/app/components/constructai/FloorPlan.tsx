@@ -50,7 +50,7 @@ export function FloorPlan() {
     send({ type: "buildsasa:get-export", id });
     setTimeout(() => { window.removeEventListener("message", on); resolve(null); }, 2000);
   });
-  const doExport = async (kind: "pdf" | "png" | "dxf" | "svg") => {
+  const doExport = async (kind: "pdf" | "pdf4" | "png" | "dxf" | "svg") => {
     setExportOpen(false);
     const got = await getExport();
     if (!got || !got.exp || !got.plan.items.some((i) => i.kind === "room")) return toast.error("Draw a plan with at least one room first.");
@@ -58,18 +58,18 @@ export function FloorPlan() {
     if (issues && issues.length && !window.confirm(`This plan still has ${issues.length} building-rule point${issues.length === 1 ? "" : "s"} to look at. Export anyway? They will be listed in the drawing notes.`)) return;
     setExporting(kind);
     try {
-      if (kind === "pdf") {
+      if (kind === "pdf" || kind === "pdf4") {
         const company = await api.getCompany().catch(() => null);
         // The title block names the client; optional, remembered for next time.
         let client = ""; try { client = localStorage.getItem("buildsasa-floorplan-client") || ""; } catch { /* noop */ }
         const typed = window.prompt("Client's name for the drawing's title block (optional):", client);
         if (typed === null) { setExporting(null); return; }
         client = typed.trim(); try { localStorage.setItem("buildsasa-floorplan-client", client); } catch { /* noop */ }
-        await exportPdf(got.exp, got.plan, { company: company?.name, project: lastBrief || got.plan.name, client, issues: issues || [] });
+        await exportPdf(got.exp, got.plan, { company: company?.name, project: lastBrief || got.plan.name, client, issues: issues || [] }, kind === "pdf4" ? "a4" : "a3");
       } else if (kind === "png") await exportPng(got.exp, got.plan);
       else if (kind === "svg") exportSvg(got.exp, got.plan);
       else exportDxf(got.plan);
-      toast.success(kind === "pdf" ? "A3 drawing downloaded (PDF)." : kind === "dxf" ? "DXF downloaded: opens in AutoCAD and other CAD software." : `${kind.toUpperCase()} downloaded.`);
+      toast.success(kind === "pdf" ? "A3 drawing downloaded (PDF)." : kind === "pdf4" ? "A4 drawing downloaded (PDF)." : kind === "dxf" ? "DXF downloaded: opens in AutoCAD and other CAD software." : `${kind.toUpperCase()} downloaded.`);
     } catch (e: any) { toast.error(e?.message || "Couldn't export the plan."); }
     setExporting(null);
   };
@@ -142,7 +142,8 @@ export function FloorPlan() {
                   <div className="fixed inset-0 z-[90]" onClick={() => setExportOpen(false)} />
                   <div role="menu" className="absolute right-0 top-12 z-[91] w-[290px] rounded-xl border border-[#222A35] bg-[#11161D] shadow-2xl p-1.5">
                     {([
-                      ["pdf", FileText, "PDF drawing (A3, to scale)", "Title block, dimensions, room and window schedules. For the client and printing."],
+                      ["pdf", FileText, "PDF drawing, A3 (to scale)", "Title block, dimensions, room and window schedules. Best detail, usually 1:100."],
+                      ["pdf4", FileText, "PDF drawing, A4 (to scale)", "The same drawing for any office printer, usually 1:150 or 1:200."],
                       ["png", FileImage, "Image (PNG)", "For WhatsApp and quick sharing."],
                       ["dxf", Ruler, "CAD file (DXF)", "Opens in AutoCAD for an architect or draughtsman."],
                       ["svg", PenTool, "Vector (SVG)", "Editable in design software."],

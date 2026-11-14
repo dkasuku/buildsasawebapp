@@ -60,42 +60,45 @@ function openingSchedule(plan: PlanData) {
   return { doors: group((i) => i.kind === "door" && !isOpening(i)), openings: group(isOpening), windows: group((i) => i.kind === "window") };
 }
 
-// ---------------------------------------------------------------- PDF (A3)
-export async function exportPdf(d: ExportDrawing, plan: PlanData, info: ExportInfo) {
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
-  const W = 420, H = 297, M = 10, panelW = 112, panelX = W - M - panelW;
+// ---------------------------------------------------------------- PDF (A3 or A4)
+export async function exportPdf(d: ExportDrawing, plan: PlanData, info: ExportInfo, paper: "a3" | "a4" = "a3") {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: paper });
+  // Everything is laid out for A3 and scaled for A4: k for sizes and spacing, f for text (kept a bit larger to stay readable).
+  const k = paper === "a4" ? 297 / 420 : 1, f = paper === "a4" ? 0.86 : 1;
+  const _fs = doc.setFontSize.bind(doc); (doc as any).setFontSize = (n: number) => _fs(n * f);
+  const W = paper === "a4" ? 297 : 420, H = paper === "a4" ? 210 : 297, M = 10 * k, panelW = 112 * k, panelX = W - M - panelW;
   // Frame.
   doc.setDrawColor(24, 38, 58); doc.setLineWidth(0.6); doc.rect(M, M, W - 2 * M, H - 2 * M);
   doc.line(panelX, M, panelX, H - M);
   // Drawing area and a standard scale that fits it.
-  const areaX = M + 8, areaY = M + 14, areaW = panelX - areaX - 8, areaH = H - M - 26 - areaY;
+  const areaX = M + 8 * k, areaY = M + 14 * k, areaW = panelX - areaX - 8 * k, areaH = H - M - 26 * k - areaY;
   const scale = [50, 100, 150, 200, 250, 300, 500].find((s) => (d.widthCm * 10) / s <= areaW && (d.heightCm * 10) / s <= areaH) || 500;
   const imgW = (d.widthCm * 10) / scale, imgH = (d.heightCm * 10) / scale;
   const png = await drawingPng(d, Math.min(4200, Math.max(1600, imgW * 9)));
   const ix = areaX + (areaW - imgW) / 2, iy = areaY + (areaH - imgH) / 2;
   doc.addImage(png, "PNG", ix, iy, imgW, imgH, undefined, "FAST");
   doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.setTextColor(24, 38, 58);
-  doc.text((plan.name || "Floor plan").toUpperCase(), areaX, M + 9);
+  doc.text((plan.name || "Floor plan").toUpperCase(), areaX, M + 9 * k);
   // North arrow (top right of the drawing area).
-  const nx = panelX - 18, ny = M + 18;
-  doc.setFillColor(24, 38, 58); doc.triangle(nx, ny - 7, nx - 4, ny + 5, nx + 4, ny + 5, "F");
-  doc.setFontSize(9); doc.text("N", nx, ny - 9, { align: "center" });
-  doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); doc.text("(assumed)", nx, ny + 9, { align: "center" });
+  const nx = panelX - 18 * k, ny = M + 18 * k;
+  doc.setFillColor(24, 38, 58); doc.triangle(nx, ny - 7 * k, nx - 4 * k, ny + 5 * k, nx + 4 * k, ny + 5 * k, "F");
+  doc.setFontSize(9); doc.text("N", nx, ny - 9 * k, { align: "center" });
+  doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); doc.text("(assumed)", nx, ny + 9 * k, { align: "center" });
   // Scale bar: 0-5 m.
-  const sb = (500 * 10) / scale, sx = areaX, sy = H - M - 12;
-  for (let i = 0; i < 5; i++) { doc.setFillColor(i % 2 ? 255 : 24, i % 2 ? 255 : 38, i % 2 ? 255 : 58); doc.rect(sx + (i * sb) / 5, sy, sb / 5, 2.2, "FD"); }
+  const sb = (500 * 10) / scale, sx = areaX, sy = H - M - 12 * k;
+  for (let i = 0; i < 5; i++) { doc.setFillColor(i % 2 ? 255 : 24, i % 2 ? 255 : 38, i % 2 ? 255 : 58); doc.rect(sx + (i * sb) / 5, sy, sb / 5, 2.2 * k, "FD"); }
   doc.setFontSize(7.5); doc.setTextColor(24, 38, 58);
-  [0, 1, 2, 3, 4, 5].forEach((v) => doc.text(`${v}`, sx + (v * sb) / 5, sy + 6, { align: "center" }));
-  doc.text("metres", sx + sb + 4, sy + 2.2);
-  doc.text(`Scale 1:${scale} at A3`, sx + sb + 18, sy + 2.2);
+  [0, 1, 2, 3, 4, 5].forEach((v) => doc.text(`${v}`, sx + (v * sb) / 5, sy + 6 * k, { align: "center" }));
+  doc.text("metres", sx + sb + 4 * k, sy + 2.2 * k);
+  doc.text(`Scale 1:${scale} at ${paper.toUpperCase()}`, sx + sb + 18 * k, sy + 2.2 * k);
 
   // ---- Right panel: room schedule, opening schedule, notes, title block.
-  let y = M + 8;
-  const px = panelX + 5, pw = panelW - 10;
-  const head = (t: string) => { doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(24, 38, 58); doc.text(t, px, y); y += 1.5; doc.setLineWidth(0.3); doc.line(px, y, px + pw, y); y += 4.2; };
+  let y = M + 8 * k;
+  const px = panelX + 5 * k, pw = panelW - 10 * k;
+  const head = (t: string) => { doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(24, 38, 58); doc.text(t, px, y); y += 1.5 * k; doc.setLineWidth(0.3); doc.line(px, y, px + pw, y); y += 4.2 * k; };
   const row = (a: string, b: string, c: string, bold = false) => {
     doc.setFont("helvetica", bold ? "bold" : "normal"); doc.setFontSize(7.5); doc.setTextColor(40, 50, 65);
-    doc.text(doc.splitTextToSize(a, 52)[0], px, y); doc.text(b, px + 62, y, { align: "right" }); doc.text(c, px + pw, y, { align: "right" }); y += 4;
+    doc.text(doc.splitTextToSize(a, 52 * k)[0], px, y); doc.text(b, px + 62 * k, y, { align: "right" }); doc.text(c, px + pw, y, { align: "right" }); y += 4 * k;
   };
   const rs = rooms(plan);
   head("ROOM SCHEDULE");
@@ -107,13 +110,13 @@ export async function exportPdf(d: ExportDrawing, plan: PlanData, info: ExportIn
     row("Veranda / parking", "", rs.outsideM2.toFixed(1), true);
   }
   row(`Building ${m(d.buildingW)} × ${m(d.buildingH)} m overall`, "", "", false);
-  y += 2;
+  y += 2 * k;
   const os = openingSchedule(plan);
   head("DOORS AND WINDOWS");
   os.doors.forEach(([w, n], i) => row(`D${i + 1}  Door ${w} cm wide`, "", `× ${n}`));
   os.openings.forEach(([w, n], i) => row(`O${i + 1}  Wide opening ${w} cm`, "", `× ${n}`));
   os.windows.forEach(([w, n], i) => row(`W${i + 1}  Window ${w} cm wide`, "", `× ${n}`));
-  y += 2;
+  y += 2 * k;
   head("NOTES");
   doc.setFont("helvetica", "normal"); doc.setFontSize(7.2); doc.setTextColor(40, 50, 65);
   const notes = [
@@ -122,28 +125,28 @@ export async function exportPdf(d: ExportDrawing, plan: PlanData, info: ExportIn
     "3. Room sizes, light and ventilation follow common Kenyan practice (windows at least 1/10 of floor area).",
     ...(info.issues && info.issues.length ? [`4. Open points to resolve: ${info.issues.slice(0, 5).join(" ")}`] : []),
   ];
-  for (const n of notes) { const lines = doc.splitTextToSize(n, pw); if (y + lines.length * 3.3 > H - M - 58) break; doc.text(lines, px, y); y += lines.length * 3.3 + 1.2; }
+  for (const n of notes) { const lines = doc.splitTextToSize(n, pw); if (y + lines.length * 3.3 * k > H - M - 58 * k) break; doc.text(lines, px, y); y += lines.length * 3.3 * k + 1.2; }
 
   // Title block (bottom of the panel).
-  const tb = H - M - 54;
+  const tb = H - M - 54 * k;
   doc.setLineWidth(0.6); doc.line(panelX, tb, W - M, tb);
   const cell = (label: string, value: string, yy: number, big = false) => {
     doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); doc.setTextColor(110, 120, 135); doc.text(label.toUpperCase(), px, yy);
     doc.setFont("helvetica", "bold"); doc.setFontSize(big ? 12 : 8.5); doc.setTextColor(24, 38, 58);
-    doc.text(doc.splitTextToSize(value || "-", pw)[0], px, yy + (big ? 5.2 : 4));
+    doc.text(doc.splitTextToSize(value || "-", pw)[0], px, yy + (big ? 5.2 * k : 4 * k));
   };
-  cell("Prepared by", info.company || "Buildsasa", tb + 5, true);
-  cell("Project", info.project || plan.name, tb + 16);
-  cell("Client", info.client || "", tb + 24);
-  cell("Drawing", /ground floor/i.test(plan.name) ? "Ground floor plan" : "Floor plan", tb + 32);
+  cell("Prepared by", info.company || "Buildsasa", tb + 5 * k, true);
+  cell("Project", info.project || plan.name, tb + 16 * k);
+  cell("Client", info.client || "", tb + 24 * k);
+  cell("Drawing", /ground floor/i.test(plan.name) ? "Ground floor plan" : "Floor plan", tb + 32 * k);
   const no = `BS-FP-${new Date().toISOString().slice(2, 10).replace(/-/g, "")}`;
   doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); doc.setTextColor(110, 120, 135);
-  ["Drawing no.", "Date", "Rev", "Scale"].forEach((l, i) => doc.text(l.toUpperCase(), px + i * 27, tb + 41));
+  ["Drawing no.", "Date", "Rev", "Scale"].forEach((l, i) => doc.text(l.toUpperCase(), px + i * 27 * k, tb + 41 * k));
   doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.setTextColor(24, 38, 58);
-  [no, today(), "A", `1:${scale}`].forEach((v, i) => doc.text(v, px + i * 27, tb + 45));
+  [no, today(), "A", `1:${scale}`].forEach((v, i) => doc.text(v, px + i * 27 * k, tb + 45 * k));
   doc.setFont("helvetica", "italic"); doc.setFontSize(6.2); doc.setTextColor(110, 120, 135);
-  doc.text("Drawn with Buildsasa · buildsasa.com", px, H - M - 2.5);
-  doc.save(`${safe(plan.name)}.pdf`);
+  doc.text("Drawn with Buildsasa · buildsasa.com", px, H - M - 2.5 * k);
+  doc.save(`${safe(plan.name)} (${paper.toUpperCase()}).pdf`);
 }
 
 // ---------------------------------------------------------------- PNG / SVG
