@@ -6157,6 +6157,18 @@ app.post('/api/ai/floor-plan', auth, async (req, res) => {
     // A one-room redesign keeps the plan's size, so it passes no brief.
     const areaBrief = focus ? '' : prompt;
     const ask = async (content, temperature = 0.2) => autoFix(parseFloorPlan(await callAiDeepSeekFirst([{ role: 'system', content: FLOOR_PLAN_PROMPT }, { role: 'user', content }], { temperature, max_tokens: 6000 })), areaBrief);
+    // Ordinary houses (1-5 bedroom bungalows and maisonettes) are arranged by Buildsasa's own
+    // layout engine, which follows the rules by design; DeepSeek handles everything else
+    // (changes to a plan, one-room redesigns, shops, rental blocks, mansions...).
+    const { houseSpec, layoutHouse } = require('./floor-plan-layout');
+    const spec = !current && !focus ? houseSpec(prompt) : null;
+    if (spec) {
+      const variant = variation ? 1 + Math.floor(Math.random() * 3) : 0;
+      const laid = autoFix(layoutHouse(spec, variant), prompt);
+      const left = checkPlan(laid, prompt);
+      const indoorM2 = laid.items.filter((i) => i.kind === 'room' && !/veranda|porch|terrace|balcony|parking|garage|carport/i.test(i.name)).reduce((t, r) => t + r.w * r.h, 0) / 10000;
+      return res.json({ plan: laid, area: Math.round(indoorM2), issues: left.slice(0, 8), engine: 'layout' });
+    }
     // New plans: two drafts at once (one careful, one freer); keep the one that breaks fewer rules.
     const drafts = await Promise.allSettled(current ? [ask(user)] : variation ? [ask(user, 0.7), ask(user, 0.9)] : [ask(user, 0.2), ask(user, 0.6)]);
     let plan = null, lastErr = null, issues = null;

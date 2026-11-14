@@ -17,7 +17,7 @@ LIGHT AND AIR
 - Bathrooms and toilets sit on an outside wall with a small window (60 cm) for ventilation.
 - Windows go on outside walls only, never on a wall between two rooms.
 SIZES (minimums; aim above them)
-- Living room at least 14 m², narrow side at least 300 cm. Master bedroom at least 12 m². Other bedrooms at least 9 m², narrow side at least 270 cm. Kitchen at least 6 m², narrow side at least 200 cm. Bathroom at least 3 m². Toilet at least 1.2 m² (about 100 x 140). Dining at least 8 m².
+- Living room at least 14 m², narrow side at least 300 cm. Master bedroom at least 11 m². Other bedrooms at least 9 m², narrow side at least 270 cm. Kitchen at least 6 m², narrow side at least 200 cm. Bathroom at least 3 m². Toilet at least 1.2 m² (about 100 x 140). Dining at least 8 m².
 - Rooms are not long and thin: the long side is at most twice the short side (corridors excepted).
 - Spans: no room wider than 550 cm in both directions without being a living/hall space (keeps beams and slabs economical).
 WET AREAS
@@ -40,7 +40,7 @@ LIVING, DINING, KITCHEN
 SERVICE ROOMS AND BATHROOMS
 - A store, pantry or laundry opens off the kitchen, corridor or dining room, never through a bedroom.
 - If there are bedrooms without an en-suite, a shared bathroom opens off the corridor so they can reach it without crossing another room. An en-suite sits inside the master bedroom's footprint edge and opens only into it.
-- Corridors are short: no corridor longer than 10 m. Put the bedrooms around a short corridor or hall instead of along one long passage.
+- Corridors are short: no corridor longer than 12 m (under 10 m for 3 bedrooms or fewer). Put the bedrooms around a short corridor or hall instead of along one long passage.
 - A bathroom or toilet is NEVER reached through another bathroom or an en-suite. The shared bathroom opens straight off the corridor.
 - One corridor, not pieces: never split a corridor or hall into parts with a wall and a door between them.
 - A bedroom is NEVER reached through the kitchen or the dining room. Bedrooms open off a corridor, a hall or (in small houses) the living room.
@@ -78,7 +78,7 @@ const type = (name) => {
 };
 const HABITABLE = new Set(['master', 'bedroom', 'living', 'dining', 'kitchen', 'study']);
 const WET = new Set(['bathroom', 'toilet', 'ensuite']);
-const MIN = { living: [14e4, 300], master: [12e4, 280], bedroom: [9e4, 270], kitchen: [6e4, 200], dining: [8e4, 250], bathroom: [3e4, 150], ensuite: [2.5e4, 140], toilet: [1.2e4, 90], study: [7e4, 240] };
+const MIN = { living: [14e4, 300], master: [11e4, 280], bedroom: [9e4, 270], kitchen: [6e4, 200], dining: [8e4, 250], bathroom: [3e4, 150], ensuite: [2.5e4, 140], toilet: [1.2e4, 90], study: [7e4, 240] };
 const m2 = (cm2) => Math.round(cm2 / 1e3) / 10;
 
 function overlap(a, b) {
@@ -100,15 +100,29 @@ function outsideEdges(r, rooms) {
   let total = 0;
   for (const e of edges) {
     let free = 0;
-    for (let t = 10; t < e.len; t += 20) { const p = e.probe(t); if (!rooms.some((o) => o !== r && inside(p, o))) free += 20; }
+    for (let t = 10; t < e.len; t += 20) { const p = e.probe(t); if (!rooms.some((o) => o !== r && !OUTDOOR.test(norm(o.name)) && inside(p, o))) free += 20; }
     total += free;
   }
   return total;
 }
 /** The room(s) a door connects: rooms its box touches. */
 function doorRooms(d, rooms) {
-  const box = { x: d.x - 15, y: d.y - 15, w: d.w + 30, h: d.h + 30 };
-  return rooms.filter((r) => overlap(box, r) > 0);
+  // The door's room is the one its square sits in; the other room is straight across
+  // the wall the square touches (probed at the door's middle), not any neighbour near a corner.
+  const c = centre(d);
+  const host = rooms.find((r) => inside(c, r));
+  if (!host) { const box = { x: d.x - 15, y: d.y - 15, w: d.w + 30, h: d.h + 30 }; return rooms.filter((r) => overlap(box, r) > 0); }
+  // The wall it sits on is the CLOSEST edge (a door 20 cm from a corner is still on its side wall).
+  const edges = [
+    { gap: Math.abs(d.y - host.y), probe: { x: c.x, y: host.y - 20 } },
+    { gap: Math.abs(d.y + d.h - (host.y + host.h)), probe: { x: c.x, y: host.y + host.h + 20 } },
+    { gap: Math.abs(d.x - host.x), probe: { x: host.x - 20, y: c.y } },
+    { gap: Math.abs(d.x + d.w - (host.x + host.w)), probe: { x: host.x + host.w + 20, y: c.y } },
+  ].sort((a, b) => a.gap - b.gap);
+  if (edges[0].gap > 20) return [host];
+  const probe = edges[0].probe;
+  const other = rooms.find((r) => r !== host && inside(probe, r));
+  return other ? [host, other] : [host];
 }
 
 /** Check a plan against the rules. Returns a list of plain problems, worst first. */
@@ -166,7 +180,8 @@ function checkPlan(plan, prompt) {
     const c = centre(w), horiz = w.w >= w.h;
     const sideA = horiz ? { x: c.x, y: c.y - 30 } : { x: c.x - 30, y: c.y };
     const sideB = horiz ? { x: c.x, y: c.y + 30 } : { x: c.x + 30, y: c.y };
-    const ra = rooms.find((r) => inside(sideA, r)), rb = rooms.find((r) => inside(sideB, r));
+    const indoor = rooms.filter((r) => !OUTDOOR.test(norm(r.name)));
+    const ra = indoor.find((r) => inside(sideA, r)), rb = indoor.find((r) => inside(sideB, r));
     if (ra && rb && ra !== rb) issues.push(`A window at (${w.x},${w.y}) is on the wall between "${ra.name}" and "${rb.name}". Windows go on outside walls only.`);
     if (!ra && !rb) issues.push(`A window at (${w.x},${w.y}) is not on any room's wall.`);
   }
@@ -402,7 +417,9 @@ function layoutIssues(rooms, doors) {
     if (!shared) issues.push('There is no shared bathroom or toilet opening off the corridor, so bedrooms without an en-suite cannot reach one. Add a bathroom off the corridor.');
   }
   // Long corridors.
-  for (const c of of('corridor')) if (Math.max(c.w, c.h) > 1000) issues.push(`"${c.name}" is ${(Math.max(c.w, c.h) / 100).toFixed(1)} m long. Keep corridors under 10 m: group the bedrooms around a short corridor or hall.`);
+  // 10 m, plus 1.5 m per bedroom above 3, and never less than 0.7 x the square root of the indoor area (big houses).
+  const maxCorr = Math.max(1000 + Math.max(0, rooms.filter((r) => ['bedroom', 'master'].includes(type(r.name))).length - 3) * 150, Math.round(Math.sqrt(indoorArea(rooms)) * 0.7));
+  for (const c of of('corridor')) if (Math.max(c.w, c.h) > maxCorr) issues.push(`"${c.name}" is ${(Math.max(c.w, c.h) / 100).toFixed(1)} m long. Keep corridors under ${(maxCorr / 100).toFixed(1)} m for this many bedrooms: group the bedrooms around a short corridor or hall.`);
   return issues;
 }
 
@@ -423,7 +440,7 @@ function longestOutsideRun(r, rooms) {
   for (const s of sides) {
     let start = null;
     for (let t = 10; t <= s.len; t += 10) {
-      const free = t < s.len && !rooms.some((o) => o !== r && inside(s.at(t), o));
+      const free = t < s.len && !rooms.some((o) => o !== r && !OUTDOOR.test(norm(o.name)) && inside(s.at(t), o));
       if (free && start === null) start = t;
       if ((!free || t >= s.len) && start !== null) {
         const run = { side: s.side, from: start, to: t, len: t - start };
@@ -479,8 +496,9 @@ function autoFix(plan, prompt) {
   let out = items.filter((w) => {
     if (w.kind !== 'window') return true;
     const c = centre(w), horiz = w.w >= w.h;
-    const a = rooms.find((r) => inside(horiz ? { x: c.x, y: c.y - 30 } : { x: c.x - 30, y: c.y }, r));
-    const b = rooms.find((r) => inside(horiz ? { x: c.x, y: c.y + 30 } : { x: c.x + 30, y: c.y }, r));
+    const ind = rooms.filter((r) => !OUTDOOR.test(norm(r.name)));
+    const a = ind.find((r) => inside(horiz ? { x: c.x, y: c.y - 30 } : { x: c.x - 30, y: c.y }, r));
+    const b = ind.find((r) => inside(horiz ? { x: c.x, y: c.y + 30 } : { x: c.x + 30, y: c.y }, r));
     return !(a && b && a !== b) && (a || b);
   });
   // 4. Every habitable and wet room gets enough window on its longest outside wall.
@@ -571,10 +589,12 @@ function autoFix(plan, prompt) {
     return host && !doors.some((d) => overlap(f, d) > 400);
   });
   // 5b. Find a free spot in a room for a piece of furniture: against a wall, clear of doors, windows and other furniture.
-  const freeSpot = (r, w, h) => {
+  // tall: wardrobes, fridges and the like keep 40 cm clear of windows; low furniture (beds, toilets) may sit under one.
+  const freeSpot = (r, w, h, tall = false) => {
     const others = out.filter((o) => !['room'].includes(o.kind));
+    const wm = tall ? 40 : 0;
     const ok = (c) => c.x >= r.x + 10 && c.y >= r.y + 10 && c.x + c.w <= r.x + r.w - 10 && c.y + c.h <= r.y + r.h - 10
-      && !others.some((o) => overlap(o.kind === 'door' ? { x: o.x - 10, y: o.y - 10, w: o.w + 20, h: o.h + 20 } : o.kind === 'window' ? { x: o.x - 40, y: o.y - 40, w: o.w + 80, h: o.h + 80 } : o, c) > 0);
+      && !others.some((o) => overlap(o.kind === 'door' ? { x: o.x - 10, y: o.y - 10, w: o.w + 20, h: o.h + 20 } : o.kind === 'window' ? { x: o.x - wm, y: o.y - wm, w: o.w + 2 * wm, h: o.h + 2 * wm } : o, c) > 0);
     const cands = [];
     for (const [cw, ch, rot] of [[w, h, 0], [h, w, 1]]) {
       cands.push({ x: r10(r.x + (r.w - cw) / 2), y: r.y + 10, w: cw, h: ch, rot: rot ? 3 : 0 }); // top wall
@@ -622,11 +642,18 @@ function autoFix(plan, prompt) {
     const spot = freeSpot(r, double ? 160 : 100, 200);
     if (spot) out.push({ kind: 'bed', name: double ? 'Double bed' : 'Single bed', ...spot });
   }
+  // ...and a wardrobe on a free solid wall.
+  for (const r of rooms.filter((x) => ['bedroom', 'master'].includes(type(x.name)))) {
+    if (out.some((f) => f.kind === 'wardrobe' && inside(centre(f), r))) continue;
+    const spot = freeSpot(r, 180, 60, true) || freeSpot(r, 120, 60, true);
+    if (spot) out.push({ kind: 'wardrobe', name: 'Wardrobe', ...spot });
+  }
   // 5c2. Bathrooms, toilets and en-suites get the fittings they are missing, where they fit.
   for (const r of rooms.filter((x) => WET.has(type(x.name)))) {
     const t = type(r.name);
     const has = (k) => out.some((f) => f.kind === k && inside(centre(f), r));
-    const want = t === 'toilet' ? [['toilet', 40, 70], ['basin', 50, 40]] : [['toilet', 40, 70], ['basin', 60, 50], ...(has('bath') ? [] : [['shower', 90, 90]])];
+    // The shower first (the biggest piece), then the toilet and basin around it.
+    const want = t === 'toilet' ? [['toilet', 40, 70], ['basin', 50, 40]] : [...(has('bath') ? [] : [['shower', 90, 90]]), ['toilet', 40, 70], ['basin', 60, 50]];
     for (const [k, w, h] of want) {
       if (has(k)) continue;
       const spot = freeSpot(r, w, h);
@@ -637,7 +664,7 @@ function autoFix(plan, prompt) {
   for (const k of rooms.filter((x) => type(x.name) === 'kitchen')) {
     for (const [kind, w, h] of [['counter', 240, 60], ['cooker', 60, 60], ['fridge', 60, 70]]) {
       if (out.some((f) => f.kind === kind && inside(centre(f), k))) continue;
-      const spot = freeSpot(k, w, h);
+      const spot = freeSpot(k, w, h, kind === 'fridge');
       if (spot) out.push({ kind, name: kind.charAt(0).toUpperCase() + kind.slice(1), ...spot });
     }
   }
@@ -676,7 +703,7 @@ function autoFix(plan, prompt) {
     const r = rooms.find((x) => inside(centre(wd), x));
     if (!blocks || !r) continue;
     const i = out.indexOf(wd); out.splice(i, 1);
-    const spot = freeSpot(r, Math.max(wd.w, wd.h), Math.min(wd.w, wd.h));
+    const spot = freeSpot(r, Math.max(wd.w, wd.h), Math.min(wd.w, wd.h), true);
     out.push(spot ? { ...wd, ...spot } : wd);
   }
   // 6. Everything on the 10 cm grid.
