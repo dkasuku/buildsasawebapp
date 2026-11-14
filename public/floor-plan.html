@@ -373,6 +373,40 @@ function itemSVG(it){
 }
 function m(v){return (v/100).toFixed(2)}
 
+/* ---------- export: a clean, print-ready drawing (no grid, no selection) with overall dimensions ---------- */
+var EXPORT_STYLE='.rf{fill:#ffffff}.rs{fill:none;stroke:#18263a;stroke-width:20;stroke-linejoin:miter}'+
+  '.fx rect,.fx line,.fx circle,.fx ellipse,.fx path{stroke:#55647a;stroke-width:2;fill:#f1f4f7}.fx .hit{fill:none;stroke:none}'+
+  '.fx .gap{fill:#ffffff;stroke:none}.fx .solid{fill:#18263a;stroke:none}.fx .nofill{fill:none}.fx .strong{stroke:#18263a;stroke-width:3}'+
+  '.lbl,.dim{text-anchor:middle;paint-order:stroke;stroke:#ffffff;stroke-width:6px;stroke-linejoin:round}'+
+  '.lbl{font-family:Arial,Helvetica,sans-serif;font-weight:700;fill:#18263a}.dim{font-family:Arial,Helvetica,sans-serif;fill:#55647a}'+
+  '.dl{stroke:#18263a;stroke-width:3;fill:none}.dt{font-family:Arial,Helvetica,sans-serif;font-size:34px;fill:#18263a;text-anchor:middle}';
+function exportSVG(){
+  var a='',i,r,rooms=[],rest=[];
+  for(i=0;i<items.length;i++)(items[i].kind==='room'?rooms:rest).push(items[i]);
+  if(!items.length)return null;
+  var x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  items.forEach(function(it){x0=Math.min(x0,it.x);y0=Math.min(y0,it.y);x1=Math.max(x1,it.x+it.w);y1=Math.max(y1,it.y+it.h)});
+  for(i=0;i<rooms.length;i++){r=rooms[i];a+='<rect class="rf" x="'+r.x+'" y="'+r.y+'" width="'+r.w+'" height="'+r.h+'"/>'}
+  for(i=0;i<rooms.length;i++){r=rooms[i];a+='<rect class="rs" x="'+r.x+'" y="'+r.y+'" width="'+r.w+'" height="'+r.h+'"/>'}
+  var sorted=rest.map(function(it,ix){return [rank(it.kind),ix,it]}).sort(function(p,q){return p[0]-q[0]||p[1]-q[1]});
+  for(i=0;i<sorted.length;i++)a+=itemSVG(sorted[i][2]);
+  for(i=0;i<rooms.length;i++){
+    r=rooms[i];
+    var fs=Math.max(14,Math.min(34,r.w/9,r.h/3)),cx=r.x+r.w/2,cy=r.y+r.h/2;
+    a+='<text class="lbl" x="'+cx+'" y="'+(cy-fs*.1)+'" font-size="'+fs+'">'+esc(r.name)+'</text>'+
+       '<text class="dim" x="'+cx+'" y="'+(cy+fs*.95)+'" font-size="'+(fs*.66)+'">'+m(r.w)+' × '+m(r.h)+' m · '+(r.w*r.h/10000).toFixed(1)+' m²</text>';
+  }
+  // Overall dimension lines: width along the bottom, depth along the right.
+  var dy=y1+90,dx=x1+90,t=18;
+  a+='<line class="dl" x1="'+x0+'" y1="'+dy+'" x2="'+x1+'" y2="'+dy+'"/><line class="dl" x1="'+x0+'" y1="'+(dy-t)+'" x2="'+x0+'" y2="'+(dy+t)+'"/><line class="dl" x1="'+x1+'" y1="'+(dy-t)+'" x2="'+x1+'" y2="'+(dy+t)+'"/>'+
+     '<text class="dt" x="'+((x0+x1)/2)+'" y="'+(dy+50)+'">'+m(x1-x0)+' m</text>'+
+     '<line class="dl" x1="'+dx+'" y1="'+y0+'" x2="'+dx+'" y2="'+y1+'"/><line class="dl" x1="'+(dx-t)+'" y1="'+y0+'" x2="'+(dx+t)+'" y2="'+y0+'"/><line class="dl" x1="'+(dx-t)+'" y1="'+y1+'" x2="'+(dx+t)+'" y2="'+y1+'"/>'+
+     '<text class="dt" transform="translate('+(dx+50)+' '+((y0+y1)/2)+') rotate(-90)">'+m(y1-y0)+' m</text>';
+  var pad=40,vx=x0-pad,vy=y0-pad,vw=(x1-x0)+190+pad,vh=(y1-y0)+190+pad;
+  return {svg:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="'+vx+' '+vy+' '+vw+' '+vh+'" width="'+vw+'" height="'+vh+'"><style>'+EXPORT_STYLE+'</style><rect x="'+vx+'" y="'+vy+'" width="'+vw+'" height="'+vh+'" fill="#ffffff"/>'+a+'</svg>',
+    widthCm:vw,heightCm:vh,buildingW:x1-x0,buildingH:y1-y0};
+}
+
 function render(){
   var a='',i,r,rooms=[],rest=[];
   for(i=0;i<items.length;i++)(items[i].kind==='room'?rooms:rest).push(items[i]);
@@ -664,6 +698,9 @@ window.addEventListener('message',function(e){
     push();items=arr;selId=null;
     if(d.plan.name){planName=String(d.plan.name).slice(0,60);$('planName').value=planName}
     changed();fit();requestAnimationFrame(fit);setTimeout(fit,120);toast(d.message||'Plan drawn. Drag anything to change it.');
+  }else if(d.type==='buildsasa:get-export'){
+    var ex=exportSVG();
+    (e.source||parent).postMessage({type:'buildsasa:export',id:d.id,exp:ex,plan:planData()},location.origin);
   }else if(d.type==='buildsasa:fit'){
     fit();
   }else if(d.type==='buildsasa:get-plan'){

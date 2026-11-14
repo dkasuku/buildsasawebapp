@@ -3,9 +3,10 @@
 // rooms, doors, windows and furniture; then drag anything to change it, or ask
 // the AI to change the current plan.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Maximize2, Minimize2, RefreshCw, Sparkles, Wand2 } from "lucide-react";
+import { Download, FileImage, FileText, Loader2, Maximize2, Minimize2, PenTool, RefreshCw, Ruler, Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
-import { http } from "../../services/api";
+import api, { http } from "../../services/api";
+import { exportDxf, exportPdf, exportPng, exportSvg, type ExportDrawing, type PlanData } from "./floorPlanExport";
 
 type Plan = { name: string; units: "cm"; items: any[] };
 const PENDING_KEY = "buildsasa-floorplan-prompt";
@@ -38,6 +39,40 @@ export function FloorPlan() {
   const pending = useRef<string | null>(null);
 
   const send = (msg: any) => frame.current?.contentWindow?.postMessage(msg, window.location.origin);
+
+  // Export: ask the sheet for a clean drawing + the plan, then build the file.
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState<string | null>(null);
+  const getExport = () => new Promise<{ exp: ExportDrawing | null; plan: PlanData } | null>((resolve) => {
+    const id = Math.random().toString(36).slice(2);
+    const on = (e: MessageEvent) => { if (e.origin === window.location.origin && e.data?.type === "buildsasa:export" && e.data.id === id) { window.removeEventListener("message", on); resolve({ exp: e.data.exp, plan: e.data.plan }); } };
+    window.addEventListener("message", on);
+    send({ type: "buildsasa:get-export", id });
+    setTimeout(() => { window.removeEventListener("message", on); resolve(null); }, 2000);
+  });
+  const doExport = async (kind: "pdf" | "png" | "dxf" | "svg") => {
+    setExportOpen(false);
+    const got = await getExport();
+    if (!got || !got.exp || !got.plan.items.some((i) => i.kind === "room")) return toast.error("Draw a plan with at least one room first.");
+    // Rule: an unchecked plan never goes out looking final. Warn, and list the open points in the drawing notes.
+    if (issues && issues.length && !window.confirm(`This plan still has ${issues.length} building-rule point${issues.length === 1 ? "" : "s"} to look at. Export anyway? They will be listed in the drawing notes.`)) return;
+    setExporting(kind);
+    try {
+      if (kind === "pdf") {
+        const company = await api.getCompany().catch(() => null);
+        // The title block names the client; optional, remembered for next time.
+        let client = ""; try { client = localStorage.getItem("buildsasa-floorplan-client") || ""; } catch { /* noop */ }
+        const typed = window.prompt("Client's name for the drawing's title block (optional):", client);
+        if (typed === null) { setExporting(null); return; }
+        client = typed.trim(); try { localStorage.setItem("buildsasa-floorplan-client", client); } catch { /* noop */ }
+        await exportPdf(got.exp, got.plan, { company: company?.name, project: lastBrief || got.plan.name, client, issues: issues || [] });
+      } else if (kind === "png") await exportPng(got.exp, got.plan);
+      else if (kind === "svg") exportSvg(got.exp, got.plan);
+      else exportDxf(got.plan);
+      toast.success(kind === "pdf" ? "A3 drawing downloaded (PDF)." : kind === "dxf" ? "DXF downloaded: opens in AutoCAD and other CAD software." : `${kind.toUpperCase()} downloaded.`);
+    } catch (e: any) { toast.error(e?.message || "Couldn't export the plan."); }
+    setExporting(null);
+  };
   const currentPlan = () => new Promise<Plan | null>((resolve) => {
     const id = Math.random().toString(36).slice(2);
     const on = (e: MessageEvent) => { if (e.origin === window.location.origin && e.data?.type === "buildsasa:plan" && e.data.id === id) { window.removeEventListener("message", on); resolve(e.data.plan); } };
@@ -97,6 +132,30 @@ export function FloorPlan() {
               className="h-11 px-3 rounded-lg border border-[#222A35] bg-[#0A0E14] text-[#C2CAD6] hover:text-white inline-flex items-center justify-center gap-1.5 text-[13px] whitespace-nowrap">
               {full ? <><Minimize2 className="w-4 h-4" /> Exit full screen</> : <><Maximize2 className="w-4 h-4" /> Expand</>}
             </button>
+            <div className="relative">
+              <button type="button" onClick={() => setExportOpen((o) => !o)} aria-haspopup="menu" aria-expanded={exportOpen} aria-label="Export the plan"
+                className="h-11 px-3 rounded-lg border border-[#222A35] bg-[#0A0E14] text-[#C2CAD6] hover:text-white inline-flex items-center justify-center gap-1.5 text-[13px] whitespace-nowrap">
+                {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} Export
+              </button>
+              {exportOpen && (
+                <>
+                  <div className="fixed inset-0 z-[90]" onClick={() => setExportOpen(false)} />
+                  <div role="menu" className="absolute right-0 top-12 z-[91] w-[290px] rounded-xl border border-[#222A35] bg-[#11161D] shadow-2xl p-1.5">
+                    {([
+                      ["pdf", FileText, "PDF drawing (A3, to scale)", "Title block, dimensions, room and window schedules. For the client and printing."],
+                      ["png", FileImage, "Image (PNG)", "For WhatsApp and quick sharing."],
+                      ["dxf", Ruler, "CAD file (DXF)", "Opens in AutoCAD for an architect or draughtsman."],
+                      ["svg", PenTool, "Vector (SVG)", "Editable in design software."],
+                    ] as const).map(([k, I, t, d]) => (
+                      <button key={k} role="menuitem" onClick={() => doExport(k)} className="w-full text-left rounded-lg px-2.5 py-2 hover:bg-[#161C24] flex items-start gap-2.5">
+                        <I className="w-4 h-4 mt-0.5 text-[#FF8A47] shrink-0" />
+                        <span className="min-w-0"><span className="block text-[13px] text-white">{t}</span><span className="block text-[11.5px] text-[#8A95A5] leading-snug">{d}</span></span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
             <button type="submit" disabled={busy || !q.trim()} className="h-11 px-4 rounded-lg bg-[#FF6B1A] hover:bg-[#FF7E33] text-[#ffffff] text-[13.5px] font-medium inline-flex items-center justify-center gap-1.5 disabled:opacity-50 flex-1 sm:flex-none whitespace-nowrap">
               {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Drawing…</> : <><Wand2 className="w-4 h-4" /> {change ? "Change plan" : "Draw plan"}</>}
             </button>
