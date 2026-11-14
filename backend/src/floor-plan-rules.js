@@ -40,7 +40,15 @@ LIVING, DINING, KITCHEN
 SERVICE ROOMS AND BATHROOMS
 - A store, pantry or laundry opens off the kitchen, corridor or dining room, never through a bedroom.
 - If there are bedrooms without an en-suite, a shared bathroom opens off the corridor so they can reach it without crossing another room. An en-suite sits inside the master bedroom's footprint edge and opens only into it.
-- Corridors are short: no corridor longer than 10 m. Put the bedrooms around a short corridor or hall instead of along one long passage.`;
+- Corridors are short: no corridor longer than 10 m. Put the bedrooms around a short corridor or hall instead of along one long passage.
+- A bathroom or toilet is NEVER reached through another bathroom or an en-suite. The shared bathroom opens straight off the corridor.
+- One corridor, not pieces: never split a corridor or hall into parts with a wall and a door between them.
+EVERY ROOM FURNISHED SENSIBLY
+- Every bedroom has a bed (master: double 160x200 or 180x200; others: double or single) and a wardrobe. The living room has seating; the dining room a table and chairs; the kitchen a counter, cooker and fridge.
+- Furniture never stands in front of a window: wardrobes, counters and tall items go on solid walls; a bed head goes against a solid wall.
+- Kitchen working triangle: the fridge stands next to the counter run (touching it or the cooker), not alone across the room.
+DOORS DON'T CLASH
+- Two door swings never overlap. Where several rooms open onto the same piece of corridor, stagger the doors along it.`;
 
 const norm = (s) => String(s || '').toLowerCase();
 const isRoom = (i) => i.kind === 'room';
@@ -192,7 +200,51 @@ function checkPlan(plan, prompt) {
     if (far.length) issues.push(`Wet rooms are spread out (${far.map((r) => r.name).join(', ')} far from the others). Group the kitchen, bathrooms and toilets to share plumbing.`);
   }
   issues.push(...layoutIssues(rooms, doors));
+  issues.push(...furnishingIssues(rooms, doors, windows, furniture));
   return [...new Set(issues)];
+}
+
+/** Furniture, door and wet-room rules learned from real AI plans. */
+function furnishingIssues(rooms, doors, windows, furniture) {
+  const issues = [];
+  const linked = (d) => doorRooms(d, rooms);
+  const inRoom = (f, r) => inside(centre(f), r);
+  // Bathroom reached through another bathroom or an en-suite.
+  for (const d of doors) {
+    const l = linked(d);
+    if (l.length === 2 && l.every((r) => WET.has(type(r.name)))) issues.push(`"${l[0].name}" and "${l[1].name}" open into each other. A bathroom is never reached through another bathroom or an en-suite; the shared bathroom opens off the corridor.`);
+  }
+  // Corridor split into pieces.
+  for (const d of doors) {
+    const l = linked(d);
+    const cs = l.filter((r) => type(r.name) === 'corridor');
+    if (cs.length >= 2) issues.push(`"${cs[0].name}" and "${cs[1].name}" are one passage split by a door. Join them into a single corridor with no wall or door between.`);
+  }
+  // Every bedroom has a bed; living seating; kitchen counter, cooker and fridge.
+  for (const r of rooms) {
+    const t = type(r.name), mine = furniture.filter((f) => inRoom(f, r)).map((f) => f.kind);
+    if ((t === 'bedroom' || t === 'master') && !mine.includes('bed')) issues.push(`"${r.name}" has no bed. Every bedroom needs a bed (and a wardrobe) so the client can see it fits.`);
+    if (t === 'kitchen') for (const k of ['counter', 'cooker', 'fridge']) if (!mine.includes(k)) issues.push(`"${r.name}" has no ${k}.`);
+  }
+  // Tall furniture in front of a window (a counter under a window is right, so it's not checked).
+  for (const f of furniture.filter((x) => ['wardrobe', 'fridge'].includes(x.kind))) {
+    for (const w of windows) {
+      const horiz = w.w >= w.h;
+      const along = horiz ? Math.min(f.x + f.w, w.x + w.w) - Math.max(f.x, w.x) : Math.min(f.y + f.h, w.y + w.h) - Math.max(f.y, w.y);
+      const gap = horiz ? Math.min(Math.abs(f.y - (w.y + w.h)), Math.abs(w.y - (f.y + f.h))) : Math.min(Math.abs(f.x - (w.x + w.w)), Math.abs(w.x - (f.x + f.w)));
+      if (along > 20 && gap <= 30) { issues.push(`The ${f.name || f.kind} stands in front of a window. Put it against a solid inside wall.`); break; }
+    }
+  }
+  // Door swings that overlap.
+  for (let i = 0; i < doors.length; i++) for (let j = i + 1; j < doors.length; j++) {
+    if (overlap(doors[i], doors[j]) > 900) issues.push(`Two doors at (${doors[i].x},${doors[i].y}) and (${doors[j].x},${doors[j].y}) swing into each other. Space them apart along the wall.`);
+  }
+  // Kitchen working triangle: fridge beside the counter or cooker.
+  for (const fr of furniture.filter((f) => f.kind === 'fridge')) {
+    const near = furniture.some((o) => (o.kind === 'counter' || o.kind === 'cooker') && overlap({ x: fr.x - 15, y: fr.y - 15, w: fr.w + 30, h: fr.h + 30 }, o) > 0);
+    if (!near) issues.push('The fridge stands alone away from the counter. Put it at the end of the counter run so the cooker, sink and fridge form a working triangle.');
+  }
+  return issues;
 }
 
 /** Share of a wall two rooms have in common (cm), or 0. */
@@ -432,6 +484,65 @@ function autoFix(plan, prompt) {
     const host = rooms.find((r) => f.x >= r.x - 5 && f.y >= r.y - 5 && f.x + f.w <= r.x + r.w + 5 && f.y + f.h <= r.y + r.h + 5);
     return host && !doors.some((d) => overlap(f, d) > 400);
   });
+  // 5b. Find a free spot in a room for a piece of furniture: against a wall, clear of doors, windows and other furniture.
+  const freeSpot = (r, w, h) => {
+    const others = out.filter((o) => !['room'].includes(o.kind));
+    const ok = (c) => c.x >= r.x + 10 && c.y >= r.y + 10 && c.x + c.w <= r.x + r.w - 10 && c.y + c.h <= r.y + r.h - 10
+      && !others.some((o) => overlap(o.kind === 'door' ? { x: o.x - 10, y: o.y - 10, w: o.w + 20, h: o.h + 20 } : o.kind === 'window' ? { x: o.x - 40, y: o.y - 40, w: o.w + 80, h: o.h + 80 } : o, c) > 0);
+    const cands = [];
+    for (const [cw, ch, rot] of [[w, h, 0], [h, w, 1]]) {
+      cands.push({ x: r10(r.x + (r.w - cw) / 2), y: r.y + 10, w: cw, h: ch, rot: rot ? 3 : 0 }); // top wall
+      cands.push({ x: r10(r.x + (r.w - cw) / 2), y: r.y + r.h - 10 - ch, w: cw, h: ch, rot: rot ? 1 : 2 }); // bottom wall
+      cands.push({ x: r.x + 10, y: r10(r.y + (r.h - ch) / 2), w: cw, h: ch, rot: rot ? 3 : 0 }); // left wall
+      cands.push({ x: r.x + r.w - 10 - cw, y: r10(r.y + (r.h - ch) / 2), w: cw, h: ch, rot: rot ? 1 : 2 }); // right wall
+    }
+    return cands.find(ok) || null;
+  };
+  // 5c. Bedrooms without a bed get one.
+  for (const r of rooms.filter((x) => ['bedroom', 'master'].includes(type(x.name)))) {
+    if (out.some((f) => f.kind === 'bed' && inside(centre(f), r))) continue;
+    const double = Math.min(r.w, r.h) >= 300 || type(r.name) === 'master';
+    const spot = freeSpot(r, double ? 160 : 100, 200);
+    if (spot) out.push({ kind: 'bed', name: double ? 'Double bed' : 'Single bed', ...spot });
+  }
+  // 5d. A fridge standing alone moves to the end of the counter run.
+  for (const fr of out.filter((f) => f.kind === 'fridge')) {
+    const k = rooms.find((r) => inside(centre(fr), r));
+    const counter = out.find((c) => c.kind === 'counter' && k && inside(centre(c), k));
+    if (!k || !counter) continue;
+    if (overlap({ x: fr.x - 15, y: fr.y - 15, w: fr.w + 30, h: fr.h + 30 }, counter) > 0) continue;
+    // The whole run: the counter plus a cooker joined to either end.
+    const horiz = counter.w >= counter.h;
+    const run = { ...counter };
+    for (const ck of out.filter((c) => c.kind === 'cooker' && overlap({ x: run.x - 15, y: run.y - 15, w: run.w + 30, h: run.h + 30 }, c) > 0)) {
+      const x0 = Math.min(run.x, ck.x), y0 = Math.min(run.y, ck.y);
+      run.w = Math.max(run.x + run.w, ck.x + ck.w) - x0; run.h = Math.max(run.y + run.h, ck.y + ck.h) - y0; run.x = x0; run.y = y0;
+    }
+    // At either end of the run, or just round its corner (an L), always touching it.
+    const tries = horiz
+      ? [{ x: run.x + run.w, y: run.y }, { x: run.x - fr.w, y: run.y }, { x: run.x + run.w - fr.w, y: run.y + run.h }, { x: run.x, y: run.y + run.h }, { x: run.x + run.w - fr.w, y: run.y - fr.h }, { x: run.x, y: run.y - fr.h }]
+      : [{ x: run.x, y: run.y + run.h }, { x: run.x, y: run.y - fr.h }, { x: run.x + run.w, y: run.y + run.h - fr.h }, { x: run.x + run.w, y: run.y }, { x: run.x - fr.w, y: run.y + run.h - fr.h }, { x: run.x - fr.w, y: run.y }];
+    for (const p of tries) {
+      const c = { x: p.x, y: p.y, w: fr.w, h: fr.h };
+      const inK = c.x >= k.x && c.y >= k.y && c.x + c.w <= k.x + k.w && c.y + c.h <= k.y + k.h;
+      if (inK && !out.some((o) => o !== fr && o.kind !== 'room' && o.kind !== 'window' && overlap(o, c) > 0)) { fr.x = c.x; fr.y = c.y; break; }
+    }
+  }
+  // 5e. A wardrobe in front of a window moves to a free solid wall in the same room.
+  for (const wd of out.filter((f) => f.kind === 'wardrobe')) {
+    const blocks = out.some((w) => {
+      if (w.kind !== 'window') return false;
+      const horiz = w.w >= w.h;
+      const along = horiz ? Math.min(wd.x + wd.w, w.x + w.w) - Math.max(wd.x, w.x) : Math.min(wd.y + wd.h, w.y + w.h) - Math.max(wd.y, w.y);
+      const gap = horiz ? Math.min(Math.abs(wd.y - (w.y + w.h)), Math.abs(w.y - (wd.y + wd.h))) : Math.min(Math.abs(wd.x - (w.x + w.w)), Math.abs(w.x - (wd.x + wd.w)));
+      return along > 20 && gap <= 30;
+    });
+    const r = rooms.find((x) => inside(centre(wd), x));
+    if (!blocks || !r) continue;
+    const i = out.indexOf(wd); out.splice(i, 1);
+    const spot = freeSpot(r, Math.max(wd.w, wd.h), Math.min(wd.w, wd.h));
+    out.push(spot ? { ...wd, ...spot } : wd);
+  }
   // 6. Everything on the 10 cm grid.
   out.forEach((i) => { i.x = r10(i.x); i.y = r10(i.y); i.w = Math.max(10, r10(i.w)); i.h = Math.max(10, r10(i.h)); });
   return { ...plan, items: out };
