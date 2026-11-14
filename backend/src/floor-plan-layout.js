@@ -150,7 +150,14 @@ function drawHouse(spec, variant, k) {
   if (dining) door('Door', kitchen.x + Math.round(rightW / 2 - 45), kitchen.y, 90, 90, 0);
   else door('Door', kitchen.x, kitchen.y + Math.round(frontH / 2 - 45), 90, 90, 1); // open kitchen off the living & dining
   // Seating and the dining table (the repairs add beds, wardrobes, fittings and the kitchen).
-  items.push({ kind: 'sofa', name: 'Sofa', x: 30, y: yBack - 110, w: 200, h: 90, rot: 2 });
+  if (spec.storey) {
+    // Maisonette: the stairs run along the living room's back wall, right beside the corridor
+    // opening, so going upstairs never crosses the sitting area; the sofa takes the side wall.
+    items.push({ kind: 'stairs', name: 'Stairs', x: leftW - 290, y: yBack - 110, w: 270, h: 100, rot: 1 });
+    items.push({ kind: 'sofa', name: 'Sofa', x: 10, y: yFront + 130, w: 90, h: 200, rot: 3 });
+  } else {
+    items.push({ kind: 'sofa', name: 'Sofa', x: 30, y: yBack - 110, w: 200, h: 90, rot: 2 });
+  }
   // Dining table with four chairs (two each side).
   const tbl = dining
     ? { x: Math.round((dining.x + rightW / 2 - 80) / 10) * 10, y: Math.round((dining.y + frontH / 4 - 45) / 10) * 10, w: 160, h: 90 }
