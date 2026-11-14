@@ -3,7 +3,7 @@
 // rooms, doors, windows and furniture; then drag anything to change it, or ask
 // the AI to change the current plan.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Sparkles, Wand2 } from "lucide-react";
+import { Loader2, Maximize2, Minimize2, Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { http } from "../../services/api";
 
@@ -26,6 +26,15 @@ export function FloorPlan() {
   const [busy, setBusy] = useState(false);
   const [change, setChange] = useState(false);
   const [issues, setIssues] = useState<string[] | null>(null);
+  // Expanded: the plan takes the whole screen; Esc or the button brings it back.
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => send({ type: "buildsasa:fit" }), 160);
+    if (!full) return () => clearTimeout(t);
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setFull(false);
+    window.addEventListener("keydown", esc);
+    return () => { clearTimeout(t); window.removeEventListener("keydown", esc); };
+  }, [full]);
   const pending = useRef<string | null>(null);
 
   const send = (msg: any) => frame.current?.contentWindow?.postMessage(msg, window.location.origin);
@@ -62,7 +71,7 @@ export function FloorPlan() {
   useEffect(() => { if (ready && pending.current) { const p = pending.current; pending.current = null; draw(p, false); } }, [ready, draw]);
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-170px)] min-h-[520px]">
+    <div className={full ? "fixed inset-0 z-[80] flex flex-col bg-[#0A0E14]" : "flex flex-col h-[calc(100dvh-170px)] min-h-[520px]"}>
       <div className="px-4 sm:px-6 py-3 border-b border-[#222A35] bg-[#11161D]">
         <form onSubmit={(e) => { e.preventDefault(); draw(q, change); }} className="flex flex-col sm:flex-row gap-2">
           <div className="relative flex-1 min-w-0">
@@ -72,6 +81,10 @@ export function FloorPlan() {
               className="w-full h-11 rounded-lg bg-[#0A0E14] border border-[#222A35] pl-9 pr-3 text-[14px] text-white placeholder:text-[#5B6675] focus:outline-none focus:border-[#FF6B1A]/60" />
           </div>
           <div className="flex gap-2">
+            <button type="button" onClick={() => setFull((f) => !f)} aria-label={full ? "Back to normal size" : "Expand the plan to full screen"} title={full ? "Back to normal size (Esc)" : "Expand to full screen"}
+              className="h-11 px-3 rounded-lg border border-[#222A35] bg-[#0A0E14] text-[#C2CAD6] hover:text-white inline-flex items-center justify-center gap-1.5 text-[13px] whitespace-nowrap">
+              {full ? <><Minimize2 className="w-4 h-4" /> Exit full screen</> : <><Maximize2 className="w-4 h-4" /> Expand</>}
+            </button>
             <button type="submit" disabled={busy || !q.trim()} className="h-11 px-4 rounded-lg bg-[#FF6B1A] hover:bg-[#FF7E33] text-[#ffffff] text-[13.5px] font-medium inline-flex items-center justify-center gap-1.5 disabled:opacity-50 flex-1 sm:flex-none whitespace-nowrap">
               {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Drawing…</> : <><Wand2 className="w-4 h-4" /> {change ? "Change plan" : "Draw plan"}</>}
             </button>

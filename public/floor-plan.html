@@ -655,6 +655,8 @@ window.addEventListener('message',function(e){
     push();items=arr;selId=null;
     if(d.plan.name){planName=String(d.plan.name).slice(0,60);$('planName').value=planName}
     changed();fit();requestAnimationFrame(fit);setTimeout(fit,120);toast(d.message||'Plan drawn. Drag anything to change it.');
+  }else if(d.type==='buildsasa:fit'){
+    fit();
   }else if(d.type==='buildsasa:get-plan'){
     (e.source||parent).postMessage({type:'buildsasa:plan',id:d.id,plan:planData()},location.origin);
   }

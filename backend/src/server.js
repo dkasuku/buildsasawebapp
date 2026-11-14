@@ -6114,7 +6114,10 @@ RULES
 - Keep it to at most 80 items. Two-storey buildings: draw the ground floor only and say "(ground floor)" in the name.
 - If CURRENT PLAN is given, change it as the user asks and return the WHOLE updated plan, keeping everything they did not ask to change.
 
-${require('./floor-plan-rules').RULES_TEXT}`;
+${require('./floor-plan-rules').RULES_TEXT}
+
+EXAMPLE OF A GOOD PLAN (copy this way of working: rooms tile with no gaps, every room opens off the corridor or living room, windows on outside walls, wet rooms side by side, furniture against walls):
+${require('./floor-plan-rules').EXAMPLE_PLAN}`;
 
 function parseFloorPlan(text) {
   const raw = String(text || '').replace(/```(?:json)?/gi, '').trim();
@@ -6139,15 +6142,22 @@ app.post('/api/ai/floor-plan', auth, async (req, res) => {
     let current = null;
     try { if (req.body?.current && Array.isArray(req.body.current.items) && req.body.current.items.length) current = JSON.stringify({ name: req.body.current.name, items: req.body.current.items.slice(0, 120) }).slice(0, 14000); } catch { /* ignore */ }
     const user = current ? `CURRENT PLAN:\n${current}\n\nCHANGE REQUEST: ${prompt}` : `BRIEF: ${prompt}`;
-    const { checkPlan } = require('./floor-plan-rules');
-    const ask = async (content) => parseFloorPlan(await callAiDeepSeekFirst([{ role: 'system', content: FLOOR_PLAN_PROMPT }, { role: 'user', content }], { temperature: 0.2, max_tokens: 6000 }));
-    let plan = null, lastErr = null;
-    for (let attempt = 0; attempt < 2 && !plan; attempt++) {
-      try { plan = await ask(attempt ? user + '\n\nReply with the JSON object only.' : user); } catch (e) { lastErr = e; }
+    const { checkPlan, autoFix } = require('./floor-plan-rules');
+    // The area target: from this request, or (for a change) from the plan as it is.
+    const areaBrief = /(\d{2,4})\s*(m²|m2|sqm|square met)/i.test(prompt) ? prompt : '';
+    const ask = async (content, temperature = 0.2) => autoFix(parseFloorPlan(await callAiDeepSeekFirst([{ role: 'system', content: FLOOR_PLAN_PROMPT }, { role: 'user', content }], { temperature, max_tokens: 6000 })), areaBrief);
+    // New plans: two drafts at once (one careful, one freer); keep the one that breaks fewer rules.
+    const drafts = await Promise.allSettled(current ? [ask(user)] : [ask(user, 0.2), ask(user, 0.6)]);
+    let plan = null, lastErr = null, issues = null;
+    for (const d of drafts) {
+      if (d.status !== 'fulfilled') { lastErr = d.reason; continue; }
+      const found = checkPlan(d.value, areaBrief);
+      if (!plan || found.length < issues.length) { plan = d.value; issues = found; }
     }
+    if (!plan) { try { plan = await ask(user + '\n\nReply with the JSON object only.'); issues = checkPlan(plan, areaBrief); } catch (e) { lastErr = e; } }
     if (!plan) { console.error('[floor-plan]', lastErr && lastErr.message); return res.status(502).json({ error: "Buildsasa AI couldn't draw that plan. Try again, or describe it more simply (rooms and size)." }); }
-    // Check it against the architectural rules; send the problems back to be fixed (up to 2 rounds) and keep the best.
-    let best = plan, issues = checkPlan(plan, prompt);
+    // Send what's still wrong back to be fixed (up to 2 rounds) and keep the best.
+    let best = plan;
     for (let round = 0; round < 2 && issues.length; round++) {
       try {
         const fixed = await ask(`BRIEF: ${prompt}
@@ -6157,7 +6167,7 @@ ${JSON.stringify(best).slice(0, 14000)}
 
 It breaks these rules. Fix every one and return the WHOLE corrected plan:
 - ${issues.slice(0, 20).join('\n- ')}`);
-        const left = checkPlan(fixed, prompt);
+        const left = checkPlan(fixed, areaBrief);
         if (left.length <= issues.length) { best = fixed; issues = left; }
       } catch (e) { console.warn('[floor-plan] fix round failed:', e.message); break; }
     }

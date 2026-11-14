@@ -146,6 +146,8 @@ function checkPlan(plan, prompt) {
   for (const r of rooms) {
     const t = type(r.name);
     if (t === 'other' && /veranda|balcony|terrace|porch|parking|garage/.test(norm(r.name))) continue;
+    // An open corridor or dining area joined to the living room needs no door of its own.
+    if ((t === 'corridor' || t === 'dining') && rooms.some((o) => o !== r && ['living', 'corridor', 'dining'].includes(type(o.name)) && overlap({ x: r.x - 5, y: r.y - 5, w: r.w + 10, h: r.h + 10 }, o) > 0)) continue;
     const mine = doors.filter((d) => doorRooms(d, rooms).includes(r));
     if (!mine.length) { issues.push(`"${r.name}" has no door. Every room needs a door on a wall it shares with a corridor, hall or living area.`); continue; }
     for (const d of mine) {
@@ -184,4 +186,163 @@ function checkPlan(plan, prompt) {
   return [...new Set(issues)];
 }
 
-module.exports = { RULES_TEXT, checkPlan };
+// ---------------------------------------------------------------------------
+// Automatic repairs: the things code can fix exactly, so DeepSeek only has to
+// get the layout right. Run on every plan before it is checked.
+const r10 = (v) => Math.round(v / 10) * 10;
+
+/** The longest stretch of a room's walls with nothing beyond it (outside), as {side, from, to}. */
+function longestOutsideRun(r, rooms) {
+  const sides = [
+    { side: 'top', len: r.w, at: (t) => ({ x: r.x + t, y: r.y - 15 }) },
+    { side: 'bottom', len: r.w, at: (t) => ({ x: r.x + t, y: r.y + r.h + 15 }) },
+    { side: 'left', len: r.h, at: (t) => ({ x: r.x - 15, y: r.y + t }) },
+    { side: 'right', len: r.h, at: (t) => ({ x: r.x + r.w + 15, y: r.y + t }) },
+  ];
+  let best = null;
+  for (const s of sides) {
+    let start = null;
+    for (let t = 10; t <= s.len; t += 10) {
+      const free = t < s.len && !rooms.some((o) => o !== r && inside(s.at(t), o));
+      if (free && start === null) start = t;
+      if ((!free || t >= s.len) && start !== null) {
+        const run = { side: s.side, from: start, to: t, len: t - start };
+        if (!best || run.len > best.len) best = run;
+        start = null;
+      }
+    }
+  }
+  return best;
+}
+
+/** Move a door or window so its nearest side sits exactly on the closest room wall line. */
+function snapToWall(it, rooms, isWindow) {
+  const xs = new Set(), ys = new Set();
+  rooms.forEach((r) => { xs.add(r.x); xs.add(r.x + r.w); ys.add(r.y); ys.add(r.y + r.h); });
+  const near = (v, set) => { let b = null; for (const s of set) if (b === null || Math.abs(s - v) < Math.abs(b - v)) b = s; return b; };
+  if (isWindow) {
+    if (it.w >= it.h) { const y = near(it.y + it.h / 2, ys); if (y !== null && Math.abs(y - (it.y + it.h / 2)) <= 60) it.y = y - it.h / 2; }
+    else { const x = near(it.x + it.w / 2, xs); if (x !== null && Math.abs(x - (it.x + it.w / 2)) <= 60) it.x = x - it.w / 2; }
+    return;
+  }
+  // Door: align whichever of its four sides is closest to a wall line.
+  const cand = [
+    { d: (y) => y - it.y, v: near(it.y, ys), axis: 'y', off: 0 },
+    { d: (y) => y - (it.y + it.h), v: near(it.y + it.h, ys), axis: 'y', off: -it.h },
+    { d: (x) => x - it.x, v: near(it.x, xs), axis: 'x', off: 0 },
+    { d: (x) => x - (it.x + it.w), v: near(it.x + it.w, xs), axis: 'x', off: -it.w },
+  ].filter((c) => c.v !== null).map((c) => ({ ...c, gap: Math.abs(c.d(c.v)) })).sort((a, b) => a.gap - b.gap)[0];
+  if (cand && cand.gap > 0 && cand.gap <= 40) { if (cand.axis === 'y') it.y = cand.v + cand.off; else it.x = cand.v + cand.off; }
+}
+
+/** Repair a plan in place-safe copy: area, windows, doors, furniture, rounding. Returns the new plan. */
+function autoFix(plan, prompt) {
+  const items = (plan.items || []).map((i) => ({ ...i }));
+  let rooms = items.filter(isRoom);
+  if (!rooms.length) return plan;
+  // 1. Scale to the area asked for (rooms grow or shrink; doors, windows and furniture keep their size).
+  const want = /(\d{2,4})\s*(m²|m2|sqm|square met)/i.exec(String(prompt || ''));
+  const area = rooms.reduce((t, r) => t + r.w * r.h, 0);
+  if (want && area) {
+    const target = Number(want[1]) * 1e4, k = Math.sqrt(target / area);
+    if (Math.abs(k - 1) > 0.05 && k > 0.5 && k < 2) {
+      for (const i of items) {
+        if (isRoom(i)) { const x1 = r10((i.x + i.w) * k), y1 = r10((i.y + i.h) * k); i.x = r10(i.x * k); i.y = r10(i.y * k); i.w = x1 - i.x; i.h = y1 - i.y; }
+        else { const cx = (i.x + i.w / 2) * k, cy = (i.y + i.h / 2) * k; i.x = r10(cx - i.w / 2); i.y = r10(cy - i.h / 2); }
+      }
+    }
+  }
+  rooms = items.filter(isRoom);
+  // 2. Doors and windows onto the wall lines.
+  items.forEach((i) => { if (i.kind === 'door') snapToWall(i, rooms, false); if (i.kind === 'window') snapToWall(i, rooms, true); });
+  // 3. Windows on inside walls, or on no wall, go.
+  let out = items.filter((w) => {
+    if (w.kind !== 'window') return true;
+    const c = centre(w), horiz = w.w >= w.h;
+    const a = rooms.find((r) => inside(horiz ? { x: c.x, y: c.y - 30 } : { x: c.x - 30, y: c.y }, r));
+    const b = rooms.find((r) => inside(horiz ? { x: c.x, y: c.y + 30 } : { x: c.x + 30, y: c.y }, r));
+    return !(a && b && a !== b) && (a || b);
+  });
+  // 4. Every habitable and wet room gets enough window on its longest outside wall.
+  for (const r of rooms) {
+    const t = type(r.name);
+    if (!(HABITABLE.has(t) || (WET.has(t) && t !== 'ensuite'))) continue;
+    const have = out.filter((w) => w.kind === 'window' && inside(centre(w), r, 25)).reduce((s, w) => s + Math.max(w.w, w.h), 0);
+    const need = WET.has(t) ? 60 : Math.max(120, Math.ceil(((r.w * r.h) / 1e4) * 10 / 10) * 10);
+    if (have >= need) continue;
+    const run = longestOutsideRun(r, rooms);
+    if (!run || run.len < 60) continue;
+    const len = Math.min(r10(need - have >= 60 ? need - have : 60), run.len - 20);
+    if (len < 50) continue;
+    const mid = (run.from + run.to) / 2;
+    const name = WET.has(t) ? 'Small window' : 'Window';
+    if (run.side === 'top' || run.side === 'bottom') out.push({ kind: 'window', name, x: r10(r.x + mid - len / 2), y: (run.side === 'top' ? r.y : r.y + r.h) - 10, w: len, h: 20, rot: 0 });
+    else out.push({ kind: 'window', name, x: (run.side === 'left' ? r.x : r.x + r.w) - 10, y: r10(r.y + mid - len / 2), w: 20, h: len, rot: 1 });
+  }
+  // 4b. Every room gets a door onto the right neighbour (corridor/hall first), placed on the shared wall.
+  const sharedWall = (r, o) => {
+    if (Math.abs(r.y - (o.y + o.h)) < 5 || Math.abs(r.y + r.h - o.y) < 5) {
+      const a = Math.max(r.x, o.x), b = Math.min(r.x + r.w, o.x + o.w);
+      return b - a > 0 ? { side: Math.abs(r.y - (o.y + o.h)) < 5 ? 'top' : 'bottom', a, b } : null;
+    }
+    if (Math.abs(r.x - (o.x + o.w)) < 5 || Math.abs(r.x + r.w - o.x) < 5) {
+      const a = Math.max(r.y, o.y), b = Math.min(r.y + r.h, o.y + o.h);
+      return b - a > 0 ? { side: Math.abs(r.x - (o.x + o.w)) < 5 ? 'left' : 'right', a, b } : null;
+    }
+    return null;
+  };
+  const prefer = (t) => (t === 'ensuite' ? ['master', 'bedroom'] : (t === 'bedroom' || t === 'master' || WET.has(t)) ? ['corridor', 'living'] : t === 'kitchen' ? ['dining', 'corridor', 'living'] : ['corridor', 'living', 'dining']);
+  for (const r of rooms) {
+    const t = type(r.name);
+    if (t === 'corridor' || (t === 'other' && /veranda|balcony|terrace|porch|parking|garage/.test(norm(r.name)))) continue;
+    const hasDoor = out.some((d) => d.kind === 'door' && overlap({ x: d.x - 15, y: d.y - 15, w: d.w + 30, h: d.h + 30 }, r) > 0);
+    if (hasDoor) continue;
+    const dw = WET.has(t) ? 80 : 90;
+    let placed = false;
+    for (const want of prefer(t)) {
+      for (const o of rooms.filter((x) => x !== r && type(x.name) === want)) {
+        const w = sharedWall(r, o);
+        if (!w || w.b - w.a < dw + 30) continue;
+        const at = r10(w.a + 20);
+        if (w.side === 'top') out.push({ kind: 'door', name: 'Door', x: at, y: r.y, w: dw, h: dw, rot: 0 });
+        else if (w.side === 'bottom') out.push({ kind: 'door', name: 'Door', x: at, y: r.y + r.h - dw, w: dw, h: dw, rot: 2 });
+        else if (w.side === 'left') out.push({ kind: 'door', name: 'Door', x: r.x, y: at, w: dw, h: dw, rot: 1 });
+        else out.push({ kind: 'door', name: 'Door', x: r.x + r.w - dw, y: at, w: dw, h: dw, rot: 3 });
+        placed = true; break;
+      }
+      if (placed) break;
+    }
+  }
+  // 5. Furniture must sit inside a room and clear of doors; anything else is dropped.
+  const doors = out.filter((i) => i.kind === 'door');
+  out = out.filter((f) => {
+    if (['room', 'wall', 'door', 'window', 'stairs', 'car', 'plant'].includes(f.kind)) return true;
+    const host = rooms.find((r) => f.x >= r.x - 5 && f.y >= r.y - 5 && f.x + f.w <= r.x + r.w + 5 && f.y + f.h <= r.y + r.h + 5);
+    return host && !doors.some((d) => overlap(f, d) > 400);
+  });
+  // 6. Everything on the 10 cm grid.
+  out.forEach((i) => { i.x = r10(i.x); i.y = r10(i.y); i.w = Math.max(10, r10(i.w)); i.h = Math.max(10, r10(i.h)); });
+  return { ...plan, items: out };
+}
+
+// A good plan to copy (2-bedroom house, about 72 m²): rooms tile with no gaps,
+// every room opens off the corridor, windows on outside walls, wet rooms together.
+const EXAMPLE_PLAN = JSON.stringify({ name: '2-bedroom house, 72 m²', units: 'cm', items: [
+  { kind: 'room', name: 'Living room', x: 0, y: 0, w: 520, h: 380 }, { kind: 'room', name: 'Kitchen', x: 520, y: 0, w: 380, h: 380 },
+  { kind: 'room', name: 'Corridor', x: 0, y: 380, w: 900, h: 120 }, { kind: 'room', name: 'Bedroom 1', x: 0, y: 500, w: 350, h: 300 },
+  { kind: 'room', name: 'Bathroom', x: 350, y: 500, w: 200, h: 300 }, { kind: 'room', name: 'Bedroom 2', x: 550, y: 500, w: 350, h: 300 },
+  { kind: 'door', name: 'Front door', x: 0, y: 150, w: 90, h: 90, rot: 1 }, { kind: 'door', name: 'Door', x: 400, y: 290, w: 90, h: 90, rot: 0 },
+  { kind: 'door', name: 'Door', x: 780, y: 290, w: 90, h: 90, rot: 0 }, { kind: 'door', name: 'Door', x: 240, y: 500, w: 90, h: 90, rot: 2 },
+  { kind: 'door', name: 'Door', x: 400, y: 500, w: 80, h: 80, rot: 2 }, { kind: 'door', name: 'Door', x: 580, y: 500, w: 90, h: 90, rot: 2 },
+  { kind: 'window', name: 'Window', x: 180, y: -10, w: 200, h: 20, rot: 0 }, { kind: 'window', name: 'Window', x: 640, y: -10, w: 150, h: 20, rot: 0 },
+  { kind: 'window', name: 'Window', x: 110, y: 790, w: 120, h: 20, rot: 0 }, { kind: 'window', name: 'Window', x: 420, y: 790, w: 60, h: 20, rot: 0 },
+  { kind: 'window', name: 'Window', x: 660, y: 790, w: 120, h: 20, rot: 0 },
+  { kind: 'sofa', name: 'Sofa', x: 150, y: 280, w: 200, h: 90, rot: 2 }, { kind: 'cooker', name: 'Cooker', x: 530, y: 10, w: 60, h: 60, rot: 0 },
+  { kind: 'counter', name: 'Counter', x: 590, y: 10, w: 240, h: 60, rot: 0 }, { kind: 'fridge', name: 'Fridge', x: 830, y: 10, w: 60, h: 70, rot: 0 },
+  { kind: 'table', name: 'Dining table', x: 580, y: 180, w: 160, h: 90, rot: 0 }, { kind: 'bed', name: 'Double bed', x: 10, y: 620, w: 200, h: 160, rot: 3 },
+  { kind: 'wardrobe', name: 'Wardrobe', x: 280, y: 610, w: 60, h: 180, rot: 1 }, { kind: 'basin', name: 'Basin', x: 360, y: 620, w: 50, h: 60, rot: 3 },
+  { kind: 'toilet', name: 'Toilet', x: 380, y: 720, w: 40, h: 70, rot: 2 }, { kind: 'shower', name: 'Shower', x: 450, y: 700, w: 90, h: 90, rot: 0 },
+  { kind: 'bed', name: 'Double bed', x: 690, y: 620, w: 200, h: 160, rot: 1 },
+] });
+
+module.exports = { RULES_TEXT, checkPlan, autoFix, EXAMPLE_PLAN };
