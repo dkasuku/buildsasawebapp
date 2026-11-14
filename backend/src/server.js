@@ -6181,7 +6181,8 @@ It breaks these rules. Fix every one and return the WHOLE corrected plan:
       } catch (e) { console.warn('[floor-plan] fix round failed:', e.message); break; }
     }
     plan = best;
-    const area = plan.items.filter((i) => i.kind === 'room').reduce((t, r) => t + r.w * r.h, 0) / 10000;
+    // Indoor floor area: a veranda or parking doesn't count.
+    const area = plan.items.filter((i) => i.kind === 'room' && !/veranda|porch|terrace|balcony|parking|garage|carport/i.test(i.name)).reduce((t, r) => t + r.w * r.h, 0) / 10000;
     res.json({ plan, area: Math.round(area), issues: issues.slice(0, 8) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

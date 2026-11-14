@@ -44,6 +44,11 @@ SERVICE ROOMS AND BATHROOMS
 - A bathroom or toilet is NEVER reached through another bathroom or an en-suite. The shared bathroom opens straight off the corridor.
 - One corridor, not pieces: never split a corridor or hall into parts with a wall and a door between them.
 - A bedroom is NEVER reached through the kitchen or the dining room. Bedrooms open off a corridor, a hall or (in small houses) the living room.
+STOREYS, PARKING, VERANDA
+- A maisonette, two-storey or duplex (or any "ground floor" plan) MUST have a staircase: kind "stairs", at least 100 x 270 cm, off the living room or entrance hall, never inside a bedroom, kitchen or bathroom.
+- Parking: each car needs 250 x 500 cm. Two cars side by side need about 550 x 550 cm (or 300 x 1100 cm one behind the other). Every car is drawn fully inside the parking area. Parking and veranda do NOT count toward the floor area asked for.
+- The veranda is at least 300 cm long and 150 cm deep and runs along the living room, inside the building line (not a small box stuck on).
+- The size you write in the plan name must be the size you actually draw.
 FURNITURE IN THE RIGHT ROOM
 - Beds and wardrobes only in bedrooms. Toilet, shower, bath and basin only in bathrooms, toilets and en-suites. Cooker, fridge and counter only in the kitchen. Nothing at all stands in a corridor.
 - Every bathroom has a toilet, a basin and a shower or bath; a separate toilet has a toilet and a small basin; an en-suite has a toilet, basin and shower.
@@ -190,12 +195,10 @@ function checkPlan(plan, prompt) {
     if (!host) issues.push(`The ${f.name || f.kind} at (${f.x},${f.y}) is not fully inside a room.`);
     for (const d of doors) if (overlap(f, d) > 400) { issues.push(`The ${f.name || f.kind} blocks a door at (${d.x},${d.y}).`); break; }
   }
-  // Total area against the brief.
-  const want = /(\d{2,4})\s*(m²|m2|sqm|square met)/i.exec(String(prompt || ''));
-  if (want) {
-    const target = Number(want[1]) * 1e4;
-    if (area && Math.abs(area - target) / target > 0.15) issues.push(`The rooms add up to ${m2(area)} m² but the brief asks for about ${want[1]} m². Resize the rooms to match.`);
-  }
+  // Total (indoor) area against the brief, or against the size the plan's own name gives.
+  const target = areaTarget(prompt, plan), indoor = indoorArea(rooms);
+  if (target && indoor && Math.abs(indoor - target) / target > 0.15) issues.push(`The indoor rooms add up to ${m2(indoor)} m² but the plan should be about ${m2(target)} m² (veranda and parking don't count). Resize the rooms to match.`);
+  issues.push(...stairsAndParkingIssues(plan, prompt, rooms, items));
   // Wet areas grouped.
   const wet = rooms.filter((r) => WET.has(type(r.name)) || type(r.name) === 'kitchen');
   if (wet.length >= 3) {
@@ -206,6 +209,55 @@ function checkPlan(plan, prompt) {
   issues.push(...layoutIssues(rooms, doors));
   issues.push(...furnishingIssues(rooms, doors, windows, furniture));
   return [...new Set(issues)];
+}
+
+// ---- Area, stairs and parking ----
+const OUTDOOR = /veranda|porch|terrace|balcony|parking|garage|carport/;
+/** Indoor floor area (cm²): veranda, parking and the like are left out. */
+const indoorArea = (rooms) => rooms.filter((r) => !OUTDOOR.test(norm(r.name))).reduce((t, r) => t + r.w * r.h, 0);
+/** The floor area the plan should have (cm²): from the brief, else from the plan's own name, else none. */
+function areaTarget(prompt, plan) {
+  const re = /(\d{2,4})\s*(m²|m2|sqm|square met)/i;
+  const m = re.exec(String(prompt || '')) || re.exec(String((plan && plan.name) || ''));
+  return m ? Number(m[1]) * 1e4 : 0;
+}
+const STOREY = /maisonette|two[- ]?stor(e)?y|double[- ]?stor(e)?y|duplex|upstairs|ground floor|first floor|storeyed/i;
+const needsStairs = (prompt, plan) => STOREY.test(String(prompt || '')) || STOREY.test(String((plan && plan.name) || ''));
+/** How many cars the brief or plan name asks to park (0 if none). */
+function carsWanted(prompt, plan) {
+  const s = `${prompt || ''} ${(plan && plan.name) || ''}`.toLowerCase();
+  const m = /(\d+|one|two|three|four)\s*(cars?|vehicles?)/.exec(s);
+  if (!m && !/parking|garage|carport/.test(s)) return 0;
+  if (!m) return 1;
+  return { one: 1, two: 2, three: 3, four: 4 }[m[1]] || Math.min(6, Number(m[1]) || 1);
+}
+const CAR = { w: 250, h: 500 };
+
+function stairsAndParkingIssues(plan, prompt, rooms, items) {
+  const issues = [];
+  if (needsStairs(prompt, plan)) {
+    const st = items.filter((i) => i.kind === 'stairs');
+    if (!st.length) issues.push('This is a storeyed house (maisonette) but there are no stairs. Add a staircase of at least 100 x 270 cm off the living room or entrance hall.');
+    for (const s of st) {
+      if (Math.min(s.w, s.h) < 90 || Math.max(s.w, s.h) < 250) issues.push(`The stairs are ${s.w}x${s.h} cm; a staircase needs at least 90-100 cm wide and 250-270 cm long.`);
+      const r = rooms.find((x) => inside(centre(s), x));
+      if (r && !['living', 'corridor', 'dining'].includes(type(r.name))) issues.push(`The stairs are in "${r.name}". Put the staircase off the living room, hall or corridor, never inside a bedroom, kitchen or bathroom.`);
+    }
+  }
+  const want = carsWanted(prompt, plan);
+  const parks = rooms.filter((r) => /parking|garage|carport/.test(norm(r.name)));
+  if (want) {
+    const space = parks.reduce((t, r) => t + r.w * r.h, 0);
+    if (!parks.length) issues.push(`The brief asks for parking for ${want} car${want > 1 ? 's' : ''} but there is no parking area. Add one of at least ${want * 12.5} m².`);
+    else if (space < want * CAR.w * CAR.h * 0.95) issues.push(`The parking is ${m2(space)} m² but ${want} car${want > 1 ? 's need' : ' needs'} at least ${want * 12.5} m² (each car 2.5 x 5 m: two side by side is 5.5 x 5.5 m).`);
+  }
+  for (const c of items.filter((i) => i.kind === 'car')) {
+    if (!parks.some((p) => c.x >= p.x - 5 && c.y >= p.y - 5 && c.x + c.w <= p.x + p.w + 5 && c.y + c.h <= p.y + p.h + 5)) issues.push(`A car at (${c.x},${c.y}) sticks out of the parking area. Every car must be fully inside it.`);
+  }
+  for (const v of rooms.filter((r) => /veranda|porch/.test(norm(r.name)))) {
+    if (Math.max(v.w, v.h) < 300 || Math.min(v.w, v.h) < 150) issues.push(`"${v.name}" is ${v.w}x${v.h} cm: too small to use. A veranda needs at least 300 cm long and 150 cm deep, running along the living room.`);
+  }
+  return issues;
 }
 
 // Which rooms each piece of furniture belongs in (null = anywhere).
@@ -409,10 +461,10 @@ function autoFix(plan, prompt) {
   let rooms = items.filter(isRoom);
   if (!rooms.length) return plan;
   // 1. Scale to the area asked for (rooms grow or shrink; doors, windows and furniture keep their size).
-  const want = /(\d{2,4})\s*(m²|m2|sqm|square met)/i.exec(String(prompt || ''));
-  const area = rooms.reduce((t, r) => t + r.w * r.h, 0);
-  if (want && area) {
-    const target = Number(want[1]) * 1e4, k = Math.sqrt(target / area);
+  //    Indoor area only: a veranda or parking doesn't count. No size in the brief? Use the plan's own name.
+  const target0 = areaTarget(prompt, plan), area = indoorArea(rooms);
+  if (target0 && area) {
+    const target = target0, k = Math.sqrt(target / area);
     if (Math.abs(k - 1) > 0.05 && k > 0.5 && k < 2) {
       for (const i of items) {
         if (isRoom(i)) { const x1 = r10((i.x + i.w) * k), y1 = r10((i.y + i.h) * k); i.x = r10(i.x * k); i.y = r10(i.y * k); i.w = x1 - i.x; i.h = y1 - i.y; }
@@ -529,6 +581,11 @@ function autoFix(plan, prompt) {
       cands.push({ x: r10(r.x + (r.w - cw) / 2), y: r.y + r.h - 10 - ch, w: cw, h: ch, rot: rot ? 1 : 2 }); // bottom wall
       cands.push({ x: r.x + 10, y: r10(r.y + (r.h - ch) / 2), w: cw, h: ch, rot: rot ? 3 : 0 }); // left wall
       cands.push({ x: r.x + r.w - 10 - cw, y: r10(r.y + (r.h - ch) / 2), w: cw, h: ch, rot: rot ? 1 : 2 }); // right wall
+      // The four corners, so two cars, or a bed and a wardrobe, can share a wall.
+      cands.push({ x: r.x + 10, y: r.y + 10, w: cw, h: ch, rot: rot ? 3 : 0 });
+      cands.push({ x: r.x + r.w - 10 - cw, y: r.y + 10, w: cw, h: ch, rot: rot ? 3 : 0 });
+      cands.push({ x: r.x + 10, y: r.y + r.h - 10 - ch, w: cw, h: ch, rot: rot ? 1 : 2 });
+      cands.push({ x: r.x + r.w - 10 - cw, y: r.y + r.h - 10 - ch, w: cw, h: ch, rot: rot ? 1 : 2 });
     }
     return cands.find(ok) || null;
   };
@@ -542,6 +599,22 @@ function autoFix(plan, prompt) {
     if (t === 'corridor') return false;
     return !home || home.includes(t);
   });
+  // 5b3. Cars that stick out of the parking go; the parking then gets as many cars as were asked for, where they fit.
+  const parks = rooms.filter((r) => /parking|garage|carport/.test(norm(r.name)));
+  out = out.filter((c) => c.kind !== 'car' || parks.some((p) => c.x >= p.x - 5 && c.y >= p.y - 5 && c.x + c.w <= p.x + p.w + 5 && c.y + c.h <= p.y + p.h + 5));
+  const wantCars = carsWanted(prompt, plan);
+  for (const p of parks) {
+    while (out.filter((c) => c.kind === 'car').length < wantCars) {
+      const spot = freeSpot(p, 180, 450);
+      if (!spot) break;
+      out.push({ kind: 'car', name: 'Car', ...spot });
+    }
+  }
+  // 5b4. A storeyed house gets stairs off the living room, hall or corridor if it has none.
+  if (needsStairs(prompt, plan) && !out.some((i) => i.kind === 'stairs')) {
+    const hosts = [...rooms.filter((r) => /hall|entr|lobby|foyer/.test(norm(r.name))), ...rooms.filter((r) => type(r.name) === 'living'), ...rooms.filter((r) => type(r.name) === 'corridor'), ...rooms.filter((r) => type(r.name) === 'dining')];
+    for (const h of hosts) { const spot = freeSpot(h, 100, 270); if (spot) { out.push({ kind: 'stairs', name: 'Stairs', ...spot, rot: spot.rot % 2 ? 1 : 0 }); break; } }
+  }
   // 5c. Bedrooms without a bed get one.
   for (const r of rooms.filter((x) => ['bedroom', 'master'].includes(type(x.name)))) {
     if (out.some((f) => f.kind === 'bed' && inside(centre(f), r))) continue;
