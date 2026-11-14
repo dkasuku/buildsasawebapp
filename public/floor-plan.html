@@ -380,9 +380,9 @@ function render(){
   for(i=0;i<rooms.length;i++){r=rooms[i];a+='<rect class="rs" data-id="'+r.id+'" x="'+r.x+'" y="'+r.y+'" width="'+r.w+'" height="'+r.h+'"/>'}
   var sorted=rest.map(function(it,ix){return [rank(it.kind),ix,it]}).sort(function(p,q){return p[0]-q[0]||p[1]-q[1]});
   for(i=0;i<sorted.length;i++)a+=itemSVG(sorted[i][2]);
-  var area=0;
+  var area=0,outside=0;
   for(i=0;i<rooms.length;i++){
-    r=rooms[i];area+=r.w*r.h;
+    r=rooms[i];area+=r.w*r.h;if(/veranda|porch|terrace|balcony|parking|garage|carport/i.test(r.name))outside+=r.w*r.h;
     var fs=Math.max(9,Math.min(30,r.w/10.5,r.h/3.2)),cx=r.x+r.w/2,cy=r.y+r.h/2;
     a+='<text class="lbl" x="'+cx+'" y="'+(cy-fs*.1)+'" font-size="'+fs+'">'+esc(r.name)+'</text>'+
        '<text class="dim" x="'+cx+'" y="'+(cy+fs*.95)+'" font-size="'+(fs*.62)+'">'+m(r.w)+' × '+m(r.h)+' m · '+(r.w*r.h/10000).toFixed(1)+' m²</text>';
@@ -414,7 +414,8 @@ function render(){
   cv.style.backgroundPosition=pos+','+pos+','+pos+','+pos;
   $('scale').firstElementChild.style.width=M+'px';
   $('zoomPct').textContent=Math.round(view.s*200)+'%';
-  $('stats').textContent=rooms.length+(rooms.length===1?' room':' rooms')+' · '+(area/10000).toFixed(1)+' m² floor area';
+  // Indoor floor area is what matters to a client; veranda and parking are shown apart.
+  $('stats').textContent=rooms.length+(rooms.length===1?' room':' rooms')+' · '+((area-outside)/10000).toFixed(1)+' m² indoor'+(outside?' + '+(outside/10000).toFixed(1)+' m² veranda/parking':'');
   $('undoBtn').disabled=!undo.length;$('redoBtn').disabled=!redo.length;
   syncSide(it);
 }
