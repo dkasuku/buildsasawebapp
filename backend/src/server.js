@@ -6153,7 +6153,9 @@ app.post('/api/ai/floor-plan', auth, async (req, res) => {
     else user = `BRIEF: ${prompt}${variation ? '\n\nDraw a DIFFERENT arrangement from the usual one: change where the living area, kitchen and bedrooms sit, while still following every rule.' : ''}`;
     const { checkPlan, autoFix } = require('./floor-plan-rules');
     // The area target: from this request, or (for a change) from the plan as it is.
-    const areaBrief = !focus && /(\d{2,4})\s*(m²|m2|sqm|square met)/i.test(prompt) ? prompt : '';
+    // The rules read the whole brief (area, storeys, parking); the plan's own name fills in what it lacks.
+    // A one-room redesign keeps the plan's size, so it passes no brief.
+    const areaBrief = focus ? '' : prompt;
     const ask = async (content, temperature = 0.2) => autoFix(parseFloorPlan(await callAiDeepSeekFirst([{ role: 'system', content: FLOOR_PLAN_PROMPT }, { role: 'user', content }], { temperature, max_tokens: 6000 })), areaBrief);
     // New plans: two drafts at once (one careful, one freer); keep the one that breaks fewer rules.
     const drafts = await Promise.allSettled(current ? [ask(user)] : variation ? [ask(user, 0.7), ask(user, 0.9)] : [ask(user, 0.2), ask(user, 0.6)]);
